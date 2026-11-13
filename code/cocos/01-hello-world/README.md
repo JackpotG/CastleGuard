@@ -46,7 +46,7 @@ Cocos Creator = Cocos 引擎（运行时）+ 编辑器（可视化前端）。
 2. 安装 **微信开发者工具**（稳定版即可），并在 Creator 的
    偏好设置 → 程序管理器里指向它的路径
 3. Dashboard 新建项目，模板选 **Empty (2D)**，路径建议：
-   `守卫者复刻学习项目/code/cocos/defender/`（整个第一站都在这个项目里做）
+   `CastleGuard/code/cocos/defender/`（整个第一站都在这个项目里做）
 4. 把本目录的 `HelloWorld.ts` 复制到项目的 `assets/scripts/` 下
 5. 唯一一次编辑器操作：打开自带的 `main` 场景，选中 Canvas 节点，
    属性检查器 → 添加组件 → HelloWorld

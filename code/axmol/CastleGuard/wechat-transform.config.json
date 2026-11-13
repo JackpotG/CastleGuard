@@ -1,14 +1,15 @@
 {
-  "jsFile": "/Users/mac/Documents/kimi/projects/Alpha/守卫者复刻学习项目/code/axmol/CastleGuard/build_wasm/bin/CastleGuard/CastleGuard.js",
-  "wasmFile": "/Users/mac/Documents/kimi/projects/Alpha/守卫者复刻学习项目/code/axmol/CastleGuard/build_wasm/bin/CastleGuard/CastleGuard.wasm",
-  "dataFile": "/Users/mac/Documents/kimi/projects/Alpha/守卫者复刻学习项目/code/axmol/CastleGuard/build_wasm/bin/CastleGuard/CastleGuard.data",
+  "jsFile": "/Users/mac/Workspace/CastleGuard/code/axmol/CastleGuard/build_wasm/bin/CastleGuard/CastleGuard.js",
+  "wasmFile": "/Users/mac/Workspace/CastleGuard/code/axmol/CastleGuard/build_wasm/bin/CastleGuard/CastleGuard.wasm",
+  "dataFile": "/Users/mac/Workspace/CastleGuard/code/axmol/CastleGuard/build_wasm/bin/CastleGuard/CastleGuard.data",
   "cdnUrl": "http://localhost:8000/",
-  "output": "/Users/mac/Documents/kimi/projects/Alpha/守卫者复刻学习项目/code/axmol/CastleGuard/wechat-build",
+  "output": "/Users/mac/Workspace/CastleGuard/code/axmol/CastleGuard/wechat-build",
   "appName": "CastleGuard",
   "engineName": "Cocos2dx",
   "engineVersion": "2.11.5",
   "webglVersion": 2,
   "alphaChannel": false,
   "deviceOrientation": "portrait",
-  "loadFromSubpackage": true
+  "loadFromSubpackage": true,
+  "appID": "wxdf7aafc789dd0cfb"
 }
