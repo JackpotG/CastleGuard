@@ -1,0 +1,38 @@
+# ============================================================
+# CastleGuard 学习项目 .gitignore
+# 原则：git 只托管「源代码 + 文档 + 配置脚本」，
+#       引擎、SDK、构建产物都是可重现的，不进仓库。
+# ============================================================
+
+# ---- Axmol 引擎本体（2.2G，按 docs/04 文档重新拉取即可）----
+engine/
+
+# ---- 下载的第三方工具（dmg / 转换器二进制 / 能力 SDK）----
+tools/wechat/*.dmg
+tools/wechat/wx-transformer/wx-transformer-*
+tools/wechat/capability-sdk/
+
+# ---- C++ 构建产物 ----
+code/axmol/*/build/
+code/axmol/*/build-*/
+**/CMakeCache.txt
+**/CMakeFiles/
+
+# ---- 微信转换产物（可由 wx-transformer 重新生成）----
+tools/wechat/wx-transformer/wechat-build/
+code/axmol/*/wechat-build/
+
+# ---- WASM 构建产物 ----
+**/bin-wasm/
+**/*.wasm.br
+**/*.wasm
+
+# ---- 系统与编辑器 ----
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# ---- 临时与日志 ----
+*.log
+tmp/
