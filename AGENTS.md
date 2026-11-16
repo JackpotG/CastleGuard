@@ -19,5 +19,5 @@
 - 技术路线（2026-11-13 定稿）：**Axmol（Cocos2d-x C++ 裸引擎）+ WASM → 微信小游戏**，不用 Cocos Creator。如文档与旧表述冲突，以文档为准。
 - 本机不装完整 Xcode，桌面端用 CLT + Ninja 构建；WASM 端用 emsdk **3.1.73**（3.1.51/3.1.53 缺 `AL/alext.h`，不可用）。
 - 微信小游戏产物由 wx-transformer 生成，导入开发者工具时须从**「小游戏」标签页**导入；运行依赖官方 WXGameKit 插件（wxe5a48f1ed5f544b7），**测试号无法授权插件，必须用正式小游戏 AppID**（当前 wx4aa6e6f072d866eb）；产物内 `wx-game-kit/config.json` 的 appID、project.config.json 的 appid、源转换配置的 appID 三处必须一致。
-- wx-transformer v1.0.35 对 Cocos2dx 适配不全，`framework.js` 需打 `[CastleGuard patch]` 数据补丁（重跑转换器后须重打，详见 docs/04 排雷 13）。
+- wx-transformer v1.0.35 对 Cocos2dx 适配不全，产物需打补丁（rawData 时序、matchMedia、createWindow 分辨率、appID 对齐等）：每次重跑转换器后执行 `python3 tools/wechat/apply-wx-patches.py`（幂等，`--check` 可校验），锚点失效时对照 docs/04 排雷 13/16/17 人工复核。
 - 微信开发者工具 Stable 2.02.2609250 (macOS arm64) 官方包有自检 bug（缺 package.nw/consistency.dat），需绕过 Go 启动器直接启动 Electron 内核，详见 docs/04 排雷档案。
