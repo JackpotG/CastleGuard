@@ -48,27 +48,57 @@ public:
     void onTouchesMoved(const std::vector<ax::Touch*>& touches, ax::Event* event);
     void onTouchesEnded(const std::vector<ax::Touch*>& touches, ax::Event* event);
 
-    // mouse
-    bool onMouseDown(ax::Event* event);
-    bool onMouseUp(ax::Event* event);
-    bool onMouseMove(ax::Event* event);
-    bool onMouseScroll(ax::Event* event);
-
     // Keyboard
     void onKeyPressed(ax::EventKeyboard::KeyCode code, ax::Event* event);
     void onKeyReleased(ax::EventKeyboard::KeyCode code, ax::Event* event);
-
-    // a selector callback
-    void menuCloseCallback(ax::Object* sender);
 
     MainScene();
     ~MainScene() override;
 
 private:
+    // 战场布局（视角风格）：两个并行版本（2026-11-16 与 Stark 确认）
+    //   Oblique25D 伪 2.5D 斜俯视 = 原作构图（主线）：城墙底、出怪线顶，车道纵排+纵深色带
+    //   SideView   纯侧视角 = 新增风格版本：底部地面条、左侧灰房子，怪物从右边沿地面
+    //              右→左进攻房子（单条地面轨迹）
+    // 横竖屏适配不做成两份手工场景：布局全部按当前可见尺寸计算，尺寸变化（旋转/
+    // 窗口缩放）时走同一条重建路径重排（微信端将来由 wx.onWindowResize 触发）
+    enum class BattleLayout
+    {
+        SideView,
+        Oblique25D,
+    };
+    // 按布局重建战场（销毁旧节点重画）；桌面版按 1/2 键切换对比
+    void buildBattlefield(BattleLayout layout);
+
+    // ---- 射箭系统 ----
+    void initArrowPool();                       // 初始化对象池（init 时一次性建好）
+    void fireArrow(const ax::Vec2& target);     // 从箭手位向目标点射出一支箭
+    void updateArrows(float delta);             // 每帧驱动箭矢飞行与回收
+
+    // 箭矢 = 池中的一个槽位。对象池核心思想：游戏循环里绝不 new/delete，
+    // 频繁创建销毁会造成内存碎片和卡顿；开局一次建好，用完归还重复利用
+    struct Arrow
+    {
+        ax::DrawNode* node = nullptr;  // 箭矢图形（池化复用）
+        ax::Vec2 velocity;             // 当前速度向量（像素/秒）
+        bool active = false;           // 该槽位是否正在飞行中
+    };
+    std::vector<Arrow> _arrowPool;
+    ax::Vec2 _archerPos = ax::Vec2::ZERO;      // 箭手发射点（随布局重建更新）
+
+    // ---- 调试层 ----
+    // 常驻调试按钮（模拟器里没有键盘也无法双指，用它切换视角）
+    void initDebugUI();
+    ax::Node* _debugBtn = nullptr;
+    ax::Rect _debugBtnRect;  // 按钮热区（世界坐标，随布局重建更新）
+
     GameState _gameState                            = GameState::init;
     ax::EventListenerTouchAllAtOnce* _touchListener = nullptr;
     ax::EventListenerKeyboard* _keyboardListener    = nullptr;
-    ax::EventListenerMouse* _mouseListener          = nullptr;
     int _sceneID                                    = 0;
+    ax::Node* _battlefield                          = nullptr;
+    BattleLayout _battleLayout                      = BattleLayout::Oblique25D;
+    // 记录上次布局时的可见尺寸，尺寸变化（旋转/窗口缩放）时自动重排战场
+    ax::Size _lastVisibleSize                       = ax::Size::ZERO;
 };
 

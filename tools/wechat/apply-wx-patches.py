@@ -19,6 +19,8 @@ apply-wx-patches.py — CastleGuard 微信小游戏产物补丁脚本
   3. game.js       —— 首行引入 cg-compat.js（排雷 16）
   4. framework.js  —— createWindow 强制物理分辨率（排雷 17）
   5. wx-game-kit/config.json —— appID 对齐 + 关闭 timelog/monitor 弹窗（排雷 12/15）
+  6. project.config.json —— appid 对齐（转换器会写成默认测试号，
+     不一致时开发者工具报"登录用户不是该小程序的开发者"）
 """
 import json
 import sys
@@ -234,6 +236,20 @@ def main() -> int:
             results.append(f"[应用] 补丁5  config.json（{', '.join(changed)}）")
         else:
             results.append("[跳过] 补丁5  config.json（已就绪）")
+        # 补丁 6：project.config.json 的 appid 对齐（转换器会写成默认测试号，
+        # 不一致时开发者工具报"登录用户不是该小程序的开发者"）
+        proj_cfg_path = target / "project.config.json"
+        if not proj_cfg_path.is_file():
+            raise PatchError("[失败] 补丁6  缺少 project.config.json")
+        pcfg = json.loads(proj_cfg_path.read_text(encoding="utf-8"))
+        if app_id and pcfg.get("appid") != app_id:
+            if check_only:
+                raise PatchError(f"[缺失] 补丁6  project.config.json appid（当前 {pcfg.get('appid')}）")
+            pcfg["appid"] = app_id
+            proj_cfg_path.write_text(json.dumps(pcfg, ensure_ascii=False, indent=2), encoding="utf-8")
+            results.append(f"[应用] 补丁6  project.config.json appid→{app_id}")
+        else:
+            results.append("[跳过] 补丁6  project.config.json（已就绪）")
     except PatchError as e:
         print(str(e))
         return 2
