@@ -25,6 +25,10 @@
 
 #include "MainScene.h"
 
+#include <algorithm>  // std::max
+#include <cstdlib>    // rand / srand
+#include <ctime>      // time
+
 using namespace ax;
 
 // 场景实例计数（模板自带，调试用：每创建一个场景 +1，析构时置 -1）
@@ -54,7 +58,7 @@ namespace
 constexpr float SPAWN_RATIO = 0.96f;
 // Oblique25D：城墙高度占比；车道数量（纵排，原作就是多车道出怪）
 constexpr float WALL_RATIO  = 0.12f;
-constexpr int LANE_COUNT    = 6;
+constexpr int LANE_COUNT    = 12;   // 加密车道：怪群感的第 1 步（配合出怪频率与抖动）
 // Oblique25D：地面纵深色带数量（远亮近暗，用纯色带先模拟 2.5D 纵深）
 constexpr int GROUND_BANDS = 3;
 // SideView：地面条高度占比；房子中心 x 占比（靠左）
@@ -71,6 +75,14 @@ constexpr float RAD2DEG         = 57.2957795f;  // 弧度→角度（180/π）
 
 // ---- 调试层 ----
 constexpr float DEBUG_BTN_SIZE  = 88.0f;    // 左上角"切换视角"按钮边长（设计像素）
+
+// ---- 怪物系统 ----
+constexpr int   MONSTER_POOL_SIZE     = 48;     // 对象池容量：同时在屏怪物上限（怪群）
+constexpr float MONSTER_SPEED         = 70.0f;  // 推进速度基准（像素/秒），个体有 ±15% 差异
+constexpr int   MONSTER_ATTACK_DAMAGE = 5;      // 啃墙伤害（每秒一口）
+constexpr float SPAWN_INTERVAL        = 0.8f;   // 临时：固定间隔出怪（波次管理是下一项）
+constexpr float MONSTER_BODY_R        = 11.0f;  // 身体半径（占位圆，脚底为节点原点）
+constexpr float MONSTER_HIT_RADIUS    = 17.0f;  // 命中判定半径（身体 + 箭尖余量）
 }  // namespace
 
 // on "init" you need to initialize your instance
@@ -95,8 +107,10 @@ bool MainScene::init()
     buildBattlefield(_battleLayout);
 
     /////////////////////////////
-    // 4. 射箭系统：对象池在 init 时一次性建好（第一天就上，别后补）
+    // 4. 射箭系统 + 怪物系统：对象池都在 init 时一次性建好（第一天就上，别后补）
     initArrowPool();
+    initMonsterPool();
+    srand((unsigned int)time(nullptr));  // 随机车道用（真随机源，调试期足够）
 
     /////////////////////////////
     // 5. 输入监听：触摸射箭，键盘桌面调试用
@@ -144,11 +158,16 @@ void MainScene::buildBattlefield(BattleLayout layout)
     // 抗锯齿"吞掉"（上次看不到出怪线的原因），虚线段一律用 drawSolidRect
     const float dash = 26.0f, gap = 16.0f, lineW = 6.0f;
 
-    // 布局重建后箭手位变了，飞行中的箭全部回收（回池，不销毁）
+    // 布局重建后战场几何变了，飞行中的箭和在场怪物全部回收（回池，不销毁）
     for (auto& a : _arrowPool)
     {
         a.active = false;
         a.node->setVisible(false);
+    }
+    for (auto& m : _monsterPool)
+    {
+        m.active = false;
+        m.node->setVisible(false);
     }
 
     if (layout == BattleLayout::SideView)
@@ -387,12 +406,187 @@ void MainScene::updateArrows(float delta)
         Vec2 pos = a.node->getPosition() + a.velocity * delta;
         a.node->setPosition(pos);
 
+        // 命中判定：箭尖点 vs 怪物圆（点-圆距离判定，最便宜的碰撞形状）
+        // 判据 |arrowPos - monsterCenter|² < R² —— 用平方比较，省掉开根号
+        for (auto& m : _monsterPool)
+        {
+            if (!m.active || m.state == MonsterState::Dead)
+            {
+                continue;
+            }
+            Vec2 bodyCenter = m.node->getPosition() + Vec2(0, MONSTER_BODY_R);
+            if ((pos - bodyCenter).lengthSquared() < MONSTER_HIT_RADIUS * MONSTER_HIT_RADIUS)
+            {
+                m.state = MonsterState::Dead;  // 怪进 Dead 状态，updateMonsters 回收
+                _killCount++;
+                a.active = false;              // 箭也回收（命中即消失）
+                a.node->setVisible(false);
+                break;
+            }
+        }
+        if (!a.active)
+        {
+            continue;  // 命中已回收，跳过出界检查
+        }
+
         // 出界回收（归池）
         if (pos.x < origin.x - margin || pos.x > origin.x + visibleSize.width + margin ||
             pos.y < origin.y - margin || pos.y > origin.y + visibleSize.height + margin)
         {
             a.active = false;
             a.node->setVisible(false);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 车道几何：统一数据模型的核心——怪物只关心"我在哪条车道、推进到哪"，
+// 车道的世界坐标由当前布局换算，呈现层（两种视角）差异全部关在这三个函数里
+// ---------------------------------------------------------------------------
+int MainScene::laneCount() const
+{
+    // 2.5D 版是多车道（纵排），侧视版是单条地面轨迹
+    return _battleLayout == BattleLayout::Oblique25D ? LANE_COUNT : 1;
+}
+
+ax::Vec2 MainScene::laneSpawnPos(int lane) const
+{
+    auto vs = _director->getVisibleSize();
+    auto o  = _director->getVisibleOrigin();
+    if (_battleLayout == BattleLayout::Oblique25D)
+    {
+        float laneW = vs.width / LANE_COUNT;
+        return Vec2(o.x + laneW * (lane + 0.5f), o.y + vs.height * SPAWN_RATIO);
+    }
+    // SideView：右缘出怪口，站在地面顶边上
+    return Vec2(o.x + vs.width * SPAWN_RATIO, o.y + vs.height * SIDE_GROUND_RATIO);
+}
+
+ax::Vec2 MainScene::laneWallPos(int lane) const
+{
+    auto vs = _director->getVisibleSize();
+    auto o  = _director->getVisibleOrigin();
+    if (_battleLayout == BattleLayout::Oblique25D)
+    {
+        float laneW = vs.width / LANE_COUNT;
+        return Vec2(o.x + laneW * (lane + 0.5f), o.y + vs.height * WALL_RATIO);
+    }
+    // SideView：房子右缘（檐口探出 42px，加一点余量）
+    return Vec2(o.x + vs.width * SIDE_HOUSE_X_RATIO + 46.0f, o.y + vs.height * SIDE_GROUND_RATIO);
+}
+
+// ---------------------------------------------------------------------------
+// 怪物对象池：与箭矢池同一个思想——开局一次建好，出怪=激活，死亡=隐藏归池
+// ---------------------------------------------------------------------------
+void MainScene::initMonsterPool()
+{
+    _monsterPool.reserve(MONSTER_POOL_SIZE);
+    for (int i = 0; i < MONSTER_POOL_SIZE; ++i)
+    {
+        Monster m;
+        m.node = DrawNode::create();
+        // 占位小恶魔：脚底是节点原点 (0,0)，身体是圆，头顶双角，两只眼睛
+        const float r = MONSTER_BODY_R;
+        const Color4F body(0.72f, 0.22f, 0.18f, 1.0f);
+        const Color4F horn(0.50f, 0.12f, 0.10f, 1.0f);
+        m.node->drawSolidCircle(Vec2(0, r), r, 0.0f, 20, body);  // 身体
+        m.node->drawSolidTriangle(Vec2(-r * 0.7f, r * 1.7f), Vec2(-r * 0.2f, r * 1.8f),
+                                  Vec2(-r * 0.5f, r * 2.3f), horn, horn);  // 左角
+        m.node->drawSolidTriangle(Vec2(r * 0.7f, r * 1.7f), Vec2(r * 0.2f, r * 1.8f),
+                                  Vec2(r * 0.5f, r * 2.3f), horn, horn);   // 右角
+        m.node->drawSolidCircle(Vec2(-5, r + 3), 2.5f, 0.0f, 8, Color4F::WHITE);  // 左眼
+        m.node->drawSolidCircle(Vec2(5, r + 3), 2.5f, 0.0f, 8, Color4F::WHITE);   // 右眼
+        m.node->setVisible(false);
+        addChild(m.node, 2);  // zOrder 2：战场之上、箭矢（3）之下
+        _monsterPool.push_back(m);
+    }
+}
+
+void MainScene::spawnMonster()
+{
+    for (auto& m : _monsterPool)
+    {
+        if (m.active)
+        {
+            continue;
+        }
+        m.active      = true;
+        m.state       = MonsterState::Walk;
+        m.attackTimer = 0.0f;
+        m.lane        = laneCount() > 1 ? rand() % laneCount() : 0;
+        // 怪群感关键：同车道内横向抖动 + 个体速度差异。
+        // 抖动对出生点和终点施加同一份偏移，怪物沿"平移后的车道"走直线，
+        // 不会在半途被拉回车道中心线
+        const float r1 = static_cast<float>(rand()) / RAND_MAX;  // 0~1
+        const float r2 = static_cast<float>(rand()) / RAND_MAX;
+        Vec2 jitter;
+        if (_battleLayout == BattleLayout::Oblique25D)
+        {
+            const float laneW = _director->getVisibleSize().width / LANE_COUNT;
+            jitter = Vec2((r1 - 0.5f) * laneW * 0.56f, 0);  // 行进方向垂直 → 左右散开
+        }
+        else
+        {
+            jitter = Vec2(0, (r1 - 0.5f) * 24.0f);          // 侧视行进水平 → 上下散开
+        }
+        m.speed     = MONSTER_SPEED * (0.85f + r2 * 0.3f);  // 0.85~1.15 倍
+        m.targetPos = laneWallPos(m.lane) + jitter;
+        m.node->setPosition(laneSpawnPos(m.lane) + jitter);
+        m.node->setVisible(true);
+        return;
+    }
+    AXLOGD("monster pool full ({} active), spawn dropped", MONSTER_POOL_SIZE);
+}
+
+// ---------------------------------------------------------------------------
+// 怪物状态机驱动：Walk → 沿车道向城墙移动；Attack → 每秒啃一口扣墙血；
+// Dead → 回收归池。状态机是游戏 AI 的入门结构：任何时刻怪物只在一个状态里，
+// 每个状态只做自己的事，跳转条件写在状态内部，清晰不易乱。
+// ---------------------------------------------------------------------------
+void MainScene::updateMonsters(float delta)
+{
+    for (auto& m : _monsterPool)
+    {
+        if (!m.active)
+        {
+            continue;
+        }
+        switch (m.state)
+        {
+        case MonsterState::Walk:
+        {
+            Vec2 pos    = m.node->getPosition();
+            Vec2 target = m.targetPos;  // 出生时已含车道偏移，直线推进不纠偏
+            Vec2 dir    = target - pos;
+            if (dir.length() <= 6.0f)
+            {
+                m.state       = MonsterState::Attack;  // 到墙，转攻击
+                m.attackTimer = 0.0f;
+                break;
+            }
+            dir.normalize();
+            m.node->setPosition(pos + dir * m.speed * delta);
+            break;
+        }
+        case MonsterState::Attack:
+        {
+            m.attackTimer += delta;
+            if (m.attackTimer >= 1.0f)
+            {
+                m.attackTimer -= 1.0f;
+                _wallHP = std::max(0, _wallHP - MONSTER_ATTACK_DAMAGE);
+                AXLOGD("wall HP: {}, kills: {}", _wallHP, _killCount);
+                if (_wallHP == 0)
+                {
+                    AXLOGD("城墙告破！（后续做结算画面）");
+                }
+            }
+            break;
+        }
+        case MonsterState::Dead:
+            m.active = false;
+            m.node->setVisible(false);
+            break;
         }
     }
 }
@@ -473,7 +667,19 @@ void MainScene::update(float delta)
             buildBattlefield(_battleLayout);
         }
 
-        // 游戏主循环：怪物移动、箭矢飞行、碰撞判定都将在这里驱动
+        // 临时出怪：固定间隔随机车道（波次管理是下一项，届时改为数据驱动）
+        if (_wallHP > 0)
+        {
+            _spawnTimer += delta;
+            if (_spawnTimer >= SPAWN_INTERVAL)
+            {
+                _spawnTimer = 0.0f;
+                spawnMonster();
+            }
+        }
+
+        // 游戏主循环：怪物移动、箭矢飞行、碰撞判定都在这里驱动
+        updateMonsters(delta);
         updateArrows(delta);
         break;
     }

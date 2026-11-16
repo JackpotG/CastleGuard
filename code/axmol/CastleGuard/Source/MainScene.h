@@ -92,6 +92,38 @@ private:
     ax::Node* _debugBtn = nullptr;
     ax::Rect _debugBtnRect;  // 按钮热区（世界坐标，随布局重建更新）
 
+    // ---- 怪物系统 ----
+    // 简单状态机：走（沿车道向城墙推进）→ 攻击（到墙啃咬扣血）→ 死（回池）
+    enum class MonsterState
+    {
+        Walk,
+        Attack,
+        Dead,
+    };
+    // 怪物 = 池中的一个槽位。Prefab 思想的裸实现：定义一个"模板"（外观+行为），
+    // 需要时从池里取一个实例按模板初始化，而不是每次 new 一个新对象
+    struct Monster
+    {
+        ax::DrawNode* node = nullptr;   // 占位外观（池化复用）
+        int lane           = 0;         // 车道编号（统一数据模型：车道 + 推进）
+        ax::Vec2 targetPos;             // 推进终点（出生点+同一份抖动，保证走直线不纠偏）
+        float speed        = 70.0f;     // 个体速度（怪群感：85%~115% 随机）
+        MonsterState state = MonsterState::Walk;
+        float attackTimer  = 0.0f;      // 攻击节奏计时（每秒啃一口）
+        bool active        = false;
+    };
+    void initMonsterPool();
+    void spawnMonster();                  // 从出怪线放一个怪（随机车道）
+    void updateMonsters(float delta);     // 每帧驱动移动/攻击/死亡
+    ax::Vec2 laneSpawnPos(int lane) const;  // 车道 → 出怪位置（按当前布局计算）
+    ax::Vec2 laneWallPos(int lane) const;   // 车道 → 城墙目标点（按当前布局计算）
+    int laneCount() const;                  // 当前布局的有效车道数
+
+    std::vector<Monster> _monsterPool;
+    float _spawnTimer = 0.0f;
+    int _wallHP         = 100;            // 城墙血量（撞墙扣血）
+    int _killCount      = 0;              // 击杀计数（调试用）
+
     GameState _gameState                            = GameState::init;
     ax::EventListenerTouchAllAtOnce* _touchListener = nullptr;
     ax::EventListenerKeyboard* _keyboardListener    = nullptr;
