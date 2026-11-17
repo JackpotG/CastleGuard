@@ -1,0 +1,66 @@
+{
+  "upgrades": [
+    {
+      "id": "arrow_damage",
+      "name": "强弓",
+      "description": "每支箭造成更多伤害",
+      "currency": "coins",
+      "costs": [8, 18, 34, 58, 90],
+      "values": [1, 2, 3, 4, 5, 6]
+    },
+    {
+      "id": "fire_rate",
+      "name": "疾射",
+      "description": "缩短两次射击的间隔",
+      "currency": "coins",
+      "costs": [10, 22, 40, 65, 100],
+      "values": [0.18, 0.165, 0.15, 0.137, 0.125, 0.115]
+    },
+    {
+      "id": "multi_shot",
+      "name": "多重箭",
+      "description": "一次射出更多箭矢",
+      "currency": "coins",
+      "costs": [45, 120],
+      "values": [1, 2, 3]
+    },
+    {
+      "id": "wall_health",
+      "name": "坚固城墙",
+      "description": "提高每局城墙生命上限",
+      "currency": "coins",
+      "costs": [12, 26, 45, 70, 105],
+      "values": [100, 120, 140, 160, 180, 200]
+    }
+  ],
+  "skills": [
+    {
+      "id": "fireball",
+      "name": "火球",
+      "description": "范围爆炸伤害",
+      "unlockCost": 0,
+      "defaultUnlocked": true
+    },
+    {
+      "id": "freeze",
+      "name": "冰冻",
+      "description": "范围减速控制",
+      "unlockCost": 0,
+      "defaultUnlocked": true
+    },
+    {
+      "id": "arrow_rain",
+      "name": "箭雨",
+      "description": "持续覆盖一片区域",
+      "unlockCost": 0,
+      "defaultUnlocked": true
+    },
+    {
+      "id": "lightning",
+      "name": "闪电",
+      "description": "点杀主目标并麻痹周围敌人",
+      "unlockCost": 5,
+      "defaultUnlocked": false
+    }
+  ]
+}

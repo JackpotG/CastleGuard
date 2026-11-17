@@ -1,0 +1,199 @@
+#pragma once
+
+#include <array>
+#include <string>
+#include <vector>
+
+#ifndef CG_DEBUG_TOOLS
+#define CG_DEBUG_TOOLS 1
+#endif
+
+// 一局战斗结算出的不可变结果。UI 只读这份结果，不自行计算奖励。
+struct SettlementSummary
+{
+    bool committed       = false;
+    bool victory         = false;
+    int kills            = 0;
+    int coinsEarned      = 0;
+    int crystalsEarned   = 0;
+    int totalCoins       = 0;
+    int totalCrystals    = 0;
+};
+
+// 纯经济规则：不依赖引擎、不读写磁盘，便于单元测试和未来跨引擎复用。
+class EconomyModel
+{
+public:
+    static constexpr int COINS_PER_KILL       = 1;
+    static constexpr int CLEAR_CRYSTAL_REWARD = 5;
+
+    explicit EconomyModel(int totalCoins = 0, int totalCrystals = 0);
+
+    void startRun();
+    bool recordKill();
+    void checkpointRun();
+    void rewindToCheckpoint();
+    SettlementSummary settle(bool victory);
+    bool spendCoins(int amount);
+    bool spendCrystals(int amount);
+#if CG_DEBUG_TOOLS
+    void debugSetBalances(int coins, int crystals);
+#endif
+
+    int totalCoins() const { return _totalCoins; }
+    int totalCrystals() const { return _totalCrystals; }
+    int runKills() const { return _runKills; }
+    int runCoins() const { return _runCoins; }
+    bool runActive() const { return _runActive; }
+
+private:
+    int _totalCoins      = 0;
+    int _totalCrystals   = 0;
+    int _runKills        = 0;
+    int _runCoins        = 0;
+    int _checkpointKills = 0;
+    int _checkpointCoins = 0;
+    bool _runActive      = false;
+};
+
+enum class Currency
+{
+    Coins,
+    Crystals,
+};
+
+enum class UpgradeId
+{
+    ArrowDamage = 0,
+    FireRate,
+    MultiShot,
+    WallHealth,
+    Count,
+};
+
+enum class SkillId
+{
+    Fireball = 0,
+    Freeze,
+    ArrowRain,
+    Lightning,
+    Count,
+};
+
+struct UpgradeDefinition
+{
+    UpgradeId id = UpgradeId::ArrowDamage;
+    std::string key;
+    std::string name;
+    std::string description;
+    Currency currency = Currency::Coins;
+    std::vector<int> costs;       // costs[level] 是从当前等级升一级的价格
+    std::vector<float> values;    // values[level] 是该等级实际带入战斗的数值
+
+    int maxLevel() const { return static_cast<int>(costs.size()); }
+};
+
+struct SkillDefinition
+{
+    SkillId id = SkillId::Fireball;
+    std::string key;
+    std::string name;
+    std::string description;
+    int unlockCost       = 0;
+    bool defaultUnlocked = false;
+};
+
+enum class PurchaseStatus
+{
+    Purchased,
+    InsufficientFunds,
+    MaxLevel,
+    AlreadyUnlocked,
+    InvalidDefinition,
+};
+
+struct PurchaseResult
+{
+    PurchaseStatus status = PurchaseStatus::InvalidDefinition;
+    Currency currency     = Currency::Coins;
+    int cost              = 0;
+
+    bool purchased() const { return status == PurchaseStatus::Purchased; }
+};
+
+// 纯成长规则：只保存等级/解锁状态，价格和效果由外部数值表提供。
+class ProgressionModel
+{
+public:
+    int upgradeLevel(UpgradeId id) const;
+    bool isSkillUnlocked(SkillId id) const;
+    void setUpgradeLevel(UpgradeId id, int level);
+    void setSkillUnlocked(SkillId id, bool unlocked);
+
+    PurchaseResult purchaseUpgrade(EconomyModel& economy, const UpgradeDefinition& definition);
+    PurchaseResult unlockSkill(EconomyModel& economy, const SkillDefinition& definition);
+
+private:
+    std::array<int, static_cast<size_t>(UpgradeId::Count)> _levels{};
+    std::array<bool, static_cast<size_t>(SkillId::Count)> _unlocked{};
+};
+
+#if CG_DEBUG_TOOLS
+// 开发者面板的可编辑快照。只在调试构建存在，正式包不暴露改档入口。
+struct DebugPlayerData
+{
+    int coins    = 0;
+    int crystals = 0;
+    std::array<int, static_cast<size_t>(UpgradeId::Count)> upgradeLevels{};
+    std::array<bool, static_cast<size_t>(SkillId::Count)> skillUnlocked{};
+};
+#endif
+
+// 跨平台玩家数据入口。钱包、升级与技能解锁统一持久化；局内临时状态仍由场景管理。
+class GameData
+{
+public:
+    static GameData& getInstance();
+
+    GameData(const GameData&)            = delete;
+    GameData& operator=(const GameData&) = delete;
+
+    void startRun();
+    bool recordKill();
+    void checkpointRun();
+    void rewindToCheckpoint();
+    SettlementSummary settleRun(bool victory);
+
+    const UpgradeDefinition& upgradeDefinition(UpgradeId id) const;
+    const SkillDefinition& skillDefinition(SkillId id) const;
+    int upgradeLevel(UpgradeId id) const;
+    bool isSkillUnlocked(SkillId id) const;
+    PurchaseResult purchaseUpgrade(UpgradeId id);
+    PurchaseResult unlockSkill(SkillId id);
+
+    int arrowDamage() const;
+    float fireInterval() const;
+    int multiShotCount() const;
+    int wallMaxHealth() const;
+
+#if CG_DEBUG_TOOLS
+    DebugPlayerData debugPlayerData() const;
+    void debugApplyPlayerData(const DebugPlayerData& data);
+    void debugResetPlayerData();
+#endif
+
+    const EconomyModel& economy() const { return _economy; }
+
+private:
+    GameData();
+
+    void loadCatalog();
+    void load();
+    void save() const;
+    float upgradeValue(UpgradeId id) const;
+
+    EconomyModel _economy;
+    ProgressionModel _progression;
+    std::array<UpgradeDefinition, static_cast<size_t>(UpgradeId::Count)> _upgrades;
+    std::array<SkillDefinition, static_cast<size_t>(SkillId::Count)> _skills;
+};

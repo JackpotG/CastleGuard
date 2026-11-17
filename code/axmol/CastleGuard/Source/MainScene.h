@@ -25,10 +25,13 @@
 
 #pragma once
 
+#include "GameData.h"
 #include "axmol.h"
 
+class UpgradePanel;
+
 // 调试内容开关（CMake 选项 -DCG_DEBUG_TOOLS=ON/OFF 注入）：
-// 1 = 开发版（调试按钮、ImGui 调参面板、桌面调试键都可用）；
+// 1 = 开发版（调试按钮、ImGui 开发者工具、桌面调试键都可用）；
 // 0 = 正式包，上述代码经预处理整块剔除，不编进二进制。
 // 不经过 CMake 的兜底默认是开发版（1）。
 #ifndef CG_DEBUG_TOOLS
@@ -93,6 +96,7 @@ private:
     {
         ax::DrawNode* node = nullptr;  // 箭矢图形（池化复用）
         ax::Vec2 velocity;             // 当前速度向量（像素/秒）
+        int damage = 1;                // 发射时固化伤害，飞行途中升级不会改变这支箭
         bool active = false;           // 该槽位是否正在飞行中
     };
     std::vector<Arrow> _arrowPool;
@@ -113,15 +117,25 @@ private:
     ax::Rect _debugNextBtnRect;
     ax::Node* _debugTuneBtn = nullptr;     // ⚙ 手感调优面板（ImGui）
     ax::Rect _debugTuneBtnRect;
-    void resetGame();        // 调试用：三池清场、城墙满血、从第 1 波重打
     void gotoWave(int offset);             // 调试跳波：offset = ±1（清场但不动血量）
-    void clearField();                     // 三池回收（不动血量/波次状态）
 
     // ---- 手感调优面板（ImGui 扩展） ----
     void toggleTuningPanel();              // 显示/隐藏面板（添加/移除渲染循环）
-    void onImGuiDraw();                    // ImGui 每帧回调：画滑杆
+    void onImGuiDraw();                    // ImGui 每帧回调：实时调参与沙盒工具
+    void drawTuningTab();
+    void drawSandboxTab();
+    void syncSandboxDraft();
+    void sandboxKillAllMonsters();
+    void sandboxOpenUpgradePreview();
     bool _tuningVisible = false;
+    bool _sandboxInvincibleWall  = false;
+    bool _sandboxInfiniteMana    = false;
+    bool _sandboxNoSkillCooldown = false;
+    bool _sandboxNoFireCooldown  = false;
+    DebugPlayerData _sandboxDraft;
 #endif
+    void clearField();  // 全部对象池回收（重开与调试跳波共用）
+    void resetGame();   // 清场、重置本局资源并从第 1 波重新开始
     float _fireCooldown = 0.0f;            // 射速上限冷却（游戏机制，正式包保留）
 
     // ---- 怪物系统 ----
@@ -195,10 +209,29 @@ private:
     ax::Vec2 pickFlyerWaypoint() const;     // 飞行怪游荡航点：远区空域内随机取一点
 
     std::vector<Monster> _monsterPool;
-    static constexpr int WALL_MAX_HP = 100;  // 城墙满血值（resetGame 用它复位）
-    int _wallHP    = WALL_MAX_HP;   // 城墙血量（撞墙扣血）
-    int _killCount = 0;             // 击杀计数（调试用）
+    int _wallHP    = 100;           // 城墙血量；每局上限由 GameData 的升级值提供
     void damageWall(int dmg);        // 城墙扣血统一入口（近战啃咬/远程弹丸都走这）
+
+    // ---- 结算与经济（M1）----
+    // 奖励规则与持久化归 GameData；场景只负责展示和触发结算。
+    void initEconomyUI();
+    void layoutEconomyUI(const ax::Vec2& origin, float right, float top);
+    void refreshEconomyHUD();
+    void showSettlement(bool victory);
+    ax::Label* _coinLabel               = nullptr;
+    ax::Label* _crystalLabel            = nullptr;
+    ax::Node* _settlementLayer          = nullptr;
+    ax::DrawNode* _settlementBackdrop   = nullptr;
+    ax::DrawNode* _settlementPanel      = nullptr;
+    ax::Node* _settlementRestartBtn     = nullptr;
+    ax::Node* _settlementUpgradeBtn     = nullptr;
+    ax::Label* _settlementTitle         = nullptr;
+    ax::Label* _settlementRewards       = nullptr;
+    ax::Label* _settlementTotals        = nullptr;
+    ax::Rect _settlementRestartRect;
+    ax::Rect _settlementUpgradeRect;
+    bool _settlementVisible             = false;
+    UpgradePanel* _upgradePanel         = nullptr;
 
     // 敌方弹丸：远程怪的"箭"。和玩家箭矢同一个对象池思想，
     // 区别只是方向相反、命中的是城墙（看见弹丸飞 = 远程怪在工作，不是隔空扣血）

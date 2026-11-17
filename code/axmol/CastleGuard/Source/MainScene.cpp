@@ -25,6 +25,9 @@
 
 #include "MainScene.h"
 
+#include "GameData.h"
+#include "UpgradePanel.h"
+
 #if CG_DEBUG_TOOLS
 #    include "ImGui/ImGuiPresenter.h"  // 引擎扩展：手感调优面板（正式包剔除）
 #endif
@@ -81,8 +84,9 @@ constexpr int   ARROW_POOL_SIZE = 32;       // 对象池容量：同时在屏箭
 float ARROW_SPEED     = 1000.0f;  // ① 箭矢初速（像素/秒）
 // 重力加速度（像素/秒²）。0 = 直线弹道；调成 600~900 就是抛物线
 float ARROW_GRAVITY   = 0.0f;     // ② 抛物线 vs 直线
-float FIRE_INTERVAL   = 0.18f;    // ④ 连点射速上限（秒/发）
+float FIRE_INTERVAL   = 0.18f;    // ④ 连点射速上限（调试基准；升级按比例缩短）
 constexpr float RAD2DEG         = 57.2957795f;  // 弧度→角度（180/π）
+constexpr float MULTI_SHOT_SPREAD = 0.10f;      // 多重箭相邻箭的夹角（弧度，约 5.7°）
 
 // ---- 调试层 ----
 #if CG_DEBUG_TOOLS
@@ -192,6 +196,10 @@ constexpr float STUN_SLOW          = 0.15f;   // 麻痹时移速比例：大幅�
 constexpr int   FIREBALL_POOL_SIZE = 4;
 constexpr int   FX_POOL_SIZE       = 12;
 constexpr float SKILL_BTN_SIZE     = 80.0f;
+// ---- 经济 HUD / 结算层（纯表现尺寸，奖励数值归 GameData）----
+constexpr float SETTLEMENT_BUTTON_W = 230.0f;
+constexpr float SETTLEMENT_BUTTON_H = 72.0f;
+constexpr float SETTLEMENT_BUTTON_GAP = 24.0f;
 }  // namespace
 
 // on "init" you need to initialize your instance
@@ -210,6 +218,10 @@ bool MainScene::init()
 #if CG_DEBUG_TOOLS
     initDebugUI();
 #endif
+    // 玩家钱包和成长存档在 GameData 构造时加载；新一局从当前城墙上限开始。
+    _wallHP = GameData::getInstance().wallMaxHealth();
+    GameData::getInstance().startRun();
+    initEconomyUI();
     // 技能栏同理：必须先于 buildBattlefield 创建（布局重排在重建战场时统一做）
     initSkillBar();
 
@@ -253,7 +265,7 @@ bool MainScene::init()
     _eventDispatcher->addEventListenerWithSceneGraphPriority(_touchListener, this);
 
 #if CG_DEBUG_TOOLS
-    // 键盘监听只在开发版注册：桌面调试键（1/2 切视角、R 重开、Q/E 跳波、T 调参）
+    // 键盘监听只在开发版注册：桌面调试键（1/2 视角、R 重开、Q/E 波次、T 调参、U 升级页）
     _keyboardListener                = EventListenerKeyboard::create();
     _keyboardListener->onKeyPressed  = AX_CALLBACK_2(MainScene::onKeyPressed, this);
     _keyboardListener->onKeyReleased = AX_CALLBACK_2(MainScene::onKeyReleased, this);
@@ -443,6 +455,7 @@ void MainScene::buildBattlefield(BattleLayout layout)
     layoutDebugUI(origin, top);  // 调试按钮重排（正式包无此函数）
 #endif
     layoutSkillBar(origin, right);  // 技能栏重排（正式玩法 UI）
+    layoutEconomyUI(origin, right, top);
     // 波次 HUD：顶部居中
     if (_waveLabel)
     {
@@ -451,8 +464,12 @@ void MainScene::buildBattlefield(BattleLayout layout)
 
     // 战场重建回收了在场怪物（见函数开头）→ 重打当前波。
     // 配置是只读的，重置运行时状态即可；AllClear（全部打完）就不重开了
-    if (!_waves.empty() && (_waveState == WaveState::Spawning || _waveState == WaveState::Resting))
+    if (!_settlementVisible && !_waves.empty() &&
+        (_waveState == WaveState::Spawning || _waveState == WaveState::Resting))
     {
+        // 重建会清掉场上怪并重播当前波，先回滚到本波起点，避免重复击杀刷金币。
+        GameData::getInstance().rewindToCheckpoint();
+        refreshEconomyHUD();
         beginWave(_waveIndex);
     }
 
@@ -592,6 +609,7 @@ void MainScene::toggleTuningPanel()
     _tuningVisible = !_tuningVisible;
     if (_tuningVisible)
     {
+        syncSandboxDraft();
         // 首次打开时加载中文字体（Noto Sans SC，OFL 协议可随意打包；
         // ImGui 1.92 动态图集按需加载字形，不用操心字形范围）
         static bool s_fontLoaded = false;
@@ -613,9 +631,28 @@ void MainScene::onImGuiDraw()
 {
     ImGui::SetNextWindowPos(ImVec2(130, 60), ImGuiCond_FirstUseEver);
     // 不加 AlwaysAutoResize：ImGui 窗口默认可拖边缘/右下角调大小，给个初始尺寸即可
-    ImGui::SetNextWindowSize(ImVec2(420, 380), ImGuiCond_FirstUseEver);
-    ImGui::Begin("手感调优");
+    ImGui::SetNextWindowSize(ImVec2(520, 720), ImGuiCond_FirstUseEver);
+    ImGui::Begin("开发者工具");
     ImGui::Text("帧率: %.1f", 1.0f / ImGui::GetIO().DeltaTime);
+    if (ImGui::BeginTabBar("开发者工具标签"))
+    {
+        if (ImGui::BeginTabItem("实时调参"))
+        {
+            drawTuningTab();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("沙盒"))
+        {
+            drawSandboxTab();
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+    }
+    ImGui::End();
+}
+
+void MainScene::drawTuningTab()
+{
     ImGui::SeparatorText("射箭");
     ImGui::SliderFloat("箭矢速度", &ARROW_SPEED, 300.0f, 2000.0f, "%.0f 像素/秒");
     ImGui::SliderFloat("射速上限", &FIRE_INTERVAL, 0.05f, 0.50f, "%.2f 秒/发");
@@ -634,8 +671,196 @@ void MainScene::onImGuiDraw()
     ImGui::SliderFloat("冰冻强度", &FREEZE_SLOW, 0.05f, 1.0f, "%.2f（移速比例）");
     ImGui::SliderFloat("闪电麻痹概率", &LIGHTNING_STUN_CHANCE, 0.0f, 1.0f, "%.2f");
     ImGui::SeparatorText("战场状态");
-    ImGui::Text("城墙血量: %d  击杀: %d  蓝量: %.0f", _wallHP, _killCount, _mana);
-    ImGui::End();
+    ImGui::Text("城墙血量: %d  击杀: %d  蓝量: %.0f", _wallHP,
+                GameData::getInstance().economy().runKills(), _mana);
+}
+
+void MainScene::syncSandboxDraft()
+{
+    _sandboxDraft = GameData::getInstance().debugPlayerData();
+}
+
+void MainScene::sandboxKillAllMonsters()
+{
+    int killed = 0;
+    // 分裂怪死亡会生成子体，多走一遍即可把同一批子体也纳入这次沙盒清场。
+    for (int pass = 0; pass < 2; ++pass)
+    {
+        for (auto& monster : _monsterPool)
+        {
+            if (monster.active && monster.state != MonsterState::Dead)
+            {
+                killMonster(monster);
+                ++killed;
+            }
+        }
+    }
+    for (auto& bolt : _boltPool)
+    {
+        bolt.active = false;
+        bolt.node->setVisible(false);
+    }
+    AXLOGI("[Sandbox] battlefield cleared: killed={}, enemyBoltsRecycled=true", killed);
+}
+
+void MainScene::sandboxOpenUpgradePreview()
+{
+    if (_settlementVisible)
+    {
+        return;
+    }
+    _settlementVisible = true;
+    _gameState         = GameState::end;
+    _settlementLayer->setVisible(false);
+    _upgradePanel->open();
+    AXLOGI("[Sandbox] upgrade preview opened without settlement");
+}
+
+void MainScene::drawSandboxTab()
+{
+    auto& data = GameData::getInstance();
+
+    ImGui::SeparatorText("当前局作弊");
+    if (ImGui::Checkbox("城墙无敌", &_sandboxInvincibleWall))
+    {
+        AXLOGI("[Sandbox] invincible wall={}", _sandboxInvincibleWall);
+    }
+    if (ImGui::Checkbox("无限蓝量", &_sandboxInfiniteMana))
+    {
+        AXLOGI("[Sandbox] infinite mana={}", _sandboxInfiniteMana);
+    }
+    if (ImGui::Checkbox("技能无冷却", &_sandboxNoSkillCooldown))
+    {
+        AXLOGI("[Sandbox] no skill cooldown={}", _sandboxNoSkillCooldown);
+    }
+    if (ImGui::Checkbox("射箭无冷却", &_sandboxNoFireCooldown))
+    {
+        AXLOGI("[Sandbox] no fire cooldown={}", _sandboxNoFireCooldown);
+    }
+
+    const bool runControllable = data.economy().runActive() && !_settlementVisible;
+    ImGui::BeginDisabled(!runControllable);
+    if (ImGui::Button("立即获胜并结算"))
+    {
+        AXLOGI("[Sandbox] forced victory");
+        showSettlement(true);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("立即失败并结算"))
+    {
+        _wallHP = 0;
+        AXLOGI("[Sandbox] forced defeat");
+        showSettlement(false);
+    }
+    if (ImGui::Button("秒杀场上全部敌人"))
+    {
+        sandboxKillAllMonsters();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("回满城墙"))
+    {
+        _wallHP = data.wallMaxHealth();
+        AXLOGI("[Sandbox] wall restored: hp={}", _wallHP);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("补满蓝量"))
+    {
+        _mana = MANA_MAX;
+        AXLOGI("[Sandbox] mana restored");
+    }
+    if (ImGui::Button("上一波"))
+    {
+        gotoWave(-1);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("下一波"))
+    {
+        gotoWave(1);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("跳到末波"))
+    {
+        gotoWave(static_cast<int>(_waves.size()));
+    }
+    ImGui::EndDisabled();
+
+    if (ImGui::Button("重开本局"))
+    {
+        resetGame();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("预览升级页"))
+    {
+        sandboxOpenUpgradePreview();
+    }
+
+    ImGui::SeparatorText("持久化玩家数据");
+    ImGui::TextDisabled("修改草稿后点击“应用到存档”，桌面与微信存档都会立即写入。");
+    ImGui::InputInt("金币", &_sandboxDraft.coins, 100, 1000);
+    ImGui::InputInt("水晶", &_sandboxDraft.crystals, 10, 100);
+
+    const char* upgradeNames[] = {"强弓等级", "疾射等级", "多重箭等级", "城墙等级"};
+    for (size_t i = 0; i < _sandboxDraft.upgradeLevels.size(); ++i)
+    {
+        const auto id      = static_cast<UpgradeId>(i);
+        const int maxLevel = data.upgradeDefinition(id).maxLevel();
+        ImGui::SliderInt(upgradeNames[i], &_sandboxDraft.upgradeLevels[i], 0, maxLevel);
+    }
+
+    const char* skillNames[] = {"解锁火球", "解锁冰冻", "解锁箭雨", "解锁闪电"};
+    for (size_t i = 0; i < _sandboxDraft.skillUnlocked.size(); ++i)
+    {
+        ImGui::Checkbox(skillNames[i], &_sandboxDraft.skillUnlocked[i]);
+    }
+
+    if (ImGui::Button("填充常用测试值"))
+    {
+        _sandboxDraft.coins    = 999999;
+        _sandboxDraft.crystals = 999999;
+        for (size_t i = 0; i < _sandboxDraft.upgradeLevels.size(); ++i)
+        {
+            _sandboxDraft.upgradeLevels[i] = data.upgradeDefinition(static_cast<UpgradeId>(i)).maxLevel();
+        }
+        _sandboxDraft.skillUnlocked.fill(true);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("重新读取存档"))
+    {
+        syncSandboxDraft();
+    }
+    if (ImGui::Button("应用到存档"))
+    {
+        data.debugApplyPlayerData(_sandboxDraft);
+        syncSandboxDraft();
+        _wallHP = std::min(_wallHP, data.wallMaxHealth());
+        refreshEconomyHUD();
+        refreshSkillHUD();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("恢复初始存档..."))
+    {
+        ImGui::OpenPopup("确认恢复初始存档");
+    }
+
+    if (ImGui::BeginPopupModal("确认恢复初始存档", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        ImGui::Text("金币、水晶和全部升级会恢复初始值。\n本局临时击杀收益不受影响。");
+        if (ImGui::Button("确认恢复"))
+        {
+            data.debugResetPlayerData();
+            syncSandboxDraft();
+            _wallHP = std::min(_wallHP, data.wallMaxHealth());
+            refreshEconomyHUD();
+            refreshSkillHUD();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("取消"))
+        {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
 }
 #endif  // CG_DEBUG_TOOLS（调试层整块结束）
 
@@ -682,24 +907,47 @@ void MainScene::fireArrow(const ax::Vec2& target)
     }
     dir.normalize();
 
-    for (auto& a : _arrowPool)
+    auto& data       = GameData::getInstance();
+    const int count  = data.multiShotCount();
+    const int damage = data.arrowDamage();
+    const float baseAngle = atan2f(dir.y, dir.x);
+    int fired = 0;
+    for (int shot = 0; shot < count; ++shot)
     {
-        if (a.active)
+        Arrow* slot = nullptr;
+        for (auto& candidate : _arrowPool)
         {
-            continue;
+            if (!candidate.active)
+            {
+                slot = &candidate;
+                break;
+            }
         }
-        // 找到一个闲置槽位：激活它
-        a.active   = true;
-        a.velocity = dir * ARROW_SPEED;
-        a.node->setPosition(_archerPos);
-        // 节点图形朝 +x 画，旋转到弹道方向。注意 axmol 的 rotation 是
-        // 【顺时针】为正的角度制，而 atan2 是数学系逆时针弧度 → 取负再转角度
-        a.node->setRotation(-atan2f(dir.y, dir.x) * RAD2DEG);
-        a.node->setVisible(true);
-        _fireCooldown = FIRE_INTERVAL;  // 射出才进冷却
-        return;
+        if (!slot)
+        {
+            break;
+        }
+
+        const float offset = (shot - (count - 1) * 0.5f) * MULTI_SHOT_SPREAD;
+        const float angle  = baseAngle + offset;
+        const Vec2 shotDir(cosf(angle), sinf(angle));
+        slot->active   = true;
+        slot->damage   = damage;
+        slot->velocity = shotDir * ARROW_SPEED;
+        slot->node->setPosition(_archerPos);
+        slot->node->setRotation(-angle * RAD2DEG);
+        slot->node->setVisible(true);
+        ++fired;
     }
-    AXLOGD("箭矢池已满（{} 支在飞），本次射击丢弃", ARROW_POOL_SIZE);
+    if (fired > 0)
+    {
+        // FIRE_INTERVAL 仍供调试面板实时调手感；成长表给出相对默认 0.18 秒的倍率。
+        _fireCooldown = FIRE_INTERVAL * (data.fireInterval() / 0.18f);
+    }
+    else
+    {
+        AXLOGD("箭矢池已满（{} 支在飞），本次射击丢弃", ARROW_POOL_SIZE);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -713,7 +961,8 @@ void MainScene::killMonster(Monster& m)
         return;
     }
     m.state = MonsterState::Dead;
-    _killCount++;
+    GameData::getInstance().recordKill();
+    refreshEconomyHUD();
     // 分裂怪：死亡时在原地裂出两只小快怪。注意这对不同伤害的克制关系——
     // 单点箭：杀一只变两只（分裂怪的血条优势）；AOE 技能：子体出生在
     // 爆炸半径内，同一帧的后续判定直接带走（AOE 一锅端）——一石二鸟的设计
@@ -805,7 +1054,7 @@ void MainScene::updateArrows(float delta)
                 }
                 else
                 {
-                    damageMonster(m, 1);       // 箭矢 1 点伤害
+                    damageMonster(m, a.damage);  // 箭的伤害在发射时由局外升级值固化
                 }
                 a.active = false;              // 箭也回收（命中即消失）
                 a.node->setVisible(false);
@@ -1278,6 +1527,8 @@ bool MainScene::loadWaves()
 
 void MainScene::beginWave(size_t index)
 {
+    // 当前累计收益成为本波起点；旋转/切视角重播本波时可以安全回滚到这里。
+    GameData::getInstance().checkpointRun();
     _waveIndex    = index;
     const auto& w = _waves[index];
     _groupRt.assign(w.groups.size(), SpawnGroupRuntime{});
@@ -1370,7 +1621,9 @@ void MainScene::updateWaves(float delta)
                 {
                     _waveLabel->setString("已守住全部波次！");
                 }
-                AXLOGD("全部波次已守住！击杀={}", _killCount);
+                AXLOGI("[Economy] all waves cleared: kills={}",
+                       GameData::getInstance().economy().runKills());
+                showSettlement(true);
             }
         }
         break;
@@ -1624,9 +1877,8 @@ void MainScene::updateMonsters(float delta)
     }
 }
 
-#if CG_DEBUG_TOOLS
 // ---------------------------------------------------------------------------
-// 调试用重开：清场（三池全收）+ 城墙满血 + 回到第 1 波。
+// 重开：清场（三池全收）+ 城墙满血 + 回到第 1 波。
 // 注意全程没有 new/delete——对象本来就是池化的，"重置"只是改状态位，
 // 这也是对象池的红利之一：重开一局是 O(池大小) 的零分配操作
 // ---------------------------------------------------------------------------
@@ -1664,23 +1916,34 @@ void MainScene::clearField()
 void MainScene::resetGame()
 {
     clearField();
-    _wallHP    = WALL_MAX_HP;
-    _killCount = 0;
+    _wallHP    = GameData::getInstance().wallMaxHealth();
     _mana      = MANA_MAX;  // 技能系统：蓝量冷却一并复位
     for (int i = 0; i < SKILL_COUNT; ++i)
     {
         _cdRemaining[i] = 0.0f;
     }
     _aimingSkill = -1;
+    _aimDragging = false;
+    _fireCooldown = 0.0f;
+    _aimIndicator->setVisible(false);
     _rainQueue.clear();
+    _settlementVisible = false;
+    _settlementLayer->setVisible(false);
+    _upgradePanel->setVisible(false);
+    _gameState = GameState::update;
+    GameData::getInstance().startRun();
+    refreshEconomyHUD();
     _waveState = WaveState::Idle;  // 下一帧 updateWaves 自动 beginWave(0)
     if (_waveLabel)
     {
         _waveLabel->setString("");
     }
-    AXLOGD("已通过调试面板重开（清场满血满蓝回第 1 波）");
+    AXLOGI("[Progression] run restarted: wallHP={}, arrowDamage={}, multiShot={}, fireInterval={:.3f}",
+           _wallHP, GameData::getInstance().arrowDamage(), GameData::getInstance().multiShotCount(),
+           GameData::getInstance().fireInterval());
 }
 
+#if CG_DEBUG_TOOLS
 // 调试跳波：跳到指定波（清场 + 城墙满血——跳波是为了能立刻开测，
 // 城墙 0 血时波次状态机是冻结的，不回血跳了也不出怪；击杀数保留便于对比）
 void MainScene::gotoWave(int offset)
@@ -1692,7 +1955,7 @@ void MainScene::gotoWave(int offset)
     int next = static_cast<int>(_waveIndex) + offset;
     next     = std::clamp(next, 0, static_cast<int>(_waves.size()) - 1);
     clearField();
-    _wallHP = WALL_MAX_HP;
+    _wallHP = GameData::getInstance().wallMaxHealth();
     beginWave(static_cast<size_t>(next));
     AXLOGD("调试跳波：第 {} 波", next + 1);
 }
@@ -1703,8 +1966,14 @@ void MainScene::gotoWave(int offset)
 // ---------------------------------------------------------------------------
 void MainScene::damageWall(int dmg)
 {
+#if CG_DEBUG_TOOLS
+    if (_sandboxInvincibleWall)
+    {
+        return;
+    }
+#endif
     _wallHP = std::max(0, _wallHP - dmg);
-    AXLOGD("城墙血量：{}，击杀：{}", _wallHP, _killCount);
+    AXLOGD("城墙血量：{}，击杀：{}", _wallHP, GameData::getInstance().economy().runKills());
     if (_wallHP == 0)
     {
         // 城破后波次状态机冻结（updateWaves 守卫），给个肉眼可见的提示
@@ -1712,7 +1981,8 @@ void MainScene::damageWall(int dmg)
         {
             _waveLabel->setString("城墙告破！点 ↻ 重开");
         }
-        AXLOGD("城墙告破！（后续做结算画面）");
+        AXLOGI("[Economy] wall destroyed: entering defeat settlement");
+        showSettlement(false);
     }
 }
 
@@ -1778,6 +2048,156 @@ void MainScene::updateEnemyBolts(float delta)
         }
         b.node->setPosition(pos);
     }
+}
+
+// ---------------------------------------------------------------------------
+// 经济 HUD 与结算层。这里只展示 GameData 的结果，奖励规则不在 UI 中重复计算。
+// ---------------------------------------------------------------------------
+void MainScene::initEconomyUI()
+{
+    _coinLabel = Label::createWithSystemFont("", "Arial", 26);
+    _coinLabel->setAnchorPoint(Vec2(1.0f, 1.0f));
+    _coinLabel->setTextColor(Color4B(255, 220, 95, 255));
+    addChild(_coinLabel, 5);
+
+    _crystalLabel = Label::createWithSystemFont("", "Arial", 26);
+    _crystalLabel->setAnchorPoint(Vec2(1.0f, 1.0f));
+    _crystalLabel->setTextColor(Color4B(110, 225, 255, 255));
+    addChild(_crystalLabel, 5);
+
+    _settlementLayer = Node::create();
+    _settlementLayer->setVisible(false);
+    addChild(_settlementLayer, 20);
+
+    _settlementBackdrop = DrawNode::create();
+    _settlementLayer->addChild(_settlementBackdrop, 0);
+    _settlementPanel = DrawNode::create();
+    _settlementLayer->addChild(_settlementPanel, 1);
+
+    _settlementTitle = Label::createWithSystemFont("", "Arial", 48);
+    _settlementLayer->addChild(_settlementTitle, 2);
+    _settlementRewards = Label::createWithSystemFont("", "Arial", 30);
+    _settlementRewards->setAlignment(TextHAlignment::CENTER);
+    _settlementLayer->addChild(_settlementRewards, 2);
+    _settlementTotals = Label::createWithSystemFont("", "Arial", 25);
+    _settlementTotals->setTextColor(Color4B(205, 215, 230, 255));
+    _settlementLayer->addChild(_settlementTotals, 2);
+
+    _settlementRestartBtn = Node::create();
+    auto restartBg = DrawNode::create();
+    restartBg->drawSolidRect(Vec2::ZERO, Vec2(SETTLEMENT_BUTTON_W, SETTLEMENT_BUTTON_H),
+                             Color4F(0.18f, 0.58f, 0.36f, 1.0f));
+    restartBg->drawRect(Vec2::ZERO, Vec2(SETTLEMENT_BUTTON_W, SETTLEMENT_BUTTON_H),
+                        Color4F(0.75f, 1.0f, 0.84f, 1.0f), 3.0f);
+    _settlementRestartBtn->addChild(restartBg);
+    auto restartLabel = Label::createWithSystemFont("再来一局", "Arial", 30);
+    restartLabel->setPosition(Vec2(SETTLEMENT_BUTTON_W * 0.5f, SETTLEMENT_BUTTON_H * 0.5f));
+    _settlementRestartBtn->addChild(restartLabel, 1);
+    _settlementLayer->addChild(_settlementRestartBtn, 2);
+
+    _settlementUpgradeBtn = Node::create();
+    auto upgradeBg = DrawNode::create();
+    upgradeBg->drawSolidRect(Vec2::ZERO, Vec2(SETTLEMENT_BUTTON_W, SETTLEMENT_BUTTON_H),
+                             Color4F(0.20f, 0.42f, 0.68f, 1.0f));
+    upgradeBg->drawRect(Vec2::ZERO, Vec2(SETTLEMENT_BUTTON_W, SETTLEMENT_BUTTON_H),
+                        Color4F(0.76f, 0.90f, 1.0f, 1.0f), 3.0f);
+    _settlementUpgradeBtn->addChild(upgradeBg);
+    auto upgradeLabel = Label::createWithSystemFont("升级", "Arial", 30);
+    upgradeLabel->setPosition(Vec2(SETTLEMENT_BUTTON_W * 0.5f, SETTLEMENT_BUTTON_H * 0.5f));
+    _settlementUpgradeBtn->addChild(upgradeLabel, 1);
+    _settlementLayer->addChild(_settlementUpgradeBtn, 2);
+
+    _upgradePanel = UpgradePanel::create();
+    _upgradePanel->setStartRunCallback([this]() { resetGame(); });
+    addChild(_upgradePanel, 30);
+
+    refreshEconomyHUD();
+}
+
+void MainScene::layoutEconomyUI(const Vec2& origin, float right, float top)
+{
+    if (_coinLabel)
+    {
+        _coinLabel->setPosition(Vec2(right - 18.0f, top - 18.0f));
+        _crystalLabel->setPosition(Vec2(right - 18.0f, top - 54.0f));
+    }
+    if (!_settlementLayer)
+    {
+        return;
+    }
+
+    const auto visibleSize = _director->getVisibleSize();
+    _upgradePanel->layout(origin, visibleSize);
+    const float panelW     = std::min(560.0f, visibleSize.width * 0.86f);
+    const float panelH     = std::min(420.0f, visibleSize.height * 0.72f);
+    const Vec2 center((origin.x + right) * 0.5f, origin.y + visibleSize.height * 0.5f);
+    const Vec2 panelMin(center.x - panelW * 0.5f, center.y - panelH * 0.5f);
+    const Vec2 panelMax(center.x + panelW * 0.5f, center.y + panelH * 0.5f);
+
+    _settlementBackdrop->clear();
+    _settlementBackdrop->drawSolidRect(origin, Vec2(right, top), Color4F(0.02f, 0.03f, 0.05f, 0.78f));
+    _settlementPanel->clear();
+    _settlementPanel->drawSolidRect(panelMin, panelMax, Color4F(0.10f, 0.12f, 0.17f, 0.98f));
+    _settlementPanel->drawRect(panelMin, panelMax, Color4F(0.68f, 0.74f, 0.84f, 1.0f), 3.0f);
+
+    _settlementTitle->setPosition(Vec2(center.x, center.y + panelH * 0.31f));
+    _settlementRewards->setPosition(Vec2(center.x, center.y + panelH * 0.10f));
+    _settlementTotals->setPosition(Vec2(center.x, center.y - panelH * 0.10f));
+
+    const float buttonsW = SETTLEMENT_BUTTON_W * 2.0f + SETTLEMENT_BUTTON_GAP;
+    const Vec2 upgradePos(center.x - buttonsW * 0.5f, panelMin.y + 28.0f);
+    const Vec2 restartPos(upgradePos.x + SETTLEMENT_BUTTON_W + SETTLEMENT_BUTTON_GAP, upgradePos.y);
+    _settlementUpgradeBtn->setPosition(upgradePos);
+    _settlementRestartBtn->setPosition(restartPos);
+    _settlementUpgradeRect = Rect(upgradePos.x, upgradePos.y, SETTLEMENT_BUTTON_W, SETTLEMENT_BUTTON_H);
+    _settlementRestartRect = Rect(restartPos.x, restartPos.y, SETTLEMENT_BUTTON_W, SETTLEMENT_BUTTON_H);
+}
+
+void MainScene::refreshEconomyHUD()
+{
+    if (!_coinLabel)
+    {
+        return;
+    }
+    const auto& economy = GameData::getInstance().economy();
+    if (economy.runActive() && economy.runCoins() > 0)
+    {
+        _coinLabel->setString(StringUtils::format("金币  %d  (+%d)", economy.totalCoins(), economy.runCoins()));
+    }
+    else
+    {
+        _coinLabel->setString(StringUtils::format("金币  %d", economy.totalCoins()));
+    }
+    _crystalLabel->setString(StringUtils::format("水晶  %d", economy.totalCrystals()));
+}
+
+void MainScene::showSettlement(bool victory)
+{
+    if (_settlementVisible)
+    {
+        return;
+    }
+    const auto result = GameData::getInstance().settleRun(victory);
+    if (!result.committed)
+    {
+        return;
+    }
+
+    _settlementVisible = true;
+    _gameState         = GameState::end;
+    _aimingSkill       = -1;
+    _aimDragging       = false;
+    _aimIndicator->setVisible(false);
+    _skillHint->setVisible(false);
+
+    _settlementTitle->setString(victory ? "守城成功" : "城墙告破");
+    _settlementTitle->setTextColor(victory ? Color4B(120, 245, 160, 255) : Color4B(255, 125, 105, 255));
+    _settlementRewards->setString(StringUtils::format("本局击杀  %d\n金币 +%d    水晶 +%d", result.kills,
+                                                        result.coinsEarned, result.crystalsEarned));
+    _settlementTotals->setString(
+        StringUtils::format("持有：金币 %d    水晶 %d", result.totalCoins, result.totalCrystals));
+    _settlementLayer->setVisible(true);
+    refreshEconomyHUD();
 }
 
 // =========================== 技能系统（M1） ===========================
@@ -1916,6 +2336,17 @@ void MainScene::layoutSkillBar(const Vec2& origin, float right)
 // 点技能按钮：再点同一个 = 取消；冷却中/蓝不足 → 提示
 void MainScene::tryAimSkill(int index)
 {
+    if (index < 0 || index >= SKILL_COUNT)
+    {
+        return;
+    }
+    if (!GameData::getInstance().isSkillUnlocked(static_cast<SkillId>(index)))
+    {
+        _skillHint->setString("技能尚未解锁，可在结算后的城堡工坊购买");
+        _skillHint->setVisible(true);
+        _skillHintTimer = 1.8f;
+        return;
+    }
     if (_aimingSkill == index)
     {
         _aimingSkill = -1;  // 取消瞄准
@@ -2157,9 +2588,25 @@ void MainScene::spawnFx(int kind, const Vec2& pos, float radius, float duration)
 void MainScene::updateSkills(float delta)
 {
     // ① 双资源回复：蓝量自动回，冷却各自减
-    _mana = std::min(MANA_MAX, _mana + MANA_REGEN * delta);
+#if CG_DEBUG_TOOLS
+    if (_sandboxInfiniteMana)
+    {
+        _mana = MANA_MAX;
+    }
+    else
+#endif
+    {
+        _mana = std::min(MANA_MAX, _mana + MANA_REGEN * delta);
+    }
     for (int i = 0; i < SKILL_COUNT; ++i)
     {
+#if CG_DEBUG_TOOLS
+        if (_sandboxNoSkillCooldown)
+        {
+            _cdRemaining[i] = 0.0f;
+            continue;
+        }
+#endif
         _cdRemaining[i] = std::max(0.0f, _cdRemaining[i] - delta);
     }
 
@@ -2322,7 +2769,15 @@ void MainScene::refreshSkillHUD()
             continue;
         }
         _skillCdShade[i]->clear();
-        if (_cdRemaining[i] > 0.0f)
+        const bool unlocked = GameData::getInstance().isSkillUnlocked(static_cast<SkillId>(i));
+        if (!unlocked)
+        {
+            _skillCdShade[i]->drawSolidRect(Vec2::ZERO, Vec2(SKILL_BTN_SIZE, SKILL_BTN_SIZE),
+                                            Color4F(0.0f, 0.0f, 0.0f, 0.72f));
+            _skillCdLabel[i]->setString("锁");
+            _skillNameLabel[i]->setTextColor(Color4B(145, 150, 165, 255));
+        }
+        else if (_cdRemaining[i] > 0.0f)
         {
             const float h = SKILL_BTN_SIZE * (_cdRemaining[i] / SKILL_CD[i]);
             _skillCdShade[i]->drawSolidRect(Vec2::ZERO, Vec2(SKILL_BTN_SIZE, h),
@@ -2332,6 +2787,7 @@ void MainScene::refreshSkillHUD()
         else
         {
             _skillCdLabel[i]->setString("");
+            _skillNameLabel[i]->setTextColor(Color4B::WHITE);
         }
         // 瞄准中的按钮放大一点 = 选中态（零贴图的按钮高亮方案）
         _skillBtns[i]->setScale(i == _aimingSkill ? 1.15f : 1.0f);
@@ -2340,6 +2796,29 @@ void MainScene::refreshSkillHUD()
 
 void MainScene::onTouchesBegan(const std::vector<ax::Touch*>& touches, ax::Event* event)
 {
+    // 结算与升级页都是模态界面，不能穿透到射箭/技能/调试按钮。
+    if (_settlementVisible)
+    {
+        if (_upgradePanel->isVisible())
+        {
+            return;  // UpgradePanel 内的 ui::Button / ScrollView 自己处理触摸
+        }
+        for (auto&& t : touches)
+        {
+            if (_settlementUpgradeRect.containsPoint(t->getLocation()))
+            {
+                _settlementLayer->setVisible(false);
+                _upgradePanel->open();
+                break;
+            }
+            if (_settlementRestartRect.containsPoint(t->getLocation()))
+            {
+                resetGame();
+                break;
+            }
+        }
+        return;
+    }
     // 输入优先级：调试按钮 > 双指手势 > 射箭。
     // 命中测试：Rect::containsPoint 判断触点是否在按钮热区内——
     // 这就是最朴素的"UI 按钮"实现（一个矩形 + 点包含判定）
@@ -2412,6 +2891,10 @@ void MainScene::onTouchesBegan(const std::vector<ax::Touch*>& touches, ax::Event
 
 void MainScene::onTouchesMoved(const std::vector<ax::Touch*>& touches, ax::Event* event)
 {
+    if (_settlementVisible)
+    {
+        return;
+    }
     // 技能瞄准拖动：范围指示圈跟随手指（只有"战场上按下后"才进入这个状态）
     if (_aimingSkill >= 0 && _aimDragging && !touches.empty())
     {
@@ -2421,6 +2904,10 @@ void MainScene::onTouchesMoved(const std::vector<ax::Touch*>& touches, ax::Event
 
 void MainScene::onTouchesEnded(const std::vector<ax::Touch*>& touches, ax::Event* event)
 {
+    if (_settlementVisible)
+    {
+        return;
+    }
     // 技能释放：战场上抬起手指 = 在抬起处释放
     if (_aimingSkill >= 0 && _aimDragging && !touches.empty())
     {
@@ -2432,7 +2919,7 @@ void MainScene::onTouchesEnded(const std::vector<ax::Touch*>& touches, ax::Event
 void MainScene::onKeyPressed(ax::EventKeyboard::KeyCode code, ax::Event* event)
 {
 #if CG_DEBUG_TOOLS
-    // 桌面调试键：1/2 切视角、R 重开、Q/E 跳波、T 调参（正式包无键盘监听）
+    // 桌面调试键：1/2 切视角、R 重开、Q/E 跳波、T 开发者工具、U 预览升级页。
     if (code == EventKeyboard::KeyCode::KEY_1 && _battleLayout != BattleLayout::SideView)
     {
         buildBattlefield(BattleLayout::SideView);
@@ -2456,6 +2943,10 @@ void MainScene::onKeyPressed(ax::EventKeyboard::KeyCode code, ax::Event* event)
     else if (code == EventKeyboard::KeyCode::KEY_T)
     {
         toggleTuningPanel();
+    }
+    else if (code == EventKeyboard::KeyCode::KEY_U && !_settlementVisible)
+    {
+        sandboxOpenUpgradePreview();
     }
     else if (code >= EventKeyboard::KeyCode::KEY_3 && code <= EventKeyboard::KeyCode::KEY_6)
     {
@@ -2491,8 +2982,12 @@ void MainScene::update(float delta)
         // 波次管理：JSON 数据驱动出怪（取代写死的固定间隔）
         updateWaves(delta);
 
-        // 射箭冷却每帧衰减（连点射速上限）
+        // 射箭冷却每帧衰减；沙盒“射箭无冷却”只在开发构建存在。
+#if CG_DEBUG_TOOLS
+        _fireCooldown = _sandboxNoFireCooldown ? 0.0f : std::max(0.0f, _fireCooldown - delta);
+#else
         _fireCooldown = std::max(0.0f, _fireCooldown - delta);
+#endif
 
         // 游戏主循环：怪物移动、箭矢飞行、敌方弹丸、技能系统都在这里驱动
         updateMonsters(delta);
@@ -2511,6 +3006,12 @@ void MainScene::update(float delta)
 
     case GameState::end:
     {
+        // 结算层显示期间仍要响应旋转/窗口缩放，但 settlementVisible 会阻止重播波次。
+        const auto& vs = _director->getVisibleSize();
+        if (vs.width != _lastVisibleSize.width || vs.height != _lastVisibleSize.height)
+        {
+            buildBattlefield(_battleLayout);
+        }
         break;
     }
 

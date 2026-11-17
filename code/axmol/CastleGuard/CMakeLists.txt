@@ -45,11 +45,11 @@ include(AXGameEngineOptions)
 include(AXGameEngineSetup)
 
 # The common cross-platforms source files and header files
-file(GLOB_RECURSE GAME_HEADER
+file(GLOB_RECURSE GAME_HEADER CONFIGURE_DEPENDS
   Source/*.h Source/*.hpp
 )
 
-file(GLOB_RECURSE GAME_SOURCE
+file(GLOB_RECURSE GAME_SOURCE CONFIGURE_DEPENDS
   Source/*.cpp Source/*.c
 )
 
@@ -57,10 +57,10 @@ set(GAME_INC_DIRS
   "${CMAKE_CURRENT_SOURCE_DIR}/Source"
 )
 
-# 调试内容开关：调试按钮 / ImGui 调参面板 / 桌面调试键。
+# 调试内容开关：调试按钮 / ImGui 开发者工具 / 桌面调试键。
 # 开发期默认 ON；正式包（提审/发布）构建时传 -DCG_DEBUG_TOOLS=OFF，
 # 相关代码经预处理整块剔除，不进二进制（不是隐藏，是不存在）
-option(CG_DEBUG_TOOLS "Enable in-game debug tools (buttons, ImGui tuning panel)" ON)
+option(CG_DEBUG_TOOLS "Enable in-game debug tools (buttons, ImGui developer panel)" ON)
 
 set(content_folder
   "${CMAKE_CURRENT_SOURCE_DIR}/Content"
@@ -72,7 +72,7 @@ elseif(WINDOWS)
   ax_mark_multi_resources(common_content_files RES_TO "Content" FOLDERS ${content_folder})
 endif()
 
-# 调参面板的中文字体（10MB）只服务开发期，正式包不打包
+# 开发者工具的中文字体（10MB）只服务开发期，正式包不打包
 if(NOT CG_DEBUG_TOOLS)
   list(FILTER common_content_files EXCLUDE REGEX "NotoSansSC")
 endif()
@@ -127,6 +127,10 @@ endif()
 
 # 调试开关注入预处理宏（option 定义在上方资源段，因为正式包要过滤调参字体资源）
 target_compile_definitions(${APP_NAME} PRIVATE CG_DEBUG_TOOLS=$<IF:$<BOOL:${CG_DEBUG_TOOLS}>,1,0>)
+if(_AX_TESTS)
+  # 规则测试不需要 ImGui 调试层；关闭后测试目标只链接正式玩法代码。
+  target_compile_definitions(${TEST_TARGET_NAME} PRIVATE CG_DEBUG_TOOLS=0)
+endif()
 
 # Default Platform-specific setup
 include(AXGamePlatformSetup)
