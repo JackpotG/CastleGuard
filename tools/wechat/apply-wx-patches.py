@@ -36,8 +36,12 @@ TRANSFORM_CONFIG = ROOT / "code/axmol/CastleGuard/wechat-transform.config.json"
 # ---------------------------------------------------------------------------
 CG_COMPAT_JS = """// [CastleGuard patch] 微信小游戏运行环境兼容性补丁（由 apply-wx-patches.py 生成，勿手改）
 // 排雷 16：小游戏没有 window.matchMedia，Axmol 用它判断触屏 → 固定按触屏返回
-if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
-  window.matchMedia = function (query) {
+// 时序坑（2026-11-17 iOS 真机踩中）：本文件先于 wx-game-kit 执行，真机上 window 全局
+// 由插件异步创建，此刻 window 可能尚不存在，一次性安装会落空 → 拦截 window 的首次赋值
+// + 短轮询兜底，保证 window 一出现就装上 matchMedia。
+function cgInstallMatchMedia(win) {
+  if (!win || typeof win.matchMedia === 'function') return;
+  win.matchMedia = function (query) {
     var q = String(query);
     return {
       matches: /pointer\\s*:\\s*coarse/.test(q),
@@ -50,6 +54,34 @@ if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
     };
   };
 }
+(function () {
+  var G = (typeof GameGlobal !== 'undefined') ? GameGlobal :
+          (typeof globalThis !== 'undefined' ? globalThis : this);
+  var _win = G.window;
+  if (_win) cgInstallMatchMedia(_win);
+  // 拦截后续对 window 全局的赋值（wx-game-kit 初始化时创建 window 走这条路）
+  try {
+    Object.defineProperty(G, 'window', {
+      configurable: true,
+      enumerable: true,
+      get: function () { return _win; },
+      set: function (v) { _win = v; cgInstallMatchMedia(v); }
+    });
+  } catch (e) {}
+  // 轮询兜底：若插件用 Object.defineProperty 重建 window（绕过赋值拦截）也能覆盖到；
+  // window 对象被整体替换时重新安装。约 10 秒后停轮询（引擎早已初始化完）。
+  var polls = 0;
+  var timer = setInterval(function () {
+    try {
+      var w = G.window;
+      if (w) {
+        if (w !== _win) _win = w;
+        cgInstallMatchMedia(w);
+        if (++polls > 600) clearInterval(timer);
+      }
+    } catch (e) {}
+  }, 16);
+})();
 
 // 排雷 17 辅助：转换器把 glfwGetWindowSize 改成物理分辨率，
 // 主屏 canvas 缓冲区在部分环境是 CSS 尺寸 → 强制对齐，避免视口裁切
