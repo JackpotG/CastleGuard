@@ -136,9 +136,19 @@ private:
     // 新增类型 = 枚举加一项 + spawnMonster/applyMonsterSkin 里一份数值外观，驱动逻辑零改动
     enum class MonsterType
     {
-        Normal,  // 普通怪：基准速度（红色）
-        Fast,    // 快速怪：1.8 倍速、体型偏小（橙色）
-        Ranged,  // 远程怪：不贴墙，在停火线外发射弹丸（紫色）
+        Normal,   // 普通怪：基准速度（红色）
+        Fast,     // 快速怪：1.8 倍速、体型偏小（橙色）
+        Ranged,   // 远程怪：不贴墙，在停火线外发射弹丸（紫色）
+        Shield,   // 护盾怪：箭矢免疫、只怕技能，血厚走得慢（青钢色）
+        Bomber,   // 自爆怪：冲墙自爆造成大伤害，被提前点死不爆（黑色橙引信）
+        Flyer,    // 飞行怪：远区游荡，蓄力停滞后射击（白色带翅膀）
+        Healer,   // 治疗怪：跟在怪群后方，周期性给周围友军回血（浅绿+十字）
+        Splitter, // 分裂怪：死后分裂成两只小快怪（品红色，怕 AOE）
+        Rager,    // 狂暴怪：血越少跑得越快（深红怒眉）
+        Ghost,    // 幽灵怪：周期性隐身，隐身时箭打不中、技能可命中（半透明白）
+        Summoner, // 召唤怪：站远区周期性召唤小怪（深紫法杖）
+        Aegis,    // 护符怪：一次性全能护盾挡任何攻击一次，破盾后高速冲锋（亮黄金环）
+        Boss,     // Boss：自由飞、厚血、前摇后扇形三连发（暗紫王冠）
     };
     // 怪物 = 池中的一个槽位。Prefab 思想的裸实现：定义一个"模板"（外观+行为），
     // 需要时从池里取一个实例按模板初始化，而不是每次 new 一个新对象
@@ -147,6 +157,13 @@ private:
         ax::DrawNode* node = nullptr;   // 占位外观（池化复用；出生时才按类型画皮）
         int lane           = 0;         // 车道编号（统一数据模型：车道 + 推进）
         ax::Vec2 targetPos;             // 推进终点（出生点+同一份抖动，保证走直线不纠偏）
+        ax::Vec2 wanderTarget;          // 游荡航点（飞行怪专用：攻击期间持续飞往的下一个点）
+        float wanderPhase    = 0.0f;    // 游荡摆动相位（正弦摆动的累加器，让轨迹带弧度）
+        float windupTimer    = 0.0f;    // 攻击前摇剩余时间（飞行怪/Boss：>0 时悬停蓄力不能动）
+        int  maxHp           = 1;       // 血量上限（狂暴怪按 hp/maxHp 算加速；治疗回血不超过它）
+        int  shieldCharges   = 0;       // 一次性全能护盾层数（护符怪：挡任何伤害一次）
+        float ghostTimer     = 0.0f;    // 幽灵怪隐身周期计时
+        bool  ghostHidden    = false;   // 幽灵怪当前是否隐身（隐身时箭打不中，AOE 照吃）
         float speed        = 70.0f;     // 个体速度（类型倍率 × 85%~115% 随机）
         float bodyR        = 11.0f;     // 体型半径（随类型缩放，命中判定也用它）
         MonsterType type   = MonsterType::Normal;
@@ -159,16 +176,23 @@ private:
         int  hp              = 1;       // 血量（当前全是 1 血；M1 护盾怪起开始 >1）
         ax::DrawNode* slowMark = nullptr;  // 冰冻标记（蓝环，挂在怪节点上，减速时可见）
         ax::DrawNode* stunMark = nullptr;  // 麻痹标记（黄电纹，麻痹时可见）
+        ax::DrawNode* windupMark = nullptr;  // 蓄力标记（橙环，飞行怪攻击前摇时可见）
         bool active        = false;
     };
     void initMonsterPool();
     // 按波次配置放一只怪（lane=-1 随机车道；from=出生方向）
     void spawnMonster(MonsterType type, int lane, const std::string& from);
+    // 战中生怪入口：分裂怪的子体、召唤怪的召唤物都走这（在指定位置直接激活）
+    void spawnMinion(MonsterType type, const ax::Vec2& pos);
+    Monster* allocMonster();  // 从池里找一个空槽，找不到返回 nullptr
+    // 槽位初始化：类型数值/外观/状态复位全在这里——两个生怪入口共用，不重复写
+    void setupMonster(Monster& m, MonsterType type, const ax::Vec2& spawnPos, const ax::Vec2& targetPos);
     void applyMonsterSkin(Monster& m);    // 按类型重画占位外观（槽位与外观分离）
     void updateMonsters(float delta);     // 每帧驱动移动/攻击/死亡
     ax::Vec2 laneSpawnPos(int lane) const;  // 车道 → 出怪位置（按当前布局计算）
     ax::Vec2 laneWallPos(int lane) const;   // 车道 → 城墙目标点（按当前布局计算）
     int laneCount() const;                  // 当前布局的有效车道数
+    ax::Vec2 pickFlyerWaypoint() const;     // 飞行怪游荡航点：远区空域内随机取一点
 
     std::vector<Monster> _monsterPool;
     static constexpr int WALL_MAX_HP = 100;  // 城墙满血值（resetGame 用它复位）

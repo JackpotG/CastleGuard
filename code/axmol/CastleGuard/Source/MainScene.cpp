@@ -101,6 +101,63 @@ constexpr float RANGED_SPEED_MUL      = 0.9f;   // 远程怪走得稍慢
 float RANGED_STOP_RATIO               = 0.62f;  // ⑤ 停火位：战场纵深比例（ImGui 可调）
 constexpr float RANGED_ATTACK_INTERVAL= 1.8f;   // 远程攻击间隔（秒）
 constexpr int   RANGED_ATTACK_DAMAGE  = 4;      // 每发弹丸伤害
+// 护盾怪：箭矢免疫只怕技能（克制设计：逼玩家用技能），血厚走得慢
+constexpr float SHIELD_SPEED_MUL      = 0.75f;  // 速度倍率（慢，给玩家留技能冷却时间）
+constexpr float SHIELD_BODY_SCALE     = 1.25f;  // 体型倍率（大，一眼能认出是"硬目标"）
+constexpr int   SHIELD_HP             = 3;      // 血量（当前技能伤害都是秒杀级，血量为以后伤害分级预留）
+// 自爆怪：冲墙自爆一次性大伤害，被提前点死不爆——"必须优先点杀"的压迫感来源
+constexpr float BOMBER_SPEED_MUL      = 1.4f;   // 速度倍率（快，反应窗口短）
+constexpr float BOMBER_BODY_SCALE     = 0.9f;   // 体型倍率
+constexpr int   BOMBER_DAMAGE         = 15;     // 自爆对城墙伤害（≈近战怪啃 3 秒）
+constexpr float BOMBER_FX_RADIUS      = 60.0f;  // 自爆特效半径（纯表现，伤害只打城墙）
+// 飞行怪：游击手——进场后在远区空域持续游荡（航点随机+正弦摆动出曲线），
+// 攻击严格按间隔计时，移动不打断计时——频率稳定，走位飘忽
+constexpr float FLYER_SPEED_MUL        = 1.2f;   // 速度倍率（飞得快）
+constexpr float FLYER_BODY_SCALE       = 0.85f;  // 体型倍率
+constexpr float FLYER_STOP_MIN         = 0.25f;  // 进场深度下限（战场纵深比例，走到这就开始游荡）
+constexpr float FLYER_STOP_MAX         = 0.62f;  // 进场深度上限
+constexpr float FLYER_ATTACK_INTERVAL  = 2.2f;   // 攻击间隔（秒，钉死不变，保证频率稳定）
+constexpr int   FLYER_ATTACK_DAMAGE    = 3;      // 每发弹丸伤害
+constexpr float FLYER_SWAY_AMP         = 55.0f;  // 游荡正弦摆动幅度（像素/秒，越大轨迹越飘）
+constexpr float FLYER_SWAY_FREQ        = 4.0f;   // 摆动频率（弧度/秒）
+constexpr float FLYER_WINDUP           = 0.5f;   // 攻击前摇（秒）：悬停蓄力，看得见的前摇提示
+// 治疗怪：跟在怪群后方，周期性给周围友军回血——逼玩家越过前排点杀后排
+constexpr float HEALER_SPEED_MUL       = 0.7f;
+constexpr float HEALER_STOP_RATIO      = 0.45f;  // 停在场中（比远程怪更靠后）
+constexpr float HEALER_INTERVAL        = 2.5f;   // 治疗脉冲间隔（秒）
+constexpr float HEALER_RADIUS          = 110.0f; // 治疗半径
+constexpr int   HEALER_AMOUNT          = 1;      // 每次回血量
+constexpr int   HEALER_HP              = 2;
+// 分裂怪：死后分裂成两只小快怪——克单点箭，怕 AOE（火球一锅端）
+constexpr float SPLITTER_SPEED_MUL     = 1.0f;
+constexpr float SPLITTER_BODY_SCALE    = 1.15f;
+constexpr int   SPLITTER_HP            = 2;
+constexpr float SPLIT_CHILD_OFFSET     = 28.0f;  // 子体出生横向偏移
+// 狂暴怪：血越少跑得越快——要么集火秒掉，要么留到最后处理
+constexpr float RAGER_SPEED_MUL        = 1.1f;
+constexpr int   RAGER_HP               = 3;
+constexpr float RAGER_SPEED_BOOST      = 1.2f;   // 空血时额外加速比例（+120%）
+// 幽灵怪：周期性隐身，隐身时箭打不中（AOE 技能照吃）——逼玩家掐时机或留蓝
+constexpr float GHOST_SHOW_TIME        = 2.5f;   // 显形时长（秒）
+constexpr float GHOST_HIDE_TIME        = 1.8f;   // 隐身时长（秒）
+// 召唤怪：站远区周期性召唤小怪——不集火就越打越多
+constexpr float SUMMONER_SPEED_MUL     = 0.6f;
+constexpr float SUMMONER_STOP_RATIO    = 0.55f;
+constexpr float SUMMONER_INTERVAL      = 4.0f;   // 召唤间隔（秒）
+constexpr int   SUMMONER_HP            = 3;
+// 护符怪：一次性全能护盾（挡任何攻击一次）+ 高速——必须优先处理的冲锋手
+constexpr float AEGIS_SPEED_MUL        = 1.5f;
+constexpr float AEGIS_BODY_SCALE       = 0.9f;
+// Boss：自由飞（游荡复用飞行怪机制）、厚血、前摇后扇形三连发
+constexpr float BOSS_SPEED_MUL         = 0.55f;
+constexpr float BOSS_BODY_SCALE        = 2.4f;
+constexpr int   BOSS_HP                = 30;
+constexpr float BOSS_STOP_RATIO        = 0.40f;  // 进场深度（战场纵深比例）
+constexpr float BOSS_ATTACK_INTERVAL   = 3.0f;
+constexpr float BOSS_WINDUP            = 1.2f;   // 大招前摇（秒，长前摇=玩家的输出窗口）
+constexpr int   BOSS_BOLT_DAMAGE       = 4;      // 每发弹丸伤害
+constexpr int   BOSS_BOLT_COUNT        = 3;      // 扇形弹丸数
+constexpr float BOSS_BOLT_SPREAD       = 90.0f;  // 扇形横向间距（像素）
 // ---- 敌方弹丸 ----
 constexpr int   ENEMY_BOLT_POOL_SIZE  = 16;     // 同时在屏弹丸上限
 constexpr float ENEMY_BOLT_SPEED      = 350.0f; // 弹丸速度（像素/秒，比箭慢，看得见飞）
@@ -657,14 +714,31 @@ void MainScene::killMonster(Monster& m)
     }
     m.state = MonsterState::Dead;
     _killCount++;
+    // 分裂怪：死亡时在原地裂出两只小快怪。注意这对不同伤害的克制关系——
+    // 单点箭：杀一只变两只（分裂怪的血条优势）；AOE 技能：子体出生在
+    // 爆炸半径内，同一帧的后续判定直接带走（AOE 一锅端）——一石二鸟的设计
+    if (m.type == MonsterType::Splitter)
+    {
+        const Vec2 c = m.node->getPosition();
+        spawnMinion(MonsterType::Fast, c + Vec2(-SPLIT_CHILD_OFFSET, 0));
+        spawnMinion(MonsterType::Fast, c + Vec2(SPLIT_CHILD_OFFSET, 0));
+    }
 }
 
-// 扣血统一入口：箭、火球、闪电都走这里。怪物有 hp 字段（当前全 1 血），
-// M1 的护盾怪会 >1——扣血与击杀分离，加新怪时不用再动伤害逻辑
+// 扣血统一入口：箭、火球、闪电都走这里。扣血与击杀分离，加新怪时不用再动伤害逻辑
 void MainScene::damageMonster(Monster& m, int dmg)
 {
     if (m.state == MonsterState::Dead)
     {
+        return;
+    }
+    // 护符怪的一次性全能护盾：挡【任何】伤害（箭和技能都挡）。挡下后重画皮，
+    // 金环消失——"盾破了"必须有即时视觉反馈，玩家才知道下一击能杀
+    if (m.shieldCharges > 0)
+    {
+        m.shieldCharges--;
+        spawnFx(0, m.node->getPosition() + Vec2(0, m.bodyR), m.bodyR + 10.0f, 0.2f);  // 碎盾闪光
+        applyMonsterSkin(m);
         return;
     }
     m.hp -= dmg;
@@ -711,12 +785,28 @@ void MainScene::updateArrows(float delta)
             {
                 continue;
             }
+            // 幽灵怪隐身时箭直接穿过（打不中），但技能 AOE 照吃——
+            // 和护盾怪正好反过来：一个逼你用技能，一个逼你掐时机
+            if (m.type == MonsterType::Ghost && m.ghostHidden)
+            {
+                continue;
+            }
             // 命中判定：箭尖点 vs 怪身圆。体型随类型缩放，所以用个体半径
             const float hitR    = m.bodyR + 6.0f;  // 身体半径 + 箭尖余量
             Vec2 bodyCenter = m.node->getPosition() + Vec2(0, m.bodyR);
             if ((pos - bodyCenter).lengthSquared() < hitR * hitR)
             {
-                damageMonster(m, 1);           // 箭矢 1 点伤害（当前怪全 1 血=命中即死）
+                // 护盾怪：箭矢免疫（抗性系统的萌芽——现在是最简 if，
+                // 将来伤害带类型字段、怪带抗性表，就不用在这里写死类型判断了）。
+                // 箭被弹开：给个小闪光反馈，让玩家知道"命中了但没掉血，得换技能"
+                if (m.type == MonsterType::Shield)
+                {
+                    spawnFx(0, bodyCenter, m.bodyR + 8.0f, 0.18f);  // 小号爆炸环当弹开闪光
+                }
+                else
+                {
+                    damageMonster(m, 1);       // 箭矢 1 点伤害
+                }
                 a.active = false;              // 箭也回收（命中即消失）
                 a.node->setVisible(false);
                 break;
@@ -773,6 +863,27 @@ ax::Vec2 MainScene::laneWallPos(int lane) const
     return Vec2(o.x + vs.width * SIDE_HOUSE_X_RATIO + 46.0f, o.y + vs.height * SIDE_GROUND_RATIO);
 }
 
+// 飞行怪游荡航点：在"远区空域"里随机取点。两种布局各自的空域定义不同——
+// 2.5D 是城墙与出怪线之间的整块矩形，侧视版是地面上方的一条空气带
+ax::Vec2 MainScene::pickFlyerWaypoint() const
+{
+    auto vs = _director->getVisibleSize();
+    auto o  = _director->getVisibleOrigin();
+    const float r1 = static_cast<float>(rand()) / RAND_MAX;
+    const float r2 = static_cast<float>(rand()) / RAND_MAX;
+    if (_battleLayout == BattleLayout::Oblique25D)
+    {
+        const float y0 = o.y + vs.height * (WALL_RATIO + 0.10f);    // 不贴城墙
+        const float y1 = o.y + vs.height * (SPAWN_RATIO - 0.06f);   // 不出出怪线
+        return Vec2(o.x + 50.0f + r1 * (vs.width - 100.0f), y0 + r2 * (y1 - y0));
+    }
+    // SideView：房子右侧到出怪口之间，地面上方 40~200px 的空气带
+    const float x0 = o.x + vs.width * SIDE_HOUSE_X_RATIO + 90.0f;
+    const float x1 = o.x + vs.width * SPAWN_RATIO - 40.0f;
+    const float yGround = o.y + vs.height * SIDE_GROUND_RATIO;
+    return Vec2(x0 + r1 * (x1 - x0), yGround + 40.0f + r2 * 160.0f);
+}
+
 // ---------------------------------------------------------------------------
 // 怪物对象池：与箭矢池同一个思想——开局一次建好，出怪=激活，死亡=隐藏归池
 // ---------------------------------------------------------------------------
@@ -802,31 +913,114 @@ void MainScene::initMonsterPool()
                              Color4F(1.0f, 0.9f, 0.2f, 1.0f), 3.0f);
         m.stunMark->setVisible(false);
         m.node->addChild(m.stunMark, 1);
+        // 蓄力标记：橙色光环（飞行怪攻击前摇的视觉提示——"它要出手了"）
+        m.windupMark = DrawNode::create();
+        m.windupMark->drawCircle(Vec2(0, MONSTER_BODY_R), MONSTER_BODY_R + 7.0f, 0.0f, 24, false,
+                                 Color4F(1.0f, 0.65f, 0.15f, 0.95f), 3.5f);
+        m.windupMark->setVisible(false);
+        m.node->addChild(m.windupMark, 1);
         _monsterPool.push_back(m);
     }
 }
 
-// 按类型画皮：普通怪=红色，快速怪=橙色偏小，远程怪=紫色
+// 按类型画皮。读图识怪原则：每种怪都有专属的"零件"（盾环/引信/翅膀/十字…），
+// 玩家不用记颜色，看零件就知道威胁类型和应对方式
 void MainScene::applyMonsterSkin(Monster& m)
 {
-    m.node->clear();  // DrawNode 可以清空重画，池化复用的关键
+    m.node->clear();  // DrawNode 可以清空重画，池化复用的关键（注意：只清自身，子节点标记不受影响）
     const float r = m.bodyR;
     const float k = r / MONSTER_BODY_R;  // 五官随体型等比缩放
     Color4F body;
     switch (m.type)
     {
-    case MonsterType::Fast:   body = Color4F(0.90f, 0.50f, 0.15f, 1.0f); break;  // 橙
-    case MonsterType::Ranged: body = Color4F(0.62f, 0.30f, 0.72f, 1.0f); break;  // 紫
-    default:                  body = Color4F(0.72f, 0.22f, 0.18f, 1.0f); break;  // 红
+    case MonsterType::Fast:     body = Color4F(0.90f, 0.50f, 0.15f, 1.0f); break;  // 橙
+    case MonsterType::Ranged:   body = Color4F(0.62f, 0.30f, 0.72f, 1.0f); break;  // 紫
+    case MonsterType::Shield:   body = Color4F(0.28f, 0.52f, 0.62f, 1.0f); break;  // 青钢
+    case MonsterType::Bomber:   body = Color4F(0.22f, 0.20f, 0.20f, 1.0f); break;  // 黑
+    case MonsterType::Flyer:    body = Color4F(0.88f, 0.88f, 0.82f, 1.0f); break;  // 浅白
+    case MonsterType::Healer:   body = Color4F(0.42f, 0.78f, 0.45f, 1.0f); break;  // 浅绿
+    case MonsterType::Splitter: body = Color4F(0.85f, 0.35f, 0.60f, 1.0f); break;  // 品红
+    case MonsterType::Rager:    body = Color4F(0.55f, 0.10f, 0.08f, 1.0f); break;  // 深红
+    case MonsterType::Ghost:    body = Color4F(0.80f, 0.88f, 0.95f, 1.0f); break;  // 幽白
+    case MonsterType::Summoner: body = Color4F(0.35f, 0.18f, 0.50f, 1.0f); break;  // 深紫
+    case MonsterType::Aegis:    body = Color4F(0.95f, 0.82f, 0.28f, 1.0f); break;  // 亮黄
+    case MonsterType::Boss:     body = Color4F(0.45f, 0.15f, 0.35f, 1.0f); break;  // 暗紫红
+    default:                    body = Color4F(0.72f, 0.22f, 0.18f, 1.0f); break;  // 红
     }
     const Color4F horn(0.50f, 0.12f, 0.10f, 1.0f);
     m.node->drawSolidCircle(Vec2(0, r), r, 0.0f, 20, body);  // 身体
-    m.node->drawSolidTriangle(Vec2(-r * 0.7f, r * 1.7f), Vec2(-r * 0.2f, r * 1.8f),
-                              Vec2(-r * 0.5f, r * 2.3f), horn, horn);  // 左角
-    m.node->drawSolidTriangle(Vec2(r * 0.7f, r * 1.7f), Vec2(r * 0.2f, r * 1.8f),
-                              Vec2(r * 0.5f, r * 2.3f), horn, horn);   // 右角
+    if (m.type != MonsterType::Ghost)  // 幽灵无角：轮廓圆润=非实体
+    {
+        m.node->drawSolidTriangle(Vec2(-r * 0.7f, r * 1.7f), Vec2(-r * 0.2f, r * 1.8f),
+                                  Vec2(-r * 0.5f, r * 2.3f), horn, horn);  // 左角
+        m.node->drawSolidTriangle(Vec2(r * 0.7f, r * 1.7f), Vec2(r * 0.2f, r * 1.8f),
+                                  Vec2(r * 0.5f, r * 2.3f), horn, horn);   // 右角
+    }
     m.node->drawSolidCircle(Vec2(-5 * k, r + 3 * k), 2.5f * k, 0.0f, 8, Color4F::WHITE);  // 左眼
     m.node->drawSolidCircle(Vec2(5 * k, r + 3 * k), 2.5f * k, 0.0f, 8, Color4F::WHITE);   // 右眼
+    // ---- 类型特征件 ----
+    if (m.type == MonsterType::Shield)
+    {
+        // 盾环：头顶一道亮青色弧线护盾（免箭的视觉承诺）
+        m.node->drawCircle(Vec2(0, r), r + 4.0f, 0.0f, 24, false, Color4F(0.55f, 0.90f, 1.0f, 0.95f), 3.0f);
+    }
+    else if (m.type == MonsterType::Bomber)
+    {
+        // 引信：头顶一撮橙色火花 + 腹部橙心（"我会爆"的危险信号）
+        m.node->drawSolidCircle(Vec2(0, r), r * 0.45f, 0.0f, 12, Color4F(1.0f, 0.55f, 0.10f, 1.0f));
+        m.node->drawLine(Vec2(0, r * 1.8f), Vec2(3 * k, r * 2.5f), Color4F(0.6f, 0.5f, 0.4f, 1.0f), 2.0f);
+        m.node->drawSolidCircle(Vec2(3 * k, r * 2.6f), 2.2f * k, 0.0f, 8, Color4F(1.0f, 0.75f, 0.15f, 1.0f));
+    }
+    else if (m.type == MonsterType::Flyer)
+    {
+        // 翅膀：身体两侧各一片三角形羽翼（会飞的游击手，看一眼就知道走位不老实）
+        const Color4F wing(0.70f, 0.78f, 0.85f, 1.0f);
+        m.node->drawSolidTriangle(Vec2(-r * 0.8f, r * 1.2f), Vec2(-r * 2.0f, r * 1.9f),
+                                  Vec2(-r * 0.8f, r * 0.6f), wing, wing);  // 左翼
+        m.node->drawSolidTriangle(Vec2(r * 0.8f, r * 1.2f), Vec2(r * 2.0f, r * 1.9f),
+                                  Vec2(r * 0.8f, r * 0.6f), wing, wing);   // 右翼
+    }
+    else if (m.type == MonsterType::Healer)
+    {
+        // 十字：头顶白色治疗十字（"我在给队友加血"）
+        const float cy = r * 2.4f;
+        m.node->drawSolidRect(Vec2(-1.8f * k, cy - 6 * k), Vec2(1.8f * k, cy + 6 * k), Color4F::WHITE);
+        m.node->drawSolidRect(Vec2(-6 * k, cy - 1.8f * k), Vec2(6 * k, cy + 1.8f * k), Color4F::WHITE);
+    }
+    else if (m.type == MonsterType::Splitter)
+    {
+        // 裂缝：身体中间一道白色竖缝（"我会一分为二"）
+        m.node->drawLine(Vec2(0, r * 0.3f), Vec2(0, r * 1.8f), Color4F(1, 1, 1, 0.85f), 2.5f);
+    }
+    else if (m.type == MonsterType::Rager)
+    {
+        // 怒眉：两道倒八斜线（"别把我打残"）
+        const Color4F brow(0.15f, 0.05f, 0.05f, 1.0f);
+        m.node->drawLine(Vec2(-8 * k, r + 8 * k), Vec2(-2 * k, r + 5 * k), brow, 2.5f);
+        m.node->drawLine(Vec2(8 * k, r + 8 * k), Vec2(2 * k, r + 5 * k), brow, 2.5f);
+    }
+    else if (m.type == MonsterType::Summoner)
+    {
+        // 法杖：身侧竖杖 + 顶端悬浮亮点（"我在造兵"）
+        m.node->drawLine(Vec2(r * 1.2f, 0), Vec2(r * 1.2f, r * 2.6f), Color4F(0.45f, 0.30f, 0.20f, 1.0f), 3.0f);
+        m.node->drawSolidCircle(Vec2(r * 1.2f, r * 2.8f), 2.5f * k, 0.0f, 8, Color4F(0.85f, 0.55f, 1.0f, 1.0f));
+    }
+    else if (m.type == MonsterType::Aegis && m.shieldCharges > 0)
+    {
+        // 护符泡：金色厚环（破盾后 applyMonsterSkin 重画，环就没了）
+        m.node->drawCircle(Vec2(0, r), r + 5.0f, 0.0f, 26, false, Color4F(1.0f, 0.85f, 0.25f, 0.95f), 4.0f);
+    }
+    else if (m.type == MonsterType::Boss)
+    {
+        // 王冠：头顶三个尖三角（全场最大的怪 + 唯一的冠）
+        const Color4F crown(1.0f, 0.80f, 0.20f, 1.0f);
+        for (int i = -1; i <= 1; ++i)
+        {
+            const float cx = i * r * 0.55f;
+            m.node->drawSolidTriangle(Vec2(cx - r * 0.22f, r * 1.9f), Vec2(cx + r * 0.22f, r * 1.9f),
+                                      Vec2(cx, r * 2.5f), crown, crown);
+        }
+    }
 }
 
 // 出生点按出生方向算：spawn=出怪线（默认）；left/right=侧翼，从屏外滑入
@@ -847,66 +1041,147 @@ ax::Vec2 MainScene::groupSpawnPos(const std::string& from, int lane) const
     return laneSpawnPos(lane);  // 默认：出怪线
 }
 
-void MainScene::spawnMonster(MonsterType type, int lane, const std::string& from)
+// 从池里找一个空槽位。对象池的核心操作：分配 = 翻标志位，不做内存分配
+// （返回类型要写全 MainScene::Monster——类外定义成员函数时，
+//   返回类型的名字查找发生在类的作用域之外，这是 C++ 的经典坑）
+MainScene::Monster* MainScene::allocMonster()
 {
     for (auto& m : _monsterPool)
     {
-        if (m.active)
+        if (!m.active)
         {
-            continue;
+            return &m;
         }
-        m.active      = true;
-        m.state       = MonsterState::Walk;
-        m.attackTimer = 0.0f;
-        m.slowTimer   = 0.0f;   // 技能状态复位（池化复用，上一局的减速/麻痹不能带过来）
-        m.stunTimer   = 0.0f;
-        m.hp          = 1;      // 当前全类型 1 血；M1 护盾怪起按类型给血
-        m.type        = type;
-        m.lane        = lane >= 0 ? lane % laneCount() : (laneCount() > 1 ? rand() % laneCount() : 0);
-        // 怪群感关键：同车道内横向抖动 + 个体速度差异。
-        // 抖动对出生点和终点施加同一份偏移，怪物沿"平移后的车道"走直线，
-        // 不会在半途被拉回车道中心线；侧翼滑入的不抖，保持轨迹干净
-        const float r1 = static_cast<float>(rand()) / RAND_MAX;  // 0~1
-        const float r2 = static_cast<float>(rand()) / RAND_MAX;
-        Vec2 jitter;
-        if (from == "spawn")
+    }
+    return nullptr;
+}
+
+// 战中生怪：分裂怪的子体、召唤怪的召唤物。和波次出怪的唯一区别是
+// 出生点由调用方指定（父怪死亡位置/召唤者身边），目标点直指城墙
+void MainScene::spawnMinion(MonsterType type, const Vec2& pos)
+{
+    Monster* m = allocMonster();
+    if (!m)
+    {
+        return;  // 池满就生不出来——池容量天然就是"召唤通胀"的刹车
+    }
+    m->lane = laneCount() > 1 ? rand() % laneCount() : 0;
+    setupMonster(*m, type, pos, laneWallPos(m->lane));
+}
+
+// 槽位初始化：状态复位 + 类型数值表 + 画皮。spawnMonster（波次出怪）和
+// spawnMinion（战中生怪）共用这一套，差异只在"出生点/目标点怎么算"
+void MainScene::setupMonster(Monster& m, MonsterType type, const Vec2& spawnPos, const Vec2& targetPos)
+{
+    m.active        = true;
+    m.state         = MonsterState::Walk;
+    m.attackTimer   = 0.0f;
+    m.slowTimer     = 0.0f;   // 技能状态复位（池化复用，上一局的减速/麻痹不能带过来）
+    m.stunTimer     = 0.0f;
+    m.windupTimer   = 0.0f;   // 攻击前摇复位（飞行怪/Boss）
+    m.hp            = 1;      // 基准 1 血；下方类型表里特殊怪会覆盖
+    m.shieldCharges = 0;      // 一次性护盾复位（护符怪在类型表里给 1 层）
+    m.ghostHidden   = false;  // 幽灵状态复位
+    m.ghostTimer    = GHOST_SHOW_TIME;
+    m.type          = type;
+    // 类型数值表：速度/体型/血量/攻击方式都由类型决定。
+    // 这就是"数值表驱动"的裸实现——加新怪只动这张表和画皮，驱动逻辑零改动
+    const float r2 = static_cast<float>(rand()) / RAND_MAX;  // 个体速度随机源
+    float speedMul  = 1.0f;
+    float bodyScale = 1.0f;
+    switch (type)
+    {
+    case MonsterType::Fast:     speedMul = FAST_SPEED_MUL;     bodyScale = FAST_BODY_SCALE;     break;
+    case MonsterType::Ranged:   speedMul = RANGED_SPEED_MUL;                                    break;
+    case MonsterType::Shield:   speedMul = SHIELD_SPEED_MUL;   bodyScale = SHIELD_BODY_SCALE;   m.hp = SHIELD_HP;   break;
+    case MonsterType::Bomber:   speedMul = BOMBER_SPEED_MUL;   bodyScale = BOMBER_BODY_SCALE;   break;
+    case MonsterType::Flyer:    speedMul = FLYER_SPEED_MUL;    bodyScale = FLYER_BODY_SCALE;    break;
+    case MonsterType::Healer:   speedMul = HEALER_SPEED_MUL;                                    m.hp = HEALER_HP;   break;
+    case MonsterType::Splitter: speedMul = SPLITTER_SPEED_MUL; bodyScale = SPLITTER_BODY_SCALE; m.hp = SPLITTER_HP; break;
+    case MonsterType::Rager:    speedMul = RAGER_SPEED_MUL;                                     m.hp = RAGER_HP;    break;
+    case MonsterType::Ghost:                                                                                      break;
+    case MonsterType::Summoner: speedMul = SUMMONER_SPEED_MUL;                                  m.hp = SUMMONER_HP; break;
+    case MonsterType::Aegis:    speedMul = AEGIS_SPEED_MUL;    bodyScale = AEGIS_BODY_SCALE;    m.shieldCharges = 1; break;
+    case MonsterType::Boss:     speedMul = BOSS_SPEED_MUL;     bodyScale = BOSS_BODY_SCALE;     m.hp = BOSS_HP;     break;
+    default:                                                                                    break;
+    }
+    m.maxHp = m.hp;  // 血量上限跟着初始值走（狂暴怪按 hp/maxHp 算狂暴加速）
+    m.speed = MONSTER_SPEED * speedMul * (0.85f + r2 * 0.3f);  // 0.85~1.15 倍
+    m.bodyR = MONSTER_BODY_R * bodyScale;
+    // 开火距离与攻击间隔：近战贴墙啃；远程/治疗/召唤按战场纵深比例停在各自的
+    // 功能位（比例而非写死像素，横竖屏都成立）；飞行怪/Boss 进场后开始游荡
+    const float fieldDepth = _director->getVisibleSize().height * (SPAWN_RATIO - WALL_RATIO);
+    if (type == MonsterType::Flyer)
+    {
+        const float t = static_cast<float>(rand()) / RAND_MAX;
+        m.attackRange    = fieldDepth * (FLYER_STOP_MIN + t * (FLYER_STOP_MAX - FLYER_STOP_MIN));
+        m.attackInterval = FLYER_ATTACK_INTERVAL;
+    }
+    else if (type == MonsterType::Ranged)
+    {
+        m.attackRange    = fieldDepth * RANGED_STOP_RATIO;
+        m.attackInterval = RANGED_ATTACK_INTERVAL;
+    }
+    else if (type == MonsterType::Healer)
+    {
+        m.attackRange    = fieldDepth * HEALER_STOP_RATIO;
+        m.attackInterval = HEALER_INTERVAL;   // attackTimer 复用为治疗脉冲计时
+    }
+    else if (type == MonsterType::Summoner)
+    {
+        m.attackRange    = fieldDepth * SUMMONER_STOP_RATIO;
+        m.attackInterval = SUMMONER_INTERVAL; // attackTimer 复用为召唤计时
+    }
+    else if (type == MonsterType::Boss)
+    {
+        m.attackRange    = fieldDepth * BOSS_STOP_RATIO;
+        m.attackInterval = BOSS_ATTACK_INTERVAL;
+    }
+    else
+    {
+        m.attackRange    = 6.0f;
+        m.attackInterval = 1.0f;
+    }
+    m.targetPos = targetPos;
+    if (type == MonsterType::Flyer || type == MonsterType::Boss)
+    {
+        m.wanderTarget = pickFlyerWaypoint();  // 进场后的第一个游荡航点
+        // 相位随机错开，避免所有飞行怪整齐划一地摆（集体同频摆动看着很假）
+        m.wanderPhase  = static_cast<float>(rand()) / RAND_MAX * 6.2832f;
+    }
+    m.node->setOpacity(255);  // 幽灵怪隐身降过透明度，槽位复用时要复位
+    m.node->setPosition(spawnPos);
+    applyMonsterSkin(m);
+    m.node->setVisible(true);
+}
+
+void MainScene::spawnMonster(MonsterType type, int lane, const std::string& from)
+{
+    Monster* m = allocMonster();
+    if (!m)
+    {
+        AXLOGD("怪物池已满（{} 只在场），本次出怪丢弃", MONSTER_POOL_SIZE);
+        return;
+    }
+    m->lane = lane >= 0 ? lane % laneCount() : (laneCount() > 1 ? rand() % laneCount() : 0);
+    // 怪群感关键：同车道内横向抖动 + 个体速度差异。
+    // 抖动对出生点和终点施加同一份偏移，怪物沿"平移后的车道"走直线，
+    // 不会在半途被拉回车道中心线；侧翼滑入的不抖，保持轨迹干净
+    const float r1 = static_cast<float>(rand()) / RAND_MAX;  // 0~1
+    Vec2 jitter;
+    if (from == "spawn")
+    {
+        if (_battleLayout == BattleLayout::Oblique25D)
         {
-            if (_battleLayout == BattleLayout::Oblique25D)
-            {
-                const float laneW = _director->getVisibleSize().width / LANE_COUNT;
-                jitter = Vec2((r1 - 0.5f) * laneW * 0.56f, 0);  // 行进方向垂直 → 左右散开
-            }
-            else
-            {
-                jitter = Vec2(0, (r1 - 0.5f) * 24.0f);          // 侧视行进水平 → 上下散开
-            }
-        }
-        // 类型数值：速度/体型/攻击方式都由类型表决定
-        const float speedMul  = type == MonsterType::Fast ? FAST_SPEED_MUL
-                              : type == MonsterType::Ranged ? RANGED_SPEED_MUL : 1.0f;
-        const float bodyScale = type == MonsterType::Fast ? FAST_BODY_SCALE : 1.0f;
-        m.speed          = MONSTER_SPEED * speedMul * (0.85f + r2 * 0.3f);  // 0.85~1.15 倍
-        m.bodyR          = MONSTER_BODY_R * bodyScale;
-        // 开火距离与攻击间隔：近战贴墙啃；远程走到远区边缘就停（按战场纵深
-        // 比例算，横竖屏/任意屏幕都停在"最远色带"下缘，而不是写死像素）
-        if (type == MonsterType::Ranged)
-        {
-            const float fieldDepth = _director->getVisibleSize().height * (SPAWN_RATIO - WALL_RATIO);
-            m.attackRange    = fieldDepth * RANGED_STOP_RATIO;
-            m.attackInterval = RANGED_ATTACK_INTERVAL;
+            const float laneW = _director->getVisibleSize().width / LANE_COUNT;
+            jitter = Vec2((r1 - 0.5f) * laneW * 0.56f, 0);  // 行进方向垂直 → 左右散开
         }
         else
         {
-            m.attackRange    = 6.0f;
-            m.attackInterval = 1.0f;
+            jitter = Vec2(0, (r1 - 0.5f) * 24.0f);          // 侧视行进水平 → 上下散开
         }
-        m.targetPos = laneWallPos(m.lane) + jitter;
-        m.node->setPosition(groupSpawnPos(from, m.lane) + jitter);
-        applyMonsterSkin(m);
-        m.node->setVisible(true);
-        return;
     }
-    AXLOGD("怪物池已满（{} 只在场），本次出怪丢弃", MONSTER_POOL_SIZE);
+    setupMonster(*m, type, groupSpawnPos(from, m->lane) + jitter, laneWallPos(m->lane) + jitter);
 }
 
 // ---------------------------------------------------------------------------
@@ -950,10 +1225,21 @@ bool MainScene::loadWaves()
                 SpawnGroupConfig cfg;
                 if (g.HasMember("type") && g["type"].IsString())
                 {
+                    // type 字符串 → 枚举的登记处：加新怪在这里补一行就能被波次配置驱动
                     const char* t = g["type"].GetString();
-                    cfg.type      = strcmp(t, "fast") == 0 ? MonsterType::Fast
-                                  : strcmp(t, "ranged") == 0 ? MonsterType::Ranged
-                                                             : MonsterType::Normal;
+                    if      (!strcmp(t, "fast"))     cfg.type = MonsterType::Fast;
+                    else if (!strcmp(t, "ranged"))   cfg.type = MonsterType::Ranged;
+                    else if (!strcmp(t, "shield"))   cfg.type = MonsterType::Shield;
+                    else if (!strcmp(t, "bomber"))   cfg.type = MonsterType::Bomber;
+                    else if (!strcmp(t, "flyer"))    cfg.type = MonsterType::Flyer;
+                    else if (!strcmp(t, "healer"))   cfg.type = MonsterType::Healer;
+                    else if (!strcmp(t, "splitter")) cfg.type = MonsterType::Splitter;
+                    else if (!strcmp(t, "rager"))    cfg.type = MonsterType::Rager;
+                    else if (!strcmp(t, "ghost"))    cfg.type = MonsterType::Ghost;
+                    else if (!strcmp(t, "summoner")) cfg.type = MonsterType::Summoner;
+                    else if (!strcmp(t, "aegis"))    cfg.type = MonsterType::Aegis;
+                    else if (!strcmp(t, "boss"))     cfg.type = MonsterType::Boss;
+                    else                             cfg.type = MonsterType::Normal;
                 }
                 if (g.HasMember("count") && g["count"].IsInt())
                 {
@@ -1125,6 +1411,23 @@ void MainScene::updateMonsters(float delta)
         {
             m.stunMark->setVisible(m.stunTimer > 0.0f);
         }
+        // 攻击前摇标记（飞行怪）：橙环亮起 = "它要出手了"
+        if (m.windupMark)
+        {
+            m.windupMark->setVisible(m.windupTimer > 0.0f);
+        }
+        // 幽灵怪：显形/隐身周期轮转。隐身时半透明（看得见打不中，给玩家预判的线索），
+        // 箭矢判定在 updateArrows 里跳过隐身个体
+        if (m.type == MonsterType::Ghost && m.state != MonsterState::Dead)
+        {
+            m.ghostTimer -= delta;
+            if (m.ghostTimer <= 0.0f)
+            {
+                m.ghostHidden = !m.ghostHidden;
+                m.ghostTimer  = m.ghostHidden ? GHOST_HIDE_TIME : GHOST_SHOW_TIME;
+                m.node->setOpacity(m.ghostHidden ? 70 : 255);  // 半透明而非全隐：保留威胁可读性
+            }
+        }
         switch (m.state)
         {
         case MonsterState::Walk:
@@ -1135,14 +1438,33 @@ void MainScene::updateMonsters(float delta)
             // 进入开火距离就停下：近战 6px（贴墙），远程 320px（停火线）
             if (dir.length() <= m.attackRange)
             {
-                m.state       = MonsterState::Attack;
-                m.attackTimer = m.attackInterval;  // 到站立刻来一发，不白等一拍
+                if (m.type == MonsterType::Bomber)
+                {
+                    // 自爆怪：不啃墙，到站直接爆——一次性大伤害 + 爆炸特效。
+                    // 被箭/技能提前点死走不到这里（killMonster 直接进 Dead），
+                    // 所以"提前点杀不爆"的策略空间天然成立
+                    spawnFx(0, pos + Vec2(0, m.bodyR), BOMBER_FX_RADIUS, 0.35f);
+                    damageWall(BOMBER_DAMAGE);
+                    killMonster(m);
+                    break;
+                }
+                m.state = MonsterState::Attack;
+                // 近战/远程到站立刻来一发，不白等一拍；飞行怪不加速——
+                // 它的攻击频率严格按间隔走（规格：移动不影响攻击节奏）
+                m.attackTimer = m.type == MonsterType::Flyer ? 0.0f : m.attackInterval;
                 break;
             }
             dir.normalize();
+            // 狂暴怪：血越少跑得越快（线性加速，空血时 +120%）——
+            // "要么集火秒掉，要么别碰它"的决策压力来源
+            float spd = m.speed;
+            if (m.type == MonsterType::Rager && m.maxHp > 0)
+            {
+                spd *= 1.0f + (1.0f - static_cast<float>(m.hp) / m.maxHp) * RAGER_SPEED_BOOST;
+            }
             // 减速不打断状态机，只在移动这一步打折——麻痹（15%）优先于冰冻（35%）
-            const float effSpeed = m.stunTimer > 0.0f ? m.speed * STUN_SLOW
-                                 : m.slowTimer > 0.0f ? m.speed * FREEZE_SLOW : m.speed;
+            const float effSpeed = m.stunTimer > 0.0f ? spd * STUN_SLOW
+                                 : m.slowTimer > 0.0f ? spd * FREEZE_SLOW : spd;
             m.node->setPosition(pos + dir * effSpeed * delta);
             break;
         }
@@ -1150,7 +1472,132 @@ void MainScene::updateMonsters(float delta)
         {
             if (m.stunTimer > 0.0f)
             {
-                break;  // 麻痹中：不能攻击（计时器也不走，解除后重新起手）
+                break;  // 麻痹中：不能攻击也不能动（计时器也不走，解除后重新起手）
+            }
+            // 飞行怪：游荡 ↔ 蓄力停滞 ↔ 发射 的循环。移动与攻击互斥——
+            // 要出手就得悬停（前摇看得见，玩家才有"快打断它"的反应窗口）
+            if (m.type == MonsterType::Flyer)
+            {
+                if (m.windupTimer > 0.0f)
+                {
+                    // 前摇中：悬停不动，计时走完才发射
+                    m.windupTimer -= delta;
+                    if (m.windupTimer <= 0.0f)
+                    {
+                        fireEnemyBolt(m.node->getPosition() + Vec2(0, m.bodyR), laneWallPos(m.lane),
+                                      FLYER_ATTACK_DAMAGE);
+                        m.attackTimer = 0.0f;  // 从发射这一刻重新计下一发，频率恒定
+                    }
+                    break;
+                }
+                // 游荡：朝航点飞，叠加垂直正弦摆动让轨迹带弧度；到航点换下一个
+                Vec2 pos = m.node->getPosition();
+                Vec2 dir = m.wanderTarget - pos;
+                if (dir.length() < 14.0f)
+                {
+                    m.wanderTarget = pickFlyerWaypoint();  // 到航点，换下一个
+                    dir            = m.wanderTarget - pos;
+                }
+                if (dir.lengthSquared() > 1.0f)
+                {
+                    dir.normalize();
+                    m.wanderPhase += FLYER_SWAY_FREQ * delta;
+                    // 曲线轨迹：直线速度 + 垂直方向正弦摆动（steering 的雏形）
+                    Vec2 sway(-dir.y * sinf(m.wanderPhase) * FLYER_SWAY_AMP,
+                              dir.x * sinf(m.wanderPhase) * FLYER_SWAY_AMP);
+                    const float effSpeed = m.slowTimer > 0.0f ? m.speed * FREEZE_SLOW : m.speed;
+                    m.node->setPosition(pos + (dir * effSpeed + sway) * delta);
+                }
+                m.attackTimer += delta;
+                if (m.attackTimer >= m.attackInterval)
+                {
+                    m.attackTimer = m.attackInterval;  // 钳住不溢出，前摇结束才清零
+                    m.windupTimer = FLYER_WINDUP;      // 进入前摇：悬停蓄力
+                }
+                break;
+            }
+            // Boss：游荡（复用飞行怪的航点机制）+ 长前摇 + 扇形三连发。
+            // 长前摇是玩家的集火窗口——看到橙环亮 1.2 秒，所有技能都该招呼上去
+            if (m.type == MonsterType::Boss)
+            {
+                if (m.windupTimer > 0.0f)
+                {
+                    m.windupTimer -= delta;
+                    if (m.windupTimer <= 0.0f)
+                    {
+                        // 扇形三连发：以正对城墙点为轴横向散开
+                        const Vec2 from = m.node->getPosition() + Vec2(0, m.bodyR);
+                        for (int i = 0; i < BOSS_BOLT_COUNT; ++i)
+                        {
+                            const float off = (i - (BOSS_BOLT_COUNT - 1) / 2.0f) * BOSS_BOLT_SPREAD;
+                            fireEnemyBolt(from, laneWallPos(m.lane) + Vec2(off, 0), BOSS_BOLT_DAMAGE);
+                        }
+                        m.attackTimer = 0.0f;
+                    }
+                    break;
+                }
+                Vec2 pos = m.node->getPosition();
+                Vec2 dir = m.wanderTarget - pos;
+                if (dir.length() < 20.0f)
+                {
+                    m.wanderTarget = pickFlyerWaypoint();  // 到航点换下一个（全场自由飞）
+                    dir            = m.wanderTarget - pos;
+                }
+                if (dir.lengthSquared() > 1.0f)
+                {
+                    dir.normalize();
+                    m.wanderPhase += FLYER_SWAY_FREQ * 0.6f * delta;  // Boss 体重大，摆动更沉稳
+                    Vec2 sway(-dir.y * sinf(m.wanderPhase) * FLYER_SWAY_AMP * 0.7f,
+                              dir.x * sinf(m.wanderPhase) * FLYER_SWAY_AMP * 0.7f);
+                    const float effSpeed = m.slowTimer > 0.0f ? m.speed * FREEZE_SLOW : m.speed;
+                    m.node->setPosition(pos + (dir * effSpeed + sway) * delta);
+                }
+                m.attackTimer += delta;
+                if (m.attackTimer >= m.attackInterval)
+                {
+                    m.attackTimer = m.attackInterval;
+                    m.windupTimer = BOSS_WINDUP;  // 进入大招前摇
+                }
+                break;
+            }
+            // 治疗怪：不打城墙，攻击计时复用为治疗脉冲——给半径内友军回血。
+            // 阵型克制的核心：它站在怪群后方，逼玩家越过前排点杀后排
+            if (m.type == MonsterType::Healer)
+            {
+                m.attackTimer += delta;
+                if (m.attackTimer >= m.attackInterval)
+                {
+                    m.attackTimer -= m.attackInterval;
+                    const Vec2 c  = m.node->getPosition();
+                    const float r2 = HEALER_RADIUS * HEALER_RADIUS;
+                    for (auto& o : _monsterPool)
+                    {
+                        if (!o.active || o.state == MonsterState::Dead || &o == &m)
+                        {
+                            continue;
+                        }
+                        if ((o.node->getPosition() - c).lengthSquared() < r2 && o.hp < o.maxHp)
+                        {
+                            o.hp = std::min(o.maxHp, o.hp + HEALER_AMOUNT);
+                        }
+                    }
+                    spawnFx(4, c + Vec2(0, m.bodyR), HEALER_RADIUS, 0.5f);  // 绿环治疗波
+                }
+                break;
+            }
+            // 召唤怪：不打城墙，攻击计时复用为召唤计时——在身边造普通怪。
+            // 不集火就越打越多；池容量是召唤通胀的天然刹车
+            if (m.type == MonsterType::Summoner)
+            {
+                m.attackTimer += delta;
+                if (m.attackTimer >= m.attackInterval)
+                {
+                    m.attackTimer -= m.attackInterval;
+                    const Vec2 at = m.node->getPosition() + Vec2(20.0f, 10.0f);
+                    spawnMinion(MonsterType::Normal, at);
+                    spawnFx(0, at, 30.0f, 0.25f);  // 召唤出现的小爆光
+                }
+                break;
             }
             m.attackTimer += delta;
             if (m.attackTimer >= m.attackInterval)
@@ -1159,7 +1606,7 @@ void MainScene::updateMonsters(float delta)
                 if (m.type == MonsterType::Ranged)
                 {
                     // 远程：发射弹丸，伤害在弹丸命中城墙时结算
-                    fireEnemyBolt(m.node->getPosition() + Vec2(0, m.bodyR), m.targetPos,
+                    fireEnemyBolt(m.node->getPosition() + Vec2(0, m.bodyR), laneWallPos(m.lane),
                                   RANGED_ATTACK_DAMAGE);
                 }
                 else
@@ -1835,6 +2282,14 @@ void MainScene::updateSkills(float delta)
             fx.node->drawLine(p2, p3, Color4F(1, 1, 1, alpha), 2.0f);
             fx.node->drawCircle(Vec2::ZERO, fx.radius * (0.4f + 0.6f * t), 0.0f, 24, false,
                                 Color4F(1.0f, 0.95f, 0.5f, alpha), 3.0f);
+        }
+        else if (fx.kind == 4)
+        {
+            // 治疗波：绿色圆环向外扩散 + 淡淡的填充（生命感 = 绿）
+            fx.node->drawSolidCircle(Vec2::ZERO, fx.radius * t, 0.0f, 26,
+                                     Color4F(0.35f, 0.90f, 0.45f, 0.20f * (1.0f - t)));
+            fx.node->drawCircle(Vec2::ZERO, fx.radius * t, 0.0f, 30, false,
+                                Color4F(0.45f, 1.0f, 0.55f, 0.9f * (1.0f - t)), 3.5f);
         }
         else
         {
