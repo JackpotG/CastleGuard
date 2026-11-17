@@ -25,14 +25,21 @@
 
 #include "MainScene.h"
 
-#include "rapidjson/document.h"  // 引擎自带 JSON 解析库（波次配置用）
+#if CG_DEBUG_TOOLS
+#    include "ImGui/ImGuiPresenter.h"  // 引擎扩展：手感调优面板（正式包剔除）
+#endif
+#include "rapidjson/document.h"        // 引擎自带 JSON 解析库（波次配置用）
 
 #include <algorithm>  // std::max
+#include <cfloat>     // FLT_MAX（闪电找最近主目标）
 #include <cstdlib>    // rand / srand
 #include <cstring>    // strcmp
 #include <ctime>      // time
 
 using namespace ax;
+#if CG_DEBUG_TOOLS
+USING_NS_AX_EXT;
+#endif
 
 // 场景实例计数（模板自带，调试用：每创建一个场景 +1，析构时置 -1）
 static int s_sceneID = 1000;
@@ -70,30 +77,64 @@ constexpr float SIDE_HOUSE_X_RATIO = 0.10f;
 
 // ---- 射箭系统 ----
 constexpr int   ARROW_POOL_SIZE = 32;       // 对象池容量：同时在屏箭矢上限
-constexpr float ARROW_SPEED     = 1000.0f;  // 箭矢初速（像素/秒）——手感调优清单第 1 项
-// 重力加速度（像素/秒²）。0 = 直线弹道；调成 600~900 就是抛物线——
-// 手感调优清单第 2 项"抛物线 vs 直线"，改这一个常量即可对比
-constexpr float ARROW_GRAVITY   = 0.0f;
+// 手感调优清单 4 项全在这（ImGui 面板实时拖滑杆，别编译了）：
+float ARROW_SPEED     = 1000.0f;  // ① 箭矢初速（像素/秒）
+// 重力加速度（像素/秒²）。0 = 直线弹道；调成 600~900 就是抛物线
+float ARROW_GRAVITY   = 0.0f;     // ② 抛物线 vs 直线
+float FIRE_INTERVAL   = 0.18f;    // ④ 连点射速上限（秒/发）
 constexpr float RAD2DEG         = 57.2957795f;  // 弧度→角度（180/π）
 
 // ---- 调试层 ----
+#if CG_DEBUG_TOOLS
 constexpr float DEBUG_BTN_SIZE  = 88.0f;    // 左上角"切换视角"按钮边长（设计像素）
+#endif
 
 // ---- 怪物系统 ----
 constexpr int   MONSTER_POOL_SIZE     = 48;     // 对象池容量：同时在屏怪物上限（怪群）
-constexpr float MONSTER_SPEED         = 70.0f;  // 推进速度基准（像素/秒），个体有 ±15% 差异
+float MONSTER_SPEED                   = 70.0f;  // ③ 推进速度基准（ImGui 可调），个体 ±15% 差异
 constexpr int   MONSTER_ATTACK_DAMAGE = 5;      // 啃墙伤害（每秒一口）
 constexpr float MONSTER_BODY_R        = 11.0f;  // 身体半径（占位圆，脚底为节点原点）
 // 怪物类型数值表：加新怪先加这里（数值），再去 applyMonsterSkin 加外观
 constexpr float FAST_SPEED_MUL        = 1.8f;   // 快速怪速度倍率
 constexpr float FAST_BODY_SCALE       = 0.8f;   // 快速怪体型倍率
 constexpr float RANGED_SPEED_MUL      = 0.9f;   // 远程怪走得稍慢
-constexpr float RANGED_STOP_RATIO     = 0.62f;  // 停火位：战场纵深的 62% 处 ≈ 远区（最远色带）下缘
+float RANGED_STOP_RATIO               = 0.62f;  // ⑤ 停火位：战场纵深比例（ImGui 可调）
 constexpr float RANGED_ATTACK_INTERVAL= 1.8f;   // 远程攻击间隔（秒）
 constexpr int   RANGED_ATTACK_DAMAGE  = 4;      // 每发弹丸伤害
 // ---- 敌方弹丸 ----
 constexpr int   ENEMY_BOLT_POOL_SIZE  = 16;     // 同时在屏弹丸上限
 constexpr float ENEMY_BOLT_SPEED      = 350.0f; // 弹丸速度（像素/秒，比箭慢，看得见飞）
+
+// ---- 技能系统（M1）----
+// 数值表驱动：调平衡只动这里。①②③ 对应手感调优面板滑杆
+constexpr float MANA_MAX         = 100.0f;
+float MANA_REGEN                 = 6.0f;    // ① 回蓝速度（点/秒，ImGui 可调）
+// 各技能 [冷却秒, 耗蓝]——顺序与 SkillType 枚举一致（火球/冰冻/箭雨/闪电）
+constexpr float SKILL_CD[4]      = {8.0f, 10.0f, 15.0f, 12.0f};
+constexpr float SKILL_MANA[4]    = {30.0f, 25.0f, 40.0f, 35.0f};
+// 火球
+float FIREBALL_RADIUS            = 90.0f;   // ② 爆炸半径（ImGui 可调）
+constexpr float FIREBALL_FLIGHT  = 0.6f;    // 飞行时间（秒）
+constexpr float FIREBALL_ARC_H   = 120.0f;  // 抛物线拱高（像素）
+// 冰冻
+constexpr float FREEZE_RADIUS    = 110.0f;  // 冰冻半径
+constexpr float FREEZE_DURATION  = 3.0f;    // 减速持续（秒）
+float FREEZE_SLOW                = 0.35f;   // ③ 减速后移速比例（ImGui 可调）
+// 箭雨
+constexpr float RAIN_RADIUS      = 100.0f;  // 箭雨覆盖半径
+constexpr int   RAIN_STRIKES     = 10;      // 落箭数量
+constexpr float RAIN_INTERVAL    = 0.15f;   // 落箭间隔（秒）
+constexpr float RAIN_HIT_R       = 26.0f;   // 单支箭点杀半径
+// 闪电（原作电系 1 阶）：主目标点杀 + 范围概率麻痹
+constexpr float LIGHTNING_RADIUS   = 80.0f;   // 麻痹生效半径
+constexpr float LIGHTNING_DIRECT_R = 30.0f;   // 直击半径：雷只劈中心点，劈中才有主目标击杀
+float LIGHTNING_STUN_CHANCE        = 0.8f;    // ④ 麻痹概率（ImGui 可调）
+constexpr float LIGHTNING_STUN_TIME= 2.0f;    // 麻痹时长（秒）
+constexpr float STUN_SLOW          = 0.15f;   // 麻痹时移速比例：大幅下降但仍能蠕动
+// 池容量与层级
+constexpr int   FIREBALL_POOL_SIZE = 4;
+constexpr int   FX_POOL_SIZE       = 12;
+constexpr float SKILL_BTN_SIZE     = 80.0f;
 }  // namespace
 
 // on "init" you need to initialize your instance
@@ -109,7 +150,11 @@ bool MainScene::init()
     /////////////////////////////
     // 2. 调试层：常驻"切换视角"按钮（先建好，buildBattlefield 会负责定位）
     // （12:04 模拟器黑屏曾误以为是它，实乃开发者工具实例损坏，已平反）
+#if CG_DEBUG_TOOLS
     initDebugUI();
+#endif
+    // 技能栏同理：必须先于 buildBattlefield 创建（布局重排在重建战场时统一做）
+    initSkillBar();
 
     /////////////////////////////
     // 3. 战场骨架：全部用 DrawNode 矢量绘制占位，不依赖美术资源
@@ -122,6 +167,8 @@ bool MainScene::init()
     initArrowPool();
     initMonsterPool();
     initEnemyBoltPool();
+    initFireballPool();  // M1 技能：火球弹体池
+    initFxPool();        // M1 技能：特效池（爆炸环/冰冻区/箭雨痕）
     srand((unsigned int)time(nullptr));  // 随机车道用（真随机源，调试期足够）
 
     /////////////////////////////
@@ -138,6 +185,9 @@ bool MainScene::init()
     }
 
     /////////////////////////////
+    // 5b. （技能栏已在第 2 步创建——buildBattlefield 会统一重排它的位置）
+
+    /////////////////////////////
     // 5. 输入监听：触摸射箭，键盘桌面调试用
     _touchListener                 = EventListenerTouchAllAtOnce::create();
     _touchListener->onTouchesBegan = AX_CALLBACK_2(MainScene::onTouchesBegan, this);
@@ -145,10 +195,13 @@ bool MainScene::init()
     _touchListener->onTouchesEnded = AX_CALLBACK_2(MainScene::onTouchesEnded, this);
     _eventDispatcher->addEventListenerWithSceneGraphPriority(_touchListener, this);
 
+#if CG_DEBUG_TOOLS
+    // 键盘监听只在开发版注册：桌面调试键（1/2 切视角、R 重开、Q/E 跳波、T 调参）
     _keyboardListener                = EventListenerKeyboard::create();
     _keyboardListener->onKeyPressed  = AX_CALLBACK_2(MainScene::onKeyPressed, this);
     _keyboardListener->onKeyReleased = AX_CALLBACK_2(MainScene::onKeyReleased, this);
     _eventDispatcher->addEventListenerWithFixedPriority(_keyboardListener, 11);
+#endif
 
     // scheduleUpdate() is required to ensure update(float) is called on every loop
     scheduleUpdate();
@@ -198,6 +251,24 @@ void MainScene::buildBattlefield(BattleLayout layout)
     {
         b.active = false;
         b.node->setVisible(false);
+    }
+    // 技能侧：飞行中火球/特效/待落箭雨一并回收（蓝量、冷却保留）
+    for (auto& f : _fireballPool)
+    {
+        f.active = false;
+        f.node->setVisible(false);
+    }
+    for (auto& fx : _fxPool)
+    {
+        fx.active = false;
+        fx.node->setVisible(false);
+    }
+    _rainQueue.clear();
+    _aimingSkill = -1;
+    _aimDragging = false;
+    if (_aimIndicator)
+    {
+        _aimIndicator->setVisible(false);
     }
 
     if (layout == BattleLayout::SideView)
@@ -311,32 +382,10 @@ void MainScene::buildBattlefield(BattleLayout layout)
         _battlefield->addChild(spawnLine, 1);
     }
 
-    // 调试按钮跟随布局定位：左上角留边区（避开右上角的微信胶囊菜单）
-    if (_debugBtn)
-    {
-        const float s = DEBUG_BTN_SIZE;
-        Vec2 p(origin.x + 16.0f, top - 16.0f - s);
-        _debugBtn->setPosition(p);
-        _debugBtnRect = Rect(p.x, p.y, s, s);
-    }
-    // 重开按钮：切换视角按钮正下方
-    if (_debugRestartBtn)
-    {
-        const float s = DEBUG_BTN_SIZE;
-        Vec2 p(origin.x + 16.0f, top - 16.0f - s - 12.0f - s);
-        _debugRestartBtn->setPosition(p);
-        _debugRestartBtnRect = Rect(p.x, p.y, s, s);
-    }
-    // ◀ ▶ 跳波按钮：第三排，左右并排
-    if (_debugPrevBtn && _debugNextBtn)
-    {
-        const float s  = DEBUG_BTN_SIZE;
-        const float y  = top - 16.0f - (s + 12.0f) * 2 - s;
-        _debugPrevBtn->setPosition(Vec2(origin.x + 16.0f, y));
-        _debugPrevBtnRect = Rect(origin.x + 16.0f, y, s, s);
-        _debugNextBtn->setPosition(Vec2(origin.x + 16.0f + s + 12.0f, y));
-        _debugNextBtnRect = Rect(origin.x + 16.0f + s + 12.0f, y, s, s);
-    }
+#if CG_DEBUG_TOOLS
+    layoutDebugUI(origin, top);  // 调试按钮重排（正式包无此函数）
+#endif
+    layoutSkillBar(origin, right);  // 技能栏重排（正式玩法 UI）
     // 波次 HUD：顶部居中
     if (_waveLabel)
     {
@@ -350,15 +399,16 @@ void MainScene::buildBattlefield(BattleLayout layout)
         beginWave(_waveIndex);
     }
 
-    AXLOGD("battlefield rebuilt: {}, visibleSize=({:.0f}, {:.0f})",
+    AXLOGD("战场已重建：{}，可见尺寸=({:.0f}, {:.0f})",
            layout == BattleLayout::Oblique25D ? "Oblique25D" : "SideView",
            visibleSize.width, visibleSize.height);
 }
 
+#if CG_DEBUG_TOOLS
 // ---------------------------------------------------------------------------
 // 调试层：左上角常驻"切换视角"按钮。
 // 微信模拟器里鼠标无法模拟双指、也没有键盘，调试入口必须是触屏可点的。
-// 按钮不挂在战场容器里（战场重建时不会被一起销毁），位置由 buildBattlefield 更新。
+// 按钮不挂在战场容器里（战场重建时不会被一起销毁），位置由 layoutDebugUI 更新。
 // ---------------------------------------------------------------------------
 void MainScene::initDebugUI()
 {
@@ -408,7 +458,129 @@ void MainScene::initDebugUI()
                            Vec2(s * 0.70f, s * 0.50f), w, w);  // ▶
     _debugNextBtn->addChild(bg4);
     addChild(_debugNextBtn, 10);
+
+    // ⚙ 手感调优面板（ImGui）：第三排最右，图标是三条滑杆
+    _debugTuneBtn = Node::create();
+    auto bg5 = DrawNode::create();
+    bg5->drawSolidRect(Vec2::ZERO, Vec2(s, s), Color4F(0.0f, 0.0f, 0.0f, 0.45f));
+    bg5->drawRect(Vec2::ZERO, Vec2(s, s), Color4F(1.0f, 1.0f, 1.0f, 0.7f));
+    for (int i = 0; i < 3; ++i)
+    {
+        const float y = s * (0.30f + i * 0.20f);
+        bg5->drawSolidRect(Vec2(s * 0.22f, y - 2), Vec2(s * 0.78f, y + 2), w);  // 横轨
+        const float knobX = s * (i % 2 == 0 ? 0.36f : 0.58f);                   // 滑块错开
+        bg5->drawSolidCircle(Vec2(knobX, y), 5.5f, 0.0f, 10, w);
+    }
+    _debugTuneBtn->addChild(bg5);
+    addChild(_debugTuneBtn, 10);
 }
+
+// 调试按钮跟随布局定位：左上角留边区（避开右上角的微信胶囊菜单）。
+// 三排：⇄ 切视角 / ↻ 重开 / ◀ ▶ ⚙（跳波 + 调参）
+void MainScene::layoutDebugUI(const Vec2& origin, float top)
+{
+    const float s = DEBUG_BTN_SIZE;
+    if (_debugBtn)
+    {
+        Vec2 p(origin.x + 16.0f, top - 16.0f - s);
+        _debugBtn->setPosition(p);
+        _debugBtnRect = Rect(p.x, p.y, s, s);
+    }
+    if (_debugRestartBtn)
+    {
+        Vec2 p(origin.x + 16.0f, top - 16.0f - s - 12.0f - s);
+        _debugRestartBtn->setPosition(p);
+        _debugRestartBtnRect = Rect(p.x, p.y, s, s);
+    }
+    const float y3 = top - 16.0f - (s + 12.0f) * 2 - s;  // 第三排
+    if (_debugPrevBtn && _debugNextBtn)
+    {
+        _debugPrevBtn->setPosition(Vec2(origin.x + 16.0f, y3));
+        _debugPrevBtnRect = Rect(origin.x + 16.0f, y3, s, s);
+        _debugNextBtn->setPosition(Vec2(origin.x + 16.0f + s + 12.0f, y3));
+        _debugNextBtnRect = Rect(origin.x + 16.0f + s + 12.0f, y3, s, s);
+    }
+    if (_debugTuneBtn)
+    {
+        const float x = origin.x + 16.0f + (s + 12.0f) * 2;
+        _debugTuneBtn->setPosition(Vec2(x, y3));
+        _debugTuneBtnRect = Rect(x, y3, s, s);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 手感调优面板（ImGui 扩展）：滑杆实时改参数，不用改代码重编译。
+// 原理：ImGui 是"立即模式"GUI——每帧重新描述一遍界面（没有持久的控件对象），
+// 通过 addRenderLoop 注册一个每帧回调，我们在回调里调用 ImGui:: 系列函数画窗口。
+// 面板显隐 = 添加/移除这个渲染循环，隐藏时零开销。
+// ---------------------------------------------------------------------------
+void MainScene::onEnter()
+{
+    Scene::onEnter();
+    // 中文字体在 toggleTuningPanel 首次打开时加载（fonts/NotoSansSC-Regular.ttf）
+}
+
+void MainScene::onExit()
+{
+    if (_tuningVisible)  // 场景退出时归还渲染循环，防止悬垂回调
+    {
+        ImGuiPresenter::getInstance()->removeRenderLoop("#tune");
+        _tuningVisible = false;
+    }
+    Scene::onExit();
+}
+
+void MainScene::toggleTuningPanel()
+{
+    _tuningVisible = !_tuningVisible;
+    if (_tuningVisible)
+    {
+        // 首次打开时加载中文字体（Noto Sans SC，OFL 协议可随意打包；
+        // ImGui 1.92 动态图集按需加载字形，不用操心字形范围）
+        static bool s_fontLoaded = false;
+        if (!s_fontLoaded)
+        {
+            ImGuiPresenter::getInstance()->addFont("fonts/NotoSansSC-Regular.ttf", 20.0f);
+            s_fontLoaded = true;
+        }
+        ImGuiPresenter::getInstance()->addRenderLoop("#tune", AX_CALLBACK_0(MainScene::onImGuiDraw, this),
+                                                     this);
+    }
+    else
+    {
+        ImGuiPresenter::getInstance()->removeRenderLoop("#tune");
+    }
+}
+
+void MainScene::onImGuiDraw()
+{
+    ImGui::SetNextWindowPos(ImVec2(130, 60), ImGuiCond_FirstUseEver);
+    // 不加 AlwaysAutoResize：ImGui 窗口默认可拖边缘/右下角调大小，给个初始尺寸即可
+    ImGui::SetNextWindowSize(ImVec2(420, 380), ImGuiCond_FirstUseEver);
+    ImGui::Begin("手感调优");
+    ImGui::Text("帧率: %.1f", 1.0f / ImGui::GetIO().DeltaTime);
+    ImGui::SeparatorText("射箭");
+    ImGui::SliderFloat("箭矢速度", &ARROW_SPEED, 300.0f, 2000.0f, "%.0f 像素/秒");
+    ImGui::SliderFloat("射速上限", &FIRE_INTERVAL, 0.05f, 0.50f, "%.2f 秒/发");
+    ImGui::SeparatorText("怪物");
+    ImGui::SliderFloat("怪物速度", &MONSTER_SPEED, 20.0f, 200.0f, "%.0f 像素/秒");
+    ImGui::SliderFloat("远程停火位", &RANGED_STOP_RATIO, 0.40f, 0.85f, "%.2f（纵深比）");
+    // 进阶参数：玩法实验性质，默认收起——抛物线弹道会显著改变瞄准手感，
+    // 属于"丰富玩法"的候选（比如后续做成可解锁的箭塔改造）
+    if (ImGui::CollapsingHeader("进阶参数（玩法实验）"))
+    {
+        ImGui::SliderFloat("抛物线重力", &ARROW_GRAVITY, 0.0f, 900.0f, "%.0f（0=直线弹道）");
+    }
+    ImGui::SeparatorText("技能（M1）");
+    ImGui::SliderFloat("回蓝速度", &MANA_REGEN, 0.0f, 20.0f, "%.1f 点/秒");
+    ImGui::SliderFloat("火球半径", &FIREBALL_RADIUS, 40.0f, 200.0f, "%.0f 像素");
+    ImGui::SliderFloat("冰冻强度", &FREEZE_SLOW, 0.05f, 1.0f, "%.2f（移速比例）");
+    ImGui::SliderFloat("闪电麻痹概率", &LIGHTNING_STUN_CHANCE, 0.0f, 1.0f, "%.2f");
+    ImGui::SeparatorText("战场状态");
+    ImGui::Text("城墙血量: %d  击杀: %d  蓝量: %.0f", _wallHP, _killCount, _mana);
+    ImGui::End();
+}
+#endif  // CG_DEBUG_TOOLS（调试层整块结束）
 
 // ---------------------------------------------------------------------------
 // 对象池初始化：开局一次性创建 ARROW_POOL_SIZE 支箭，全部隐藏。
@@ -441,6 +613,11 @@ void MainScene::initArrowPool()
 // ---------------------------------------------------------------------------
 void MainScene::fireArrow(const ax::Vec2& target)
 {
+    // 射速上限：冷却没转好就忽略这次点击（手感调优清单第 4 项）
+    if (_fireCooldown > 0.0f)
+    {
+        return;
+    }
     Vec2 dir = target - _archerPos;
     if (dir.lengthSquared() < 1.0f)
     {
@@ -462,10 +639,39 @@ void MainScene::fireArrow(const ax::Vec2& target)
         // 【顺时针】为正的角度制，而 atan2 是数学系逆时针弧度 → 取负再转角度
         a.node->setRotation(-atan2f(dir.y, dir.x) * RAD2DEG);
         a.node->setVisible(true);
+        _fireCooldown = FIRE_INTERVAL;  // 射出才进冷却
         return;
     }
-    // 池满了：说明射速超过回收速度——手感调优清单"连点射速上限"的入口
-    AXLOGD("arrow pool full ({} in flight), shot dropped", ARROW_POOL_SIZE);
+    AXLOGD("箭矢池已满（{} 支在飞），本次射击丢弃", ARROW_POOL_SIZE);
+}
+
+// ---------------------------------------------------------------------------
+// 击杀统一入口：箭矢命中和技能 AOE 都走这里。进 Dead 状态而非直接回收——
+// 回池动作由 updateMonsters 统一做（遍历中不改池状态，更安全）
+// ---------------------------------------------------------------------------
+void MainScene::killMonster(Monster& m)
+{
+    if (m.state == MonsterState::Dead)
+    {
+        return;
+    }
+    m.state = MonsterState::Dead;
+    _killCount++;
+}
+
+// 扣血统一入口：箭、火球、闪电都走这里。怪物有 hp 字段（当前全 1 血），
+// M1 的护盾怪会 >1——扣血与击杀分离，加新怪时不用再动伤害逻辑
+void MainScene::damageMonster(Monster& m, int dmg)
+{
+    if (m.state == MonsterState::Dead)
+    {
+        return;
+    }
+    m.hp -= dmg;
+    if (m.hp <= 0)
+    {
+        killMonster(m);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -510,8 +716,7 @@ void MainScene::updateArrows(float delta)
             Vec2 bodyCenter = m.node->getPosition() + Vec2(0, m.bodyR);
             if ((pos - bodyCenter).lengthSquared() < hitR * hitR)
             {
-                m.state = MonsterState::Dead;  // 怪进 Dead 状态，updateMonsters 回收
-                _killCount++;
+                damageMonster(m, 1);           // 箭矢 1 点伤害（当前怪全 1 血=命中即死）
                 a.active = false;              // 箭也回收（命中即消失）
                 a.node->setVisible(false);
                 break;
@@ -580,6 +785,23 @@ void MainScene::initMonsterPool()
         m.node = DrawNode::create();  // 空壳：外观推迟到出生时按类型画（槽位与外观分离）
         m.node->setVisible(false);
         addChild(m.node, 2);  // zOrder 2：战场之上、箭矢（3）之下
+        // 冰冻标记：蓝色圆环，画在怪身体上方，slowTimer>0 时才可见
+        // （DrawNode 画完颜色就固定了，没法整体变色，减速外观用叠加节点实现）
+        m.slowMark = DrawNode::create();
+        m.slowMark->drawCircle(Vec2(0, MONSTER_BODY_R), MONSTER_BODY_R + 5.0f, 0.0f, 20, false,
+                               Color4F(0.35f, 0.75f, 1.0f, 0.9f), 3.0f);
+        m.slowMark->setVisible(false);
+        m.node->addChild(m.slowMark, 1);
+        // 麻痹标记：黄色锯齿电纹（两道折线），闪电技能的 stun 视觉
+        m.stunMark = DrawNode::create();
+        m.stunMark->drawLine(Vec2(-6, MONSTER_BODY_R * 2.4f), Vec2(0, MONSTER_BODY_R * 2.0f),
+                             Color4F(1.0f, 0.9f, 0.2f, 1.0f), 3.0f);
+        m.stunMark->drawLine(Vec2(0, MONSTER_BODY_R * 2.0f), Vec2(-4, MONSTER_BODY_R * 1.6f),
+                             Color4F(1.0f, 0.9f, 0.2f, 1.0f), 3.0f);
+        m.stunMark->drawLine(Vec2(6, MONSTER_BODY_R * 2.4f), Vec2(2, MONSTER_BODY_R * 2.0f),
+                             Color4F(1.0f, 0.9f, 0.2f, 1.0f), 3.0f);
+        m.stunMark->setVisible(false);
+        m.node->addChild(m.stunMark, 1);
         _monsterPool.push_back(m);
     }
 }
@@ -636,6 +858,9 @@ void MainScene::spawnMonster(MonsterType type, int lane, const std::string& from
         m.active      = true;
         m.state       = MonsterState::Walk;
         m.attackTimer = 0.0f;
+        m.slowTimer   = 0.0f;   // 技能状态复位（池化复用，上一局的减速/麻痹不能带过来）
+        m.stunTimer   = 0.0f;
+        m.hp          = 1;      // 当前全类型 1 血；M1 护盾怪起按类型给血
         m.type        = type;
         m.lane        = lane >= 0 ? lane % laneCount() : (laneCount() > 1 ? rand() % laneCount() : 0);
         // 怪群感关键：同车道内横向抖动 + 个体速度差异。
@@ -681,7 +906,7 @@ void MainScene::spawnMonster(MonsterType type, int lane, const std::string& from
         m.node->setVisible(true);
         return;
     }
-    AXLOGD("monster pool full ({} active), spawn dropped", MONSTER_POOL_SIZE);
+    AXLOGD("怪物池已满（{} 只在场），本次出怪丢弃", MONSTER_POOL_SIZE);
 }
 
 // ---------------------------------------------------------------------------
@@ -699,7 +924,7 @@ bool MainScene::loadWaves()
     // 兜底：配置系统的自我修养——文件缺失/格式错误，游戏也不能瘫
     if (doc.HasParseError() || !doc.IsObject() || !doc.HasMember("waves") || !doc["waves"].IsArray())
     {
-        AXLOGD("waves.json missing or invalid, fallback to built-in wave");
+        AXLOGD("waves.json 缺失或格式错误，启用内置兜底波次");
         WaveConfig w;
         w.name      = "兜底波（waves.json 加载失败）";
         w.restAfter = 3.0f;
@@ -761,7 +986,7 @@ bool MainScene::loadWaves()
             _waves.push_back(std::move(w));
         }
     }
-    AXLOGD("waves loaded: {}", _waves.size());
+    AXLOGD("波次配置已加载：{} 波", _waves.size());
     return true;
 }
 
@@ -780,7 +1005,7 @@ void MainScene::beginWave(size_t index)
     {
         _waveLabel->setString(w.name);
     }
-    AXLOGD("wave {}/{} begin: {}", index + 1, _waves.size(), w.name);
+    AXLOGD("波次 {}/{} 开始：{}", index + 1, _waves.size(), w.name);
 }
 
 void MainScene::updateWaves(float delta)
@@ -859,7 +1084,7 @@ void MainScene::updateWaves(float delta)
                 {
                     _waveLabel->setString("已守住全部波次！");
                 }
-                AXLOGD("all waves cleared, kills={}", _killCount);
+                AXLOGD("全部波次已守住！击杀={}", _killCount);
             }
         }
         break;
@@ -882,6 +1107,24 @@ void MainScene::updateMonsters(float delta)
         {
             continue;
         }
+        // 冰冻减速（技能系统）：计时衰减 + 蓝环标记显隐
+        if (m.slowTimer > 0.0f)
+        {
+            m.slowTimer -= delta;
+        }
+        if (m.slowMark)
+        {
+            m.slowMark->setVisible(m.slowTimer > 0.0f);
+        }
+        // 闪电麻痹：计时衰减 + 黄电纹显隐；麻痹=移速大降（15%）+ 不能攻击
+        if (m.stunTimer > 0.0f)
+        {
+            m.stunTimer -= delta;
+        }
+        if (m.stunMark)
+        {
+            m.stunMark->setVisible(m.stunTimer > 0.0f);
+        }
         switch (m.state)
         {
         case MonsterState::Walk:
@@ -897,11 +1140,18 @@ void MainScene::updateMonsters(float delta)
                 break;
             }
             dir.normalize();
-            m.node->setPosition(pos + dir * m.speed * delta);
+            // 减速不打断状态机，只在移动这一步打折——麻痹（15%）优先于冰冻（35%）
+            const float effSpeed = m.stunTimer > 0.0f ? m.speed * STUN_SLOW
+                                 : m.slowTimer > 0.0f ? m.speed * FREEZE_SLOW : m.speed;
+            m.node->setPosition(pos + dir * effSpeed * delta);
             break;
         }
         case MonsterState::Attack:
         {
+            if (m.stunTimer > 0.0f)
+            {
+                break;  // 麻痹中：不能攻击（计时器也不走，解除后重新起手）
+            }
             m.attackTimer += delta;
             if (m.attackTimer >= m.attackInterval)
             {
@@ -927,6 +1177,7 @@ void MainScene::updateMonsters(float delta)
     }
 }
 
+#if CG_DEBUG_TOOLS
 // ---------------------------------------------------------------------------
 // 调试用重开：清场（三池全收）+ 城墙满血 + 回到第 1 波。
 // 注意全程没有 new/delete——对象本来就是池化的，"重置"只是改状态位，
@@ -949,6 +1200,18 @@ void MainScene::clearField()
         b.active = false;
         b.node->setVisible(false);
     }
+    // 技能侧同步清场：火球/特效/待落箭雨
+    for (auto& f : _fireballPool)
+    {
+        f.active = false;
+        f.node->setVisible(false);
+    }
+    for (auto& fx : _fxPool)
+    {
+        fx.active = false;
+        fx.node->setVisible(false);
+    }
+    _rainQueue.clear();
 }
 
 void MainScene::resetGame()
@@ -956,15 +1219,23 @@ void MainScene::resetGame()
     clearField();
     _wallHP    = WALL_MAX_HP;
     _killCount = 0;
+    _mana      = MANA_MAX;  // 技能系统：蓝量冷却一并复位
+    for (int i = 0; i < SKILL_COUNT; ++i)
+    {
+        _cdRemaining[i] = 0.0f;
+    }
+    _aimingSkill = -1;
+    _rainQueue.clear();
     _waveState = WaveState::Idle;  // 下一帧 updateWaves 自动 beginWave(0)
     if (_waveLabel)
     {
         _waveLabel->setString("");
     }
-    AXLOGD("game reset by debug");
+    AXLOGD("已通过调试面板重开（清场满血满蓝回第 1 波）");
 }
 
-// 调试跳波：跳到指定波（清场，但不动城墙血量和击杀数——那是 resetGame 的事）
+// 调试跳波：跳到指定波（清场 + 城墙满血——跳波是为了能立刻开测，
+// 城墙 0 血时波次状态机是冻结的，不回血跳了也不出怪；击杀数保留便于对比）
 void MainScene::gotoWave(int offset)
 {
     if (_waves.empty())
@@ -974,9 +1245,11 @@ void MainScene::gotoWave(int offset)
     int next = static_cast<int>(_waveIndex) + offset;
     next     = std::clamp(next, 0, static_cast<int>(_waves.size()) - 1);
     clearField();
+    _wallHP = WALL_MAX_HP;
     beginWave(static_cast<size_t>(next));
-    AXLOGD("jump to wave {}", next + 1);
+    AXLOGD("调试跳波：第 {} 波", next + 1);
 }
+#endif  // CG_DEBUG_TOOLS
 
 // ---------------------------------------------------------------------------
 // 城墙扣血统一入口：近战啃咬和远程弹丸都走这里，城破判定只有一处
@@ -984,9 +1257,14 @@ void MainScene::gotoWave(int offset)
 void MainScene::damageWall(int dmg)
 {
     _wallHP = std::max(0, _wallHP - dmg);
-    AXLOGD("wall HP: {}, kills: {}", _wallHP, _killCount);
+    AXLOGD("城墙血量：{}，击杀：{}", _wallHP, _killCount);
     if (_wallHP == 0)
     {
+        // 城破后波次状态机冻结（updateWaves 守卫），给个肉眼可见的提示
+        if (_waveLabel)
+        {
+            _waveLabel->setString("城墙告破！点 ↻ 重开");
+        }
         AXLOGD("城墙告破！（后续做结算画面）");
     }
 }
@@ -1031,7 +1309,7 @@ void MainScene::fireEnemyBolt(const Vec2& from, const Vec2& target, int damage)
         b.node->setVisible(true);
         return;
     }
-    AXLOGD("enemy bolt pool full, dropped");
+    AXLOGD("敌方弹丸池已满，本次发射丢弃");
 }
 
 void MainScene::updateEnemyBolts(float delta)
@@ -1055,6 +1333,556 @@ void MainScene::updateEnemyBolts(float delta)
     }
 }
 
+// =========================== 技能系统（M1） ===========================
+// 三段式：点按钮（tryAimSkill 进瞄准）→ 点战场（castSkill 释放）→ 结算。
+// 双资源模型：冷却（每技能独立计时）+ 蓝量（全局共享、自动回复）——
+// 冷却管"节奏"，蓝量管"取舍"，两个旋钮策划可以分别调。
+// ---------------------------------------------------------------------------
+
+// 技能按钮 + 蓝条 + 提示文本。技能 UI 是正式玩法，不进 CG_DEBUG_TOOLS。
+void MainScene::initSkillBar()
+{
+    const float s                   = SKILL_BTN_SIZE;
+    const char* names[SKILL_COUNT]  = {"火球", "冰冻", "箭雨", "闪电"};
+    for (int i = 0; i < SKILL_COUNT; ++i)
+    {
+        auto btn = Node::create();
+        auto bg  = DrawNode::create();
+        bg->drawSolidRect(Vec2::ZERO, Vec2(s, s), Color4F(0.10f, 0.10f, 0.14f, 0.75f));  // 底
+        bg->drawRect(Vec2::ZERO, Vec2(s, s), Color4F(1.0f, 1.0f, 1.0f, 0.8f), 2.0f);     // 框
+        // 图标（画在按钮上部，下部留给名称）
+        const Vec2 c(s * 0.5f, s * 0.62f);
+        switch (i)
+        {
+        case 0:  // 火球：橙红实心圆 + 三簇火苗
+        {
+            const Color4F fire(0.95f, 0.42f, 0.10f, 1.0f);
+            bg->drawSolidCircle(c, 15.0f, 0.0f, 16, fire);
+            bg->drawSolidCircle(c, 7.0f, 0.0f, 12, Color4F(1.0f, 0.85f, 0.35f, 1.0f));
+            for (int k = -1; k <= 1; ++k)
+            {
+                bg->drawSolidTriangle(c + Vec2(k * 10.0f - 4, 14), c + Vec2(k * 10.0f + 4, 14),
+                                      c + Vec2(k * 12.0f, 26), fire, fire);
+            }
+            break;
+        }
+        case 1:  // 冰冻：冰蓝圆环 + 雪花（三条交叉线）
+        {
+            const Color4F ice(0.40f, 0.78f, 1.0f, 1.0f);
+            bg->drawCircle(c, 15.0f, 0.0f, 20, false, ice, 3.0f);
+            for (int k = 0; k < 3; ++k)
+            {
+                const float a = k * 1.0472f;  // 60° 间隔
+                Vec2 d(cosf(a) * 13.0f, sinf(a) * 13.0f);
+                bg->drawLine(c - d, c + d, ice, 3.0f);
+            }
+            break;
+        }
+        case 2:  // 箭雨：三支并排向下的小箭
+        {
+            const Color4F gold(0.92f, 0.80f, 0.35f, 1.0f);
+            for (int k = -1; k <= 1; ++k)
+            {
+                const float x = c.x + k * 12.0f;
+                bg->drawSolidRect(Vec2(x - 1.5f, c.y - 6), Vec2(x + 1.5f, c.y + 12), gold);
+                bg->drawSolidTriangle(Vec2(x - 5, c.y - 6), Vec2(x + 5, c.y - 6),
+                                      Vec2(x, c.y - 16), gold, gold);
+            }
+            break;
+        }
+        default:  // 闪电：黄色锯齿闪电形
+        {
+            const Color4F bolt(1.0f, 0.88f, 0.20f, 1.0f);
+            bg->drawSolidTriangle(c + Vec2(-4, 18), c + Vec2(10, 18), c + Vec2(2, 2), bolt, bolt);
+            bg->drawSolidTriangle(c + Vec2(-8, 4), c + Vec2(4, 4), c + Vec2(-2, -16), bolt, bolt);
+            break;
+        }
+        }
+        btn->addChild(bg, 0);
+
+        // 冷却遮罩：黑色半透明从底部向上盖，高度 = 剩余冷却比例（每帧重画）
+        auto shade = DrawNode::create();
+        btn->addChild(shade, 1);
+        _skillCdShade[i] = shade;
+
+        // 冷却剩余秒数（居中，冷却时才显示）
+        auto cdLabel = Label::createWithSystemFont("", "Arial", 32);
+        cdLabel->setPosition(Vec2(s * 0.5f, s * 0.5f));
+        btn->addChild(cdLabel, 2);
+        _skillCdLabel[i] = cdLabel;
+
+        // 技能名（按钮内底部）
+        auto name = Label::createWithSystemFont(names[i], "Arial", 20);
+        name->setPosition(Vec2(s * 0.5f, 14.0f));
+        btn->addChild(name, 2);
+        _skillNameLabel[i] = name;
+
+        addChild(btn, 5);  // zOrder 5：HUD 层
+        _skillBtns[i] = btn;
+    }
+
+    // 蓝条：DrawNode 每帧重画（两条矩形，开销可忽略）
+    _manaBar = DrawNode::create();
+    addChild(_manaBar, 5);
+
+    // 瞄准/报错提示：屏幕中部，平时隐藏
+    _skillHint = Label::createWithSystemFont("", "Arial", 26);
+    _skillHint->setTextColor(Color4B(255, 230, 140, 255));
+    _skillHint->setVisible(false);
+    addChild(_skillHint, 5);
+
+    // 瞄准范围指示圈：瞄准时跟随手指（拖动）/鼠标（悬停），抬起或点击战场时释放
+    _aimIndicator = DrawNode::create();
+    _aimIndicator->setVisible(false);
+    addChild(_aimIndicator, 4);  // 特效层级
+}
+
+// 技能栏跟随布局：底部居中横排，蓝条在按钮正上方
+void MainScene::layoutSkillBar(const Vec2& origin, float right)
+{
+    const float s        = SKILL_BTN_SIZE;
+    const float gap      = 16.0f;
+    const float totalW   = SKILL_COUNT * s + (SKILL_COUNT - 1) * gap;
+    const float centerX  = (origin.x + right) * 0.5f;
+    const float btnY     = origin.y + 20.0f;
+    for (int i = 0; i < SKILL_COUNT; ++i)
+    {
+        if (!_skillBtns[i])
+        {
+            continue;
+        }
+        const float x = centerX - totalW * 0.5f + i * (s + gap);
+        _skillBtns[i]->setPosition(Vec2(x, btnY));
+        _skillBtnRects[i] = Rect(x, btnY, s, s);
+    }
+    if (_manaBar)
+    {
+        _manaBar->setPosition(Vec2(centerX - totalW * 0.5f, btnY + s + 8.0f));
+    }
+    if (_skillHint)
+    {
+        auto vs = _director->getVisibleSize();
+        _skillHint->setPosition(Vec2(centerX, origin.y + vs.height * 0.62f));
+    }
+}
+
+// 点技能按钮：再点同一个 = 取消；冷却中/蓝不足 → 提示
+void MainScene::tryAimSkill(int index)
+{
+    if (_aimingSkill == index)
+    {
+        _aimingSkill = -1;  // 取消瞄准
+        _aimDragging = false;
+        _aimIndicator->setVisible(false);
+        _skillHint->setVisible(false);
+        return;
+    }
+    if (_cdRemaining[index] > 0.0f)
+    {
+        _skillHint->setString("技能冷却中…");
+        _skillHint->setVisible(true);
+        _skillHintTimer = 1.2f;
+        return;
+    }
+    if (_mana < SKILL_MANA[index])
+    {
+        _skillHint->setString("蓝量不足！");
+        _skillHint->setVisible(true);
+        _skillHintTimer = 1.2f;
+        return;
+    }
+    _aimingSkill = index;
+    const char* names[SKILL_COUNT] = {"火球", "冰冻", "箭雨", "闪电"};
+    _skillHint->setString(StringUtils::format("「%s」在战场按下选择落点，抬起释放", names[index]));
+    _skillHint->setVisible(true);
+    _skillHintTimer = 0.0f;  // 瞄准提示常驻（松手也不消失，直到释放/取消）
+    // 注意：预瞄阶段不显示范围圈——在战场上按下才出现（Stark 定的交互规格）
+    AXLOGD("进入瞄准：{}", names[index]);
+}
+
+// 按技能类型重画范围指示圈并移动到目标位置（每技能半径/配色不同）
+void MainScene::updateAimIndicator(const Vec2& pos)
+{
+    if (_aimingSkill < 0 || !_aimIndicator)
+    {
+        return;
+    }
+    float radius;
+    Color4F color;
+    switch (static_cast<SkillType>(_aimingSkill))
+    {
+    case SkillType::Fireball:  radius = FIREBALL_RADIUS;  color = Color4F(0.95f, 0.45f, 0.10f, 1.0f); break;
+    case SkillType::Freeze:    radius = FREEZE_RADIUS;    color = Color4F(0.40f, 0.78f, 1.00f, 1.0f); break;
+    case SkillType::Lightning: radius = LIGHTNING_RADIUS; color = Color4F(1.00f, 0.90f, 0.20f, 1.0f); break;
+    default:                   radius = RAIN_RADIUS;      color = Color4F(0.92f, 0.80f, 0.35f, 1.0f); break;
+    }
+    _aimIndicator->clear();
+    _aimIndicator->drawSolidCircle(Vec2::ZERO, radius, 0.0f, 32, Color4F(color.r, color.g, color.b, 0.15f));
+    _aimIndicator->drawCircle(Vec2::ZERO, radius, 0.0f, 40, false, Color4F(color.r, color.g, color.b, 0.9f), 3.0f);
+    if (static_cast<SkillType>(_aimingSkill) == SkillType::Lightning)
+    {
+        // 闪电多画一个直击内圈：只有内圈劈中才有主目标击杀，外圈只是麻痹范围
+        _aimIndicator->drawCircle(Vec2::ZERO, LIGHTNING_DIRECT_R, 0.0f, 24, false, Color4F(color.r, color.g, color.b, 0.95f), 2.0f);
+    }
+    _aimIndicator->drawSolidCircle(Vec2::ZERO, 4.0f, 0.0f, 10, Color4F(color.r, color.g, color.b, 0.9f));  // 中心点
+    _aimIndicator->setPosition(pos);
+    _aimIndicator->setVisible(true);
+}
+
+// 释放技能：扣蓝、进冷却、按类型结算。落点=手指抬起/鼠标点击处（世界坐标）
+void MainScene::castSkill(const Vec2& pos)
+{
+    const int i = _aimingSkill;
+    if (i < 0)
+    {
+        return;
+    }
+    // 二次校验：瞄准期间蓝量可能被其他释放扣掉，释放前必须再看一眼
+    if (_cdRemaining[i] > 0.0f || _mana < SKILL_MANA[i])
+    {
+        _aimingSkill = -1;
+        _aimDragging = false;
+        _aimIndicator->setVisible(false);
+        _skillHint->setVisible(false);
+        return;
+    }
+    _mana -= SKILL_MANA[i];
+    _cdRemaining[i] = SKILL_CD[i];
+    _aimingSkill    = -1;
+    _aimDragging    = false;
+    _aimIndicator->setVisible(false);
+    _skillHint->setVisible(false);
+
+    switch (static_cast<SkillType>(i))
+    {
+    case SkillType::Fireball:
+    {
+        // 火球不是立即结算：先有 0.6s 抛物线弹体，落点才爆炸（打击感的来源）
+        for (auto& f : _fireballPool)
+        {
+            if (f.active)
+            {
+                continue;
+            }
+            f.active = true;
+            f.from   = _archerPos;
+            f.target = pos;
+            f.t      = 0.0f;
+            f.node->setPosition(_archerPos);
+            f.node->setVisible(true);
+            break;
+        }
+        break;
+    }
+    case SkillType::Freeze:
+    {
+        // AOE 判定：落点圆心 vs 每个怪的身体中心，距离平方比较（不开根号）
+        const float r2 = FREEZE_RADIUS * FREEZE_RADIUS;
+        for (auto& m : _monsterPool)
+        {
+            if (!m.active || m.state == MonsterState::Dead)
+            {
+                continue;
+            }
+            Vec2 bodyCenter = m.node->getPosition() + Vec2(0, m.bodyR);
+            if ((bodyCenter - pos).lengthSquared() < r2)
+            {
+                m.slowTimer = FREEZE_DURATION;  // 减速挂计时器，移动时打折
+            }
+        }
+        spawnFx(1, pos, FREEZE_RADIUS, FREEZE_DURATION);  // 冰冻区域视觉
+        break;
+    }
+    case SkillType::ArrowRain:
+    {
+        // 排程 10 支箭：每支配"何时落 + 落在哪"，由 updateSkills 到点结算
+        for (int k = 0; k < RAIN_STRIKES; ++k)
+        {
+            const float a  = static_cast<float>(rand()) / RAND_MAX * 6.2832f;
+            const float rr = static_cast<float>(rand()) / RAND_MAX * RAIN_RADIUS;
+            _rainQueue.push_back({k * RAIN_INTERVAL, pos + Vec2(cosf(a) * rr, sinf(a) * rr)});
+        }
+        break;
+    }
+    case SkillType::Lightning:
+    {
+        // 闪电（原作电系）：雷只劈【中心点】——直击半径内的最近怪吃致命一击，
+        // 劈空则没有主目标击杀；外圈到作用半径之间的怪各自掷一次麻痹判定。
+        // 伤害与控制分离，和火球的"全灭"拉开定位。
+        // 注意：麻痹用的是和冰冻一样的计时器裸实现，通用 buff/debuff 框架留给 M2
+        const float directR2 = LIGHTNING_DIRECT_R * LIGHTNING_DIRECT_R;  // 直击圈
+        const float auraR2   = LIGHTNING_RADIUS * LIGHTNING_RADIUS;      // 麻痹圈
+        Monster* nearest     = nullptr;
+        float nearestDistSq  = FLT_MAX;
+        for (auto& m : _monsterPool)  // 第一遍：直击圈内找最近主目标
+        {
+            if (!m.active || m.state == MonsterState::Dead)
+            {
+                continue;
+            }
+            Vec2 bodyCenter = m.node->getPosition() + Vec2(0, m.bodyR);
+            const float d2  = (bodyCenter - pos).lengthSquared();  // 不开根号比远近
+            if (d2 < directR2 && d2 < nearestDistSq)
+            {
+                nearestDistSq = d2;
+                nearest       = &m;
+            }
+        }
+        for (auto& m : _monsterPool)  // 第二遍：麻痹圈内非主目标概率麻痹
+        {
+            if (!m.active || m.state == MonsterState::Dead || &m == nearest)
+            {
+                continue;
+            }
+            Vec2 bodyCenter = m.node->getPosition() + Vec2(0, m.bodyR);
+            if ((bodyCenter - pos).lengthSquared() < auraR2 &&
+                static_cast<float>(rand()) / RAND_MAX < LIGHTNING_STUN_CHANCE)
+            {
+                m.stunTimer = LIGHTNING_STUN_TIME;  // 范围怪：概率麻痹
+            }
+        }
+        if (nearest)
+        {
+            damageMonster(*nearest, 99);  // 主目标：直接电穿（高伤害，为以后多血怪预留）
+        }
+        spawnFx(3, pos, LIGHTNING_RADIUS, 0.3f);  // 雷电劈落特效
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+void MainScene::initFireballPool()
+{
+    _fireballPool.reserve(FIREBALL_POOL_SIZE);
+    for (int i = 0; i < FIREBALL_POOL_SIZE; ++i)
+    {
+        Fireball f;
+        f.node = DrawNode::create();
+        f.node->drawSolidCircle(Vec2::ZERO, 11.0f, 0.0f, 14, Color4F(0.95f, 0.40f, 0.08f, 1.0f));
+        f.node->drawSolidCircle(Vec2::ZERO, 5.0f, 0.0f, 10, Color4F(1.0f, 0.88f, 0.40f, 1.0f));
+        f.node->setVisible(false);
+        addChild(f.node, 4);  // 特效层级
+        _fireballPool.push_back(f);
+    }
+}
+
+void MainScene::initFxPool()
+{
+    // 特效专用层：集中管理"活几秒就消失"的图形，层级在箭矢（3）之上、HUD（5）之下
+    _effectLayer = Node::create();
+    addChild(_effectLayer, 4);
+
+    _fxPool.reserve(FX_POOL_SIZE);
+    for (int i = 0; i < FX_POOL_SIZE; ++i)
+    {
+        Fx fx;
+        fx.node = DrawNode::create();
+        fx.node->setVisible(false);
+        _effectLayer->addChild(fx.node);
+        _fxPool.push_back(fx);
+    }
+}
+
+// 取一个特效槽位：图形内容在 updateSkills 里按 age 每帧重画（动画 = 重画参数）
+void MainScene::spawnFx(int kind, const Vec2& pos, float radius, float duration)
+{
+    for (auto& fx : _fxPool)
+    {
+        if (fx.active)
+        {
+            continue;
+        }
+        fx.active   = true;
+        fx.kind     = kind;
+        fx.pos      = pos;
+        fx.radius   = radius;
+        fx.duration = duration;
+        fx.age      = 0.0f;
+        fx.node->setPosition(pos);
+        fx.node->setVisible(true);
+        return;
+    }
+}
+
+// 每帧：回蓝、冷却衰减、火球飞行、箭雨落箭、特效动画、HUD 刷新
+void MainScene::updateSkills(float delta)
+{
+    // ① 双资源回复：蓝量自动回，冷却各自减
+    _mana = std::min(MANA_MAX, _mana + MANA_REGEN * delta);
+    for (int i = 0; i < SKILL_COUNT; ++i)
+    {
+        _cdRemaining[i] = std::max(0.0f, _cdRemaining[i] - delta);
+    }
+
+    // 提示文本的自动隐藏（瞄准提示常驻，不走路径）
+    if (_skillHintTimer > 0.0f)
+    {
+        _skillHintTimer -= delta;
+        if (_skillHintTimer <= 0.0f && _aimingSkill < 0)
+        {
+            _skillHint->setVisible(false);
+        }
+    }
+
+    // ② 火球弹体：抛物线 = 两点线性插值（lerp）+ 一个先升后降的拱高项。
+    //    4t(1-t) 是经典的"归一化抛物线"：t=0/1 时为 0，t=0.5 时最高
+    for (auto& f : _fireballPool)
+    {
+        if (!f.active)
+        {
+            continue;
+        }
+        f.t += delta / FIREBALL_FLIGHT;
+        if (f.t >= 1.0f)
+        {
+            // 落点爆炸：AOE 直伤 = 半径内全部击杀
+            const float r2 = FIREBALL_RADIUS * FIREBALL_RADIUS;
+            for (auto& m : _monsterPool)
+            {
+                if (!m.active || m.state == MonsterState::Dead)
+                {
+                    continue;
+                }
+                Vec2 bodyCenter = m.node->getPosition() + Vec2(0, m.bodyR);
+                if ((bodyCenter - f.target).lengthSquared() < r2)
+                {
+                    killMonster(m);
+                }
+            }
+            spawnFx(0, f.target, FIREBALL_RADIUS, 0.4f);  // 爆炸扩散环
+            f.active = false;
+            f.node->setVisible(false);
+            continue;
+        }
+        const float arc = FIREBALL_ARC_H * 4.0f * f.t * (1.0f - f.t);
+        f.node->setPosition(f.from + (f.target - f.from) * f.t + Vec2(0, arc));
+    }
+
+    // ③ 箭雨落箭：到点结算小半径点杀 + 落痕特效
+    for (size_t i = 0; i < _rainQueue.size();)
+    {
+        auto& tick = _rainQueue[i];
+        tick.delay -= delta;
+        if (tick.delay > 0.0f)
+        {
+            ++i;
+            continue;
+        }
+        const float r2 = RAIN_HIT_R * RAIN_HIT_R;
+        for (auto& m : _monsterPool)
+        {
+            if (!m.active || m.state == MonsterState::Dead)
+            {
+                continue;
+            }
+            Vec2 bodyCenter = m.node->getPosition() + Vec2(0, m.bodyR);
+            if ((bodyCenter - tick.pos).lengthSquared() < r2)
+            {
+                killMonster(m);
+            }
+        }
+        spawnFx(2, tick.pos, 0.0f, 0.25f);
+        _rainQueue.erase(_rainQueue.begin() + i);  // 结算即删（每帧最多 10 个，erase 开销无感）
+    }
+
+    // ④ 特效动画：按 age/duration 重画，播完归池
+    for (auto& fx : _fxPool)
+    {
+        if (!fx.active)
+        {
+            continue;
+        }
+        fx.age += delta;
+        const float t = fx.age / fx.duration;  // 播放进度 0→1
+        if (t >= 1.0f)
+        {
+            fx.active = false;
+            fx.node->setVisible(false);
+            continue;
+        }
+        fx.node->clear();
+        if (fx.kind == 0)
+        {
+            // 爆炸：半径扩散 + 透明度衰减（DrawNode 动画的本质 = 每帧重画）
+            fx.node->drawSolidCircle(Vec2::ZERO, fx.radius * (0.3f + 0.7f * t), 0.0f, 24,
+                                     Color4F(1.0f, 0.55f, 0.15f, 0.55f * (1.0f - t)));
+            fx.node->drawCircle(Vec2::ZERO, fx.radius * t, 0.0f, 28, false,
+                                Color4F(1.0f, 0.85f, 0.40f, 1.0f - t), 4.0f);
+        }
+        else if (fx.kind == 1)
+        {
+            // 冰冻区：半透明蓝圆常驻，边缘描亮（持续整个减速时间）
+            fx.node->drawSolidCircle(Vec2::ZERO, fx.radius, 0.0f, 28,
+                                     Color4F(0.35f, 0.75f, 1.0f, 0.18f));
+            fx.node->drawCircle(Vec2::ZERO, fx.radius, 0.0f, 32, false,
+                                Color4F(0.50f, 0.85f, 1.0f, 0.7f * (1.0f - t * 0.5f)), 3.0f);
+        }
+        else if (fx.kind == 3)
+        {
+            // 雷电：从高空劈落的锯齿折线（每次重画都随机抖一下，模拟电弧闪烁）
+            //       + 落点光圈扩散。白亮芯 + 黄边双层线
+            const float alpha = 1.0f - t;
+            const float h     = fx.radius * 2.6f;  // 从多高处劈下
+            Vec2 p0(0, h), p1(-fx.radius * 0.22f, h * 0.66f), p2(fx.radius * 0.18f, h * 0.33f), p3(0, 0);
+            const Color4F bolt(1.0f, 0.95f, 0.55f, alpha);
+            fx.node->drawLine(p0, p1, bolt, 7.0f);
+            fx.node->drawLine(p1, p2, bolt, 6.0f);
+            fx.node->drawLine(p2, p3, bolt, 5.0f);
+            fx.node->drawLine(p0, p1, Color4F(1, 1, 1, alpha), 3.0f);
+            fx.node->drawLine(p1, p2, Color4F(1, 1, 1, alpha), 2.5f);
+            fx.node->drawLine(p2, p3, Color4F(1, 1, 1, alpha), 2.0f);
+            fx.node->drawCircle(Vec2::ZERO, fx.radius * (0.4f + 0.6f * t), 0.0f, 24, false,
+                                Color4F(1.0f, 0.95f, 0.5f, alpha), 3.0f);
+        }
+        else
+        {
+            // 箭雨落痕：一支从上方扎下来的白亮短线，快速淡出
+            const float len = 120.0f * (1.0f - t);
+            fx.node->drawSolidRect(Vec2(-2.0f, 0), Vec2(2.0f, len),
+                                   Color4F(0.95f, 0.95f, 1.0f, 0.9f * (1.0f - t)));
+        }
+    }
+
+    refreshSkillHUD();
+}
+
+// 蓝条与冷却遮罩重画。HUD 每帧重画几条矩形是 DrawNode 的常规用法，开销可忽略
+void MainScene::refreshSkillHUD()
+{
+    if (_manaBar)
+    {
+        const float totalW = SKILL_COUNT * SKILL_BTN_SIZE + (SKILL_COUNT - 1) * 16.0f;
+        _manaBar->clear();
+        _manaBar->drawSolidRect(Vec2::ZERO, Vec2(totalW, 14.0f), Color4F(0.08f, 0.08f, 0.12f, 0.8f));
+        _manaBar->drawSolidRect(Vec2(2, 2), Vec2(2.0f + (totalW - 4.0f) * (_mana / MANA_MAX), 12.0f),
+                                Color4F(0.25f, 0.55f, 1.0f, 0.95f));
+        _manaBar->drawRect(Vec2::ZERO, Vec2(totalW, 14.0f), Color4F(1, 1, 1, 0.6f));
+    }
+    for (int i = 0; i < SKILL_COUNT; ++i)
+    {
+        if (!_skillCdShade[i])
+        {
+            continue;
+        }
+        _skillCdShade[i]->clear();
+        if (_cdRemaining[i] > 0.0f)
+        {
+            const float h = SKILL_BTN_SIZE * (_cdRemaining[i] / SKILL_CD[i]);
+            _skillCdShade[i]->drawSolidRect(Vec2::ZERO, Vec2(SKILL_BTN_SIZE, h),
+                                            Color4F(0.0f, 0.0f, 0.0f, 0.65f));
+            _skillCdLabel[i]->setString(StringUtils::format("%d", static_cast<int>(_cdRemaining[i]) + 1));
+        }
+        else
+        {
+            _skillCdLabel[i]->setString("");
+        }
+        // 瞄准中的按钮放大一点 = 选中态（零贴图的按钮高亮方案）
+        _skillBtns[i]->setScale(i == _aimingSkill ? 1.15f : 1.0f);
+    }
+}
+
 void MainScene::onTouchesBegan(const std::vector<ax::Touch*>& touches, ax::Event* event)
 {
     // 输入优先级：调试按钮 > 双指手势 > 射箭。
@@ -1062,6 +1890,7 @@ void MainScene::onTouchesBegan(const std::vector<ax::Touch*>& touches, ax::Event
     // 这就是最朴素的"UI 按钮"实现（一个矩形 + 点包含判定）
     for (auto&& t : touches)
     {
+#if CG_DEBUG_TOOLS
         if (_debugBtnRect.containsPoint(t->getLocation()))
         {
             buildBattlefield(_battleLayout == BattleLayout::Oblique25D ? BattleLayout::SideView
@@ -1083,8 +1912,31 @@ void MainScene::onTouchesBegan(const std::vector<ax::Touch*>& touches, ax::Event
             gotoWave(1);  // ▶ 下一波
             return;
         }
+        if (_debugTuneBtnRect.containsPoint(t->getLocation()))
+        {
+            toggleTuningPanel();  // ⚙ 手感调优面板
+            return;
+        }
+#endif
+        // 技能按钮（正式玩法 UI）：按下只进/退瞄准模式，不显示范围圈
+        for (int i = 0; i < SKILL_COUNT; ++i)
+        {
+            if (_skillBtnRects[i].containsPoint(t->getLocation()))
+            {
+                tryAimSkill(i);
+                return;
+            }
+        }
+        // 瞄准模式下在战场【按下】：范围圈出现并开始跟随（拖动调整，抬起释放）
+        if (_aimingSkill >= 0)
+        {
+            _aimDragging = true;
+            updateAimIndicator(t->getLocation());
+            return;
+        }
     }
 
+#if CG_DEBUG_TOOLS
     // 双指点击 = 切换视角版本（真机手势；模拟器请用左上角调试按钮）
     // EventListenerTouchAllAtOnce 的 touches 数组长度 = 当前按下的手指数
     if (touches.size() >= 2)
@@ -1093,6 +1945,8 @@ void MainScene::onTouchesBegan(const std::vector<ax::Touch*>& touches, ax::Event
                                                                    : BattleLayout::Oblique25D);
         return;
     }
+#endif
+    // 瞄准模式下的战场按下已在上面处理（显示范围圈），释放由 onTouchesEnded 结算
     for (auto&& t : touches)
     {
         // 单指点击屏幕 → 从箭手位向点击方向射箭
@@ -1103,15 +1957,27 @@ void MainScene::onTouchesBegan(const std::vector<ax::Touch*>& touches, ax::Event
 
 void MainScene::onTouchesMoved(const std::vector<ax::Touch*>& touches, ax::Event* event)
 {
+    // 技能瞄准拖动：范围指示圈跟随手指（只有"战场上按下后"才进入这个状态）
+    if (_aimingSkill >= 0 && _aimDragging && !touches.empty())
+    {
+        updateAimIndicator(touches[0]->getLocation());
+    }
 }
 
 void MainScene::onTouchesEnded(const std::vector<ax::Touch*>& touches, ax::Event* event)
 {
+    // 技能释放：战场上抬起手指 = 在抬起处释放
+    if (_aimingSkill >= 0 && _aimDragging && !touches.empty())
+    {
+        _aimDragging = false;
+        castSkill(touches[0]->getLocation());
+    }
 }
 
 void MainScene::onKeyPressed(ax::EventKeyboard::KeyCode code, ax::Event* event)
 {
-    // 桌面调试：按 1 = 纯侧视角（新增风格版），按 2 = 伪 2.5D 斜俯视（原作构图）
+#if CG_DEBUG_TOOLS
+    // 桌面调试键：1/2 切视角、R 重开、Q/E 跳波、T 调参（正式包无键盘监听）
     if (code == EventKeyboard::KeyCode::KEY_1 && _battleLayout != BattleLayout::SideView)
     {
         buildBattlefield(BattleLayout::SideView);
@@ -1122,16 +1988,25 @@ void MainScene::onKeyPressed(ax::EventKeyboard::KeyCode code, ax::Event* event)
     }
     else if (code == EventKeyboard::KeyCode::KEY_R)
     {
-        resetGame();  // 桌面调试：R = 重开（清场满血回第 1 波）
+        resetGame();
     }
     else if (code == EventKeyboard::KeyCode::KEY_Q)
     {
-        gotoWave(-1);  // Q = 上一波
+        gotoWave(-1);
     }
     else if (code == EventKeyboard::KeyCode::KEY_E)
     {
-        gotoWave(1);  // E = 下一波
+        gotoWave(1);
     }
+    else if (code == EventKeyboard::KeyCode::KEY_T)
+    {
+        toggleTuningPanel();
+    }
+    else if (code >= EventKeyboard::KeyCode::KEY_3 && code <= EventKeyboard::KeyCode::KEY_6)
+    {
+        tryAimSkill(static_cast<int>(code) - static_cast<int>(EventKeyboard::KeyCode::KEY_3));
+    }
+#endif
 }
 
 void MainScene::onKeyReleased(ax::EventKeyboard::KeyCode code, ax::Event* event)
@@ -1161,10 +2036,14 @@ void MainScene::update(float delta)
         // 波次管理：JSON 数据驱动出怪（取代写死的固定间隔）
         updateWaves(delta);
 
-        // 游戏主循环：怪物移动、箭矢飞行、敌方弹丸、碰撞判定都在这里驱动
+        // 射箭冷却每帧衰减（连点射速上限）
+        _fireCooldown = std::max(0.0f, _fireCooldown - delta);
+
+        // 游戏主循环：怪物移动、箭矢飞行、敌方弹丸、技能系统都在这里驱动
         updateMonsters(delta);
         updateArrows(delta);
         updateEnemyBolts(delta);
+        updateSkills(delta);  // M1：回蓝/冷却/火球弹道/箭雨/特效
         break;
     }
 

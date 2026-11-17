@@ -27,6 +27,14 @@
 
 #include "axmol.h"
 
+// 调试内容开关（CMake 选项 -DCG_DEBUG_TOOLS=ON/OFF 注入）：
+// 1 = 开发版（调试按钮、ImGui 调参面板、桌面调试键都可用）；
+// 0 = 正式包，上述代码经预处理整块剔除，不编进二进制。
+// 不经过 CMake 的兜底默认是开发版（1）。
+#ifndef CG_DEBUG_TOOLS
+#define CG_DEBUG_TOOLS 1
+#endif
+
 class MainScene : public ax::Scene
 {
     enum class GameState
@@ -42,6 +50,10 @@ class MainScene : public ax::Scene
 public:
     bool init() override;
     void update(float delta) override;
+#if CG_DEBUG_TOOLS
+    void onEnter() override;   // 正式包里这两个 override 只为 ImGui 服务，一并剔除
+    void onExit() override;
+#endif
 
     // touch
     void onTouchesBegan(const std::vector<ax::Touch*>& touches, ax::Event* event);
@@ -86,9 +98,11 @@ private:
     std::vector<Arrow> _arrowPool;
     ax::Vec2 _archerPos = ax::Vec2::ZERO;      // 箭手发射点（随布局重建更新）
 
-    // ---- 调试层 ----
+    // ---- 调试层（CG_DEBUG_TOOLS=0 时整块不编译，正式包零残留） ----
+#if CG_DEBUG_TOOLS
     // 常驻调试按钮（模拟器里没有键盘也无法双指，用它切换视角）
     void initDebugUI();
+    void layoutDebugUI(const ax::Vec2& origin, float top);  // 随布局重建重排按钮
     ax::Node* _debugBtn = nullptr;
     ax::Rect _debugBtnRect;  // 按钮热区（世界坐标，随布局重建更新）
     ax::Node* _debugRestartBtn = nullptr;  // 重开按钮（清场满血回第 1 波）
@@ -97,9 +111,18 @@ private:
     ax::Rect _debugPrevBtnRect;
     ax::Node* _debugNextBtn = nullptr;     // ▶ 下一波
     ax::Rect _debugNextBtnRect;
+    ax::Node* _debugTuneBtn = nullptr;     // ⚙ 手感调优面板（ImGui）
+    ax::Rect _debugTuneBtnRect;
     void resetGame();        // 调试用：三池清场、城墙满血、从第 1 波重打
     void gotoWave(int offset);             // 调试跳波：offset = ±1（清场但不动血量）
     void clearField();                     // 三池回收（不动血量/波次状态）
+
+    // ---- 手感调优面板（ImGui 扩展） ----
+    void toggleTuningPanel();              // 显示/隐藏面板（添加/移除渲染循环）
+    void onImGuiDraw();                    // ImGui 每帧回调：画滑杆
+    bool _tuningVisible = false;
+#endif
+    float _fireCooldown = 0.0f;            // 射速上限冷却（游戏机制，正式包保留）
 
     // ---- 怪物系统 ----
     // 简单状态机：走（沿车道向城墙推进）→ 攻击（到墙啃咬扣血）→ 死（回池）
@@ -131,6 +154,11 @@ private:
         float attackTimer    = 0.0f;    // 攻击节奏计时
         float attackRange    = 6.0f;    // 开火距离：近战=6px 贴墙，远程=停火线
         float attackInterval = 1.0f;    // 攻击间隔（近战每秒一口，远程更慢）
+        float slowTimer      = 0.0f;    // 冰冻剩余时间（>0 时移速打折扣，技能系统）
+        float stunTimer      = 0.0f;    // 麻痹剩余时间（>0 时不能移动不能攻击，闪电技能）
+        int  hp              = 1;       // 血量（当前全是 1 血；M1 护盾怪起开始 >1）
+        ax::DrawNode* slowMark = nullptr;  // 冰冻标记（蓝环，挂在怪节点上，减速时可见）
+        ax::DrawNode* stunMark = nullptr;  // 麻痹标记（黄电纹，麻痹时可见）
         bool active        = false;
     };
     void initMonsterPool();
@@ -162,6 +190,78 @@ private:
     void fireEnemyBolt(const ax::Vec2& from, const ax::Vec2& target, int damage);
     void updateEnemyBolts(float delta);
     std::vector<EnemyBolt> _boltPool;
+
+    // ---- 技能系统（M1：AOE 火球 / 冰冻减速 / 箭雨）----
+    // 三段结构：技能按钮（HUD）→ 瞄准模式（点战场选落点）→ 释放结算。
+    // 学习点：① 冷却+耗蓝双资源 ② AOE=落点圆 vs 怪身圆的距离判定
+    //         ③ 特效也走对象池，并收进独立层级（_effectLayer）管理
+    enum class SkillType
+    {
+        Fireball = 0,  // AOE 直伤
+        Freeze,        // 范围减速
+        ArrowRain,     // 持续多段点杀
+        Lightning,     // 主目标点杀 + 范围概率麻痹（原作电系 1 阶）
+        Count,
+    };
+    static constexpr int SKILL_COUNT = static_cast<int>(SkillType::Count);
+
+    void initSkillBar();                                       // 技能按钮 + 蓝条（init 建一次）
+    void layoutSkillBar(const ax::Vec2& origin, float right);  // 随布局重建重排
+    void tryAimSkill(int index);                               // 点按钮：进入/切换/取消瞄准
+    void castSkill(const ax::Vec2& pos);                       // 瞄准模式下点战场：释放
+    void updateSkills(float delta);                            // 每帧：回蓝/冷却/弹道/特效
+    void refreshSkillHUD();                                    // 蓝条与冷却遮罩重画
+    void killMonster(Monster& m);                              // 击杀统一入口（进 Dead 态）
+    void damageMonster(Monster& m, int dmg);                   // 扣血统一入口（≤0 走击杀）
+
+    float _mana    = 100.0f;                    // 蓝量（自动回复，上限 100）
+    float _cdRemaining[SKILL_COUNT] = {0.0f};   // 各技能剩余冷却
+    int _aimingSkill = -1;                      // 瞄准中的技能序号；-1 = 未瞄准
+    bool _aimDragging = false;                  // 按住按钮拖动中（抬起=释放）
+    ax::DrawNode* _aimIndicator = nullptr;      // 范围指示圈（瞄准时跟随手指/鼠标）
+    void updateAimIndicator(const ax::Vec2& pos);  // 重画指示圈并移到指定位置
+    ax::Node* _skillBtns[SKILL_COUNT]     = {nullptr};
+    ax::Rect _skillBtnRects[SKILL_COUNT];       // 按钮热区（世界坐标）
+    ax::DrawNode* _skillCdShade[SKILL_COUNT] = {nullptr};  // 冷却遮罩（高度=剩余比例）
+    ax::Label* _skillCdLabel[SKILL_COUNT]  = {nullptr};    // 冷却剩余秒数
+    ax::Label* _skillNameLabel[SKILL_COUNT] = {nullptr};   // 按钮上的技能名
+    ax::DrawNode* _manaBar = nullptr;           // 蓝条（每帧重画，只有两条矩形很便宜）
+    ax::Label* _skillHint  = nullptr;           // 瞄准/提示文本
+    float _skillHintTimer  = 0.0f;              // 提示自动隐藏计时（0=常驻的瞄准提示）
+
+    // 火球弹体：抛物线飞行（lerp + 拱高），到点爆炸结算 AOE
+    struct Fireball
+    {
+        ax::DrawNode* node = nullptr;
+        ax::Vec2 from, target;
+        float t     = 0.0f;   // 飞行进度 0→1
+        bool active = false;
+    };
+    std::vector<Fireball> _fireballPool;
+    void initFireballPool();
+
+    // 箭雨的每一支下落箭：只记"何时落、落在哪"，到点才结算+出特效
+    struct RainTick
+    {
+        float delay = 0.0f;   // 距释放多少秒落下
+        ax::Vec2 pos;
+    };
+    std::vector<RainTick> _rainQueue;  // 待落下的箭（结算后即删）
+
+    // 通用特效池：爆炸扩散环 / 冰冻区域 / 箭雨落痕，全是"活 N 秒自动归池"的临时图形
+    struct Fx
+    {
+        ax::DrawNode* node = nullptr;
+        float age = 0.0f, duration = 0.0f;
+        int kind      = 0;    // 0=爆炸环 1=冰冻区 2=箭雨落痕
+        ax::Vec2 pos;
+        float radius  = 0.0f;
+        bool active   = false;
+    };
+    std::vector<Fx> _fxPool;
+    ax::Node* _effectLayer = nullptr;   // 特效专用层：zOrder 4（战场/箭矢之上，HUD 之下）
+    void initFxPool();
+    void spawnFx(int kind, const ax::Vec2& pos, float radius, float duration);
 
     // ---- 波次管理（数据驱动：JSON 只读配置 + 独立运行时状态）----
     // 核心思想：配置（出什么怪）与逻辑（怎么刷）分离——改波次只动 Content/config/waves.json
