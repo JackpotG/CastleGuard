@@ -91,6 +91,15 @@ private:
     void initDebugUI();
     ax::Node* _debugBtn = nullptr;
     ax::Rect _debugBtnRect;  // 按钮热区（世界坐标，随布局重建更新）
+    ax::Node* _debugRestartBtn = nullptr;  // 重开按钮（清场满血回第 1 波）
+    ax::Rect _debugRestartBtnRect;
+    ax::Node* _debugPrevBtn = nullptr;     // ◀ 上一波
+    ax::Rect _debugPrevBtnRect;
+    ax::Node* _debugNextBtn = nullptr;     // ▶ 下一波
+    ax::Rect _debugNextBtnRect;
+    void resetGame();        // 调试用：三池清场、城墙满血、从第 1 波重打
+    void gotoWave(int offset);             // 调试跳波：offset = ±1（清场但不动血量）
+    void clearField();                     // 三池回收（不动血量/波次状态）
 
     // ---- 怪物系统 ----
     // 简单状态机：走（沿车道向城墙推进）→ 攻击（到墙啃咬扣血）→ 死（回池）
@@ -100,29 +109,101 @@ private:
         Attack,
         Dead,
     };
+    // 怪物类型：波次 JSON 的 "type" 字段映射到这里。
+    // 新增类型 = 枚举加一项 + spawnMonster/applyMonsterSkin 里一份数值外观，驱动逻辑零改动
+    enum class MonsterType
+    {
+        Normal,  // 普通怪：基准速度（红色）
+        Fast,    // 快速怪：1.8 倍速、体型偏小（橙色）
+        Ranged,  // 远程怪：不贴墙，在停火线外发射弹丸（紫色）
+    };
     // 怪物 = 池中的一个槽位。Prefab 思想的裸实现：定义一个"模板"（外观+行为），
     // 需要时从池里取一个实例按模板初始化，而不是每次 new 一个新对象
     struct Monster
     {
-        ax::DrawNode* node = nullptr;   // 占位外观（池化复用）
+        ax::DrawNode* node = nullptr;   // 占位外观（池化复用；出生时才按类型画皮）
         int lane           = 0;         // 车道编号（统一数据模型：车道 + 推进）
         ax::Vec2 targetPos;             // 推进终点（出生点+同一份抖动，保证走直线不纠偏）
-        float speed        = 70.0f;     // 个体速度（怪群感：85%~115% 随机）
+        float speed        = 70.0f;     // 个体速度（类型倍率 × 85%~115% 随机）
+        float bodyR        = 11.0f;     // 体型半径（随类型缩放，命中判定也用它）
+        MonsterType type   = MonsterType::Normal;
         MonsterState state = MonsterState::Walk;
-        float attackTimer  = 0.0f;      // 攻击节奏计时（每秒啃一口）
+        float attackTimer    = 0.0f;    // 攻击节奏计时
+        float attackRange    = 6.0f;    // 开火距离：近战=6px 贴墙，远程=停火线
+        float attackInterval = 1.0f;    // 攻击间隔（近战每秒一口，远程更慢）
         bool active        = false;
     };
     void initMonsterPool();
-    void spawnMonster();                  // 从出怪线放一个怪（随机车道）
+    // 按波次配置放一只怪（lane=-1 随机车道；from=出生方向）
+    void spawnMonster(MonsterType type, int lane, const std::string& from);
+    void applyMonsterSkin(Monster& m);    // 按类型重画占位外观（槽位与外观分离）
     void updateMonsters(float delta);     // 每帧驱动移动/攻击/死亡
     ax::Vec2 laneSpawnPos(int lane) const;  // 车道 → 出怪位置（按当前布局计算）
     ax::Vec2 laneWallPos(int lane) const;   // 车道 → 城墙目标点（按当前布局计算）
     int laneCount() const;                  // 当前布局的有效车道数
 
     std::vector<Monster> _monsterPool;
-    float _spawnTimer = 0.0f;
-    int _wallHP         = 100;            // 城墙血量（撞墙扣血）
-    int _killCount      = 0;              // 击杀计数（调试用）
+    static constexpr int WALL_MAX_HP = 100;  // 城墙满血值（resetGame 用它复位）
+    int _wallHP    = WALL_MAX_HP;   // 城墙血量（撞墙扣血）
+    int _killCount = 0;             // 击杀计数（调试用）
+    void damageWall(int dmg);        // 城墙扣血统一入口（近战啃咬/远程弹丸都走这）
+
+    // 敌方弹丸：远程怪的"箭"。和玩家箭矢同一个对象池思想，
+    // 区别只是方向相反、命中的是城墙（看见弹丸飞 = 远程怪在工作，不是隔空扣血）
+    struct EnemyBolt
+    {
+        ax::DrawNode* node = nullptr;
+        ax::Vec2 velocity;
+        ax::Vec2 targetPos;          // 瞄准的城墙点（到达即结算伤害）
+        int damage   = 0;
+        bool active  = false;
+    };
+    void initEnemyBoltPool();
+    void fireEnemyBolt(const ax::Vec2& from, const ax::Vec2& target, int damage);
+    void updateEnemyBolts(float delta);
+    std::vector<EnemyBolt> _boltPool;
+
+    // ---- 波次管理（数据驱动：JSON 只读配置 + 独立运行时状态）----
+    // 核心思想：配置（出什么怪）与逻辑（怎么刷）分离——改波次只动 Content/config/waves.json
+    struct SpawnGroupConfig
+    {
+        MonsterType type = MonsterType::Normal;
+        int count        = 0;          // 本组出多少只
+        float interval   = 1.0f;       // 组内出怪间隔（秒）
+        float delay      = 0.0f;       // 本组第一只的延迟（多组错峰用）
+        int lane         = -1;         // 固定车道；-1 = 随机
+        std::string from = "spawn";    // 出生方向：spawn=出怪线（默认）；left/right=侧翼突袭
+    };
+    struct WaveConfig
+    {
+        std::string name;
+        float restAfter = 3.0f;        // 清场后到下一波的休整（秒）
+        std::vector<SpawnGroupConfig> groups;
+    };
+    // 每组运行状态单独存：配置保持只读（同一波可以反复重打）
+    struct SpawnGroupRuntime
+    {
+        int spawned  = 0;
+        float timer  = 0.0f;           // 从 -delay 起步，到 0 出第一只，之后每 interval 一只
+    };
+    enum class WaveState
+    {
+        Idle,      // 未开始
+        Spawning,  // 正在按配置出怪
+        Resting,   // 本波已清场，休整倒计时
+        AllClear,  // 全部波次打完
+    };
+    bool loadWaves();                    // 读 config/waves.json（失败用内置兜底，游戏不瘫）
+    void beginWave(size_t index);        // 开始某一波（重置该波运行时状态）
+    void updateWaves(float delta);       // 每帧驱动波次状态机
+    ax::Vec2 groupSpawnPos(const std::string& from, int lane) const;  // 按出生方向算出生点
+
+    std::vector<WaveConfig> _waves;              // waves.json 的内存镜像（只读）
+    std::vector<SpawnGroupRuntime> _groupRt;     // 当前波各组运行状态
+    size_t _waveIndex    = 0;
+    WaveState _waveState = WaveState::Idle;
+    float _restTimer     = 0.0f;
+    ax::Label* _waveLabel = nullptr;             // HUD：顶部居中波次提示
 
     GameState _gameState                            = GameState::init;
     ax::EventListenerTouchAllAtOnce* _touchListener = nullptr;

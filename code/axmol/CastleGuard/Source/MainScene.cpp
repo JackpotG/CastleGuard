@@ -25,8 +25,11 @@
 
 #include "MainScene.h"
 
+#include "rapidjson/document.h"  // 引擎自带 JSON 解析库（波次配置用）
+
 #include <algorithm>  // std::max
 #include <cstdlib>    // rand / srand
+#include <cstring>    // strcmp
 #include <ctime>      // time
 
 using namespace ax;
@@ -80,9 +83,17 @@ constexpr float DEBUG_BTN_SIZE  = 88.0f;    // 左上角"切换视角"按钮边�
 constexpr int   MONSTER_POOL_SIZE     = 48;     // 对象池容量：同时在屏怪物上限（怪群）
 constexpr float MONSTER_SPEED         = 70.0f;  // 推进速度基准（像素/秒），个体有 ±15% 差异
 constexpr int   MONSTER_ATTACK_DAMAGE = 5;      // 啃墙伤害（每秒一口）
-constexpr float SPAWN_INTERVAL        = 0.8f;   // 临时：固定间隔出怪（波次管理是下一项）
 constexpr float MONSTER_BODY_R        = 11.0f;  // 身体半径（占位圆，脚底为节点原点）
-constexpr float MONSTER_HIT_RADIUS    = 17.0f;  // 命中判定半径（身体 + 箭尖余量）
+// 怪物类型数值表：加新怪先加这里（数值），再去 applyMonsterSkin 加外观
+constexpr float FAST_SPEED_MUL        = 1.8f;   // 快速怪速度倍率
+constexpr float FAST_BODY_SCALE       = 0.8f;   // 快速怪体型倍率
+constexpr float RANGED_SPEED_MUL      = 0.9f;   // 远程怪走得稍慢
+constexpr float RANGED_STOP_RATIO     = 0.62f;  // 停火位：战场纵深的 62% 处 ≈ 远区（最远色带）下缘
+constexpr float RANGED_ATTACK_INTERVAL= 1.8f;   // 远程攻击间隔（秒）
+constexpr int   RANGED_ATTACK_DAMAGE  = 4;      // 每发弹丸伤害
+// ---- 敌方弹丸 ----
+constexpr int   ENEMY_BOLT_POOL_SIZE  = 16;     // 同时在屏弹丸上限
+constexpr float ENEMY_BOLT_SPEED      = 350.0f; // 弹丸速度（像素/秒，比箭慢，看得见飞）
 }  // namespace
 
 // on "init" you need to initialize your instance
@@ -110,7 +121,21 @@ bool MainScene::init()
     // 4. 射箭系统 + 怪物系统：对象池都在 init 时一次性建好（第一天就上，别后补）
     initArrowPool();
     initMonsterPool();
+    initEnemyBoltPool();
     srand((unsigned int)time(nullptr));  // 随机车道用（真随机源，调试期足够）
+
+    /////////////////////////////
+    // 5. 波次管理：JSON 数据驱动（改波次配置不用碰代码）
+    loadWaves();
+    // HUD：顶部居中波次提示。位置由 buildBattlefield 负责（旋转/缩放时重排）
+    _waveLabel = Label::createWithSystemFont("", "Arial", 30);
+    _waveLabel->setTextColor(Color4B::WHITE);
+    addChild(_waveLabel, 5);
+    {
+        auto vs = _director->getVisibleSize();
+        auto o  = _director->getVisibleOrigin();
+        _waveLabel->setPosition(Vec2(o.x + vs.width * 0.5f, o.y + vs.height - 30.0f));
+    }
 
     /////////////////////////////
     // 5. 输入监听：触摸射箭，键盘桌面调试用
@@ -168,6 +193,11 @@ void MainScene::buildBattlefield(BattleLayout layout)
     {
         m.active = false;
         m.node->setVisible(false);
+    }
+    for (auto& b : _boltPool)
+    {
+        b.active = false;
+        b.node->setVisible(false);
     }
 
     if (layout == BattleLayout::SideView)
@@ -289,6 +319,36 @@ void MainScene::buildBattlefield(BattleLayout layout)
         _debugBtn->setPosition(p);
         _debugBtnRect = Rect(p.x, p.y, s, s);
     }
+    // 重开按钮：切换视角按钮正下方
+    if (_debugRestartBtn)
+    {
+        const float s = DEBUG_BTN_SIZE;
+        Vec2 p(origin.x + 16.0f, top - 16.0f - s - 12.0f - s);
+        _debugRestartBtn->setPosition(p);
+        _debugRestartBtnRect = Rect(p.x, p.y, s, s);
+    }
+    // ◀ ▶ 跳波按钮：第三排，左右并排
+    if (_debugPrevBtn && _debugNextBtn)
+    {
+        const float s  = DEBUG_BTN_SIZE;
+        const float y  = top - 16.0f - (s + 12.0f) * 2 - s;
+        _debugPrevBtn->setPosition(Vec2(origin.x + 16.0f, y));
+        _debugPrevBtnRect = Rect(origin.x + 16.0f, y, s, s);
+        _debugNextBtn->setPosition(Vec2(origin.x + 16.0f + s + 12.0f, y));
+        _debugNextBtnRect = Rect(origin.x + 16.0f + s + 12.0f, y, s, s);
+    }
+    // 波次 HUD：顶部居中
+    if (_waveLabel)
+    {
+        _waveLabel->setPosition(Vec2((origin.x + right) * 0.5f, top - 30.0f));
+    }
+
+    // 战场重建回收了在场怪物（见函数开头）→ 重打当前波。
+    // 配置是只读的，重置运行时状态即可；AllClear（全部打完）就不重开了
+    if (!_waves.empty() && (_waveState == WaveState::Spawning || _waveState == WaveState::Resting))
+    {
+        beginWave(_waveIndex);
+    }
 
     AXLOGD("battlefield rebuilt: {}, visibleSize=({:.0f}, {:.0f})",
            layout == BattleLayout::Oblique25D ? "Oblique25D" : "SideView",
@@ -317,6 +377,37 @@ void MainScene::initDebugUI()
     _debugBtn->addChild(bg);
 
     addChild(_debugBtn, 10);  // zOrder 10：调试层永远在最上面
+
+    // 重开按钮：切换视角按钮正下方，图标 ↻（圆弧+箭头）
+    _debugRestartBtn = Node::create();
+    auto bg2 = DrawNode::create();
+    bg2->drawSolidRect(Vec2::ZERO, Vec2(s, s), Color4F(0.0f, 0.0f, 0.0f, 0.45f));
+    bg2->drawRect(Vec2::ZERO, Vec2(s, s), Color4F(1.0f, 1.0f, 1.0f, 0.7f));
+    const Vec2 c(s * 0.5f, s * 0.5f);
+    bg2->drawCircle(c, s * 0.26f, 0.0f, 24, false, w, 5.0f);  // 圆弧
+    bg2->drawSolidTriangle(Vec2(s * 0.50f, s * 0.86f), Vec2(s * 0.70f, s * 0.70f),
+                           Vec2(s * 0.48f, s * 0.66f), w, w);  // 箭头
+    _debugRestartBtn->addChild(bg2);
+    addChild(_debugRestartBtn, 10);
+
+    // ◀ 上一波 / ▶ 下一波：第三排，左右并排
+    _debugPrevBtn = Node::create();
+    auto bg3 = DrawNode::create();
+    bg3->drawSolidRect(Vec2::ZERO, Vec2(s, s), Color4F(0.0f, 0.0f, 0.0f, 0.45f));
+    bg3->drawRect(Vec2::ZERO, Vec2(s, s), Color4F(1.0f, 1.0f, 1.0f, 0.7f));
+    bg3->drawSolidTriangle(Vec2(s * 0.70f, s * 0.72f), Vec2(s * 0.70f, s * 0.28f),
+                           Vec2(s * 0.30f, s * 0.50f), w, w);  // ◀
+    _debugPrevBtn->addChild(bg3);
+    addChild(_debugPrevBtn, 10);
+
+    _debugNextBtn = Node::create();
+    auto bg4 = DrawNode::create();
+    bg4->drawSolidRect(Vec2::ZERO, Vec2(s, s), Color4F(0.0f, 0.0f, 0.0f, 0.45f));
+    bg4->drawRect(Vec2::ZERO, Vec2(s, s), Color4F(1.0f, 1.0f, 1.0f, 0.7f));
+    bg4->drawSolidTriangle(Vec2(s * 0.30f, s * 0.72f), Vec2(s * 0.30f, s * 0.28f),
+                           Vec2(s * 0.70f, s * 0.50f), w, w);  // ▶
+    _debugNextBtn->addChild(bg4);
+    addChild(_debugNextBtn, 10);
 }
 
 // ---------------------------------------------------------------------------
@@ -414,8 +505,10 @@ void MainScene::updateArrows(float delta)
             {
                 continue;
             }
-            Vec2 bodyCenter = m.node->getPosition() + Vec2(0, MONSTER_BODY_R);
-            if ((pos - bodyCenter).lengthSquared() < MONSTER_HIT_RADIUS * MONSTER_HIT_RADIUS)
+            // 命中判定：箭尖点 vs 怪身圆。体型随类型缩放，所以用个体半径
+            const float hitR    = m.bodyR + 6.0f;  // 身体半径 + 箭尖余量
+            Vec2 bodyCenter = m.node->getPosition() + Vec2(0, m.bodyR);
+            if ((pos - bodyCenter).lengthSquared() < hitR * hitR)
             {
                 m.state = MonsterState::Dead;  // 怪进 Dead 状态，updateMonsters 回收
                 _killCount++;
@@ -484,25 +577,55 @@ void MainScene::initMonsterPool()
     for (int i = 0; i < MONSTER_POOL_SIZE; ++i)
     {
         Monster m;
-        m.node = DrawNode::create();
-        // 占位小恶魔：脚底是节点原点 (0,0)，身体是圆，头顶双角，两只眼睛
-        const float r = MONSTER_BODY_R;
-        const Color4F body(0.72f, 0.22f, 0.18f, 1.0f);
-        const Color4F horn(0.50f, 0.12f, 0.10f, 1.0f);
-        m.node->drawSolidCircle(Vec2(0, r), r, 0.0f, 20, body);  // 身体
-        m.node->drawSolidTriangle(Vec2(-r * 0.7f, r * 1.7f), Vec2(-r * 0.2f, r * 1.8f),
-                                  Vec2(-r * 0.5f, r * 2.3f), horn, horn);  // 左角
-        m.node->drawSolidTriangle(Vec2(r * 0.7f, r * 1.7f), Vec2(r * 0.2f, r * 1.8f),
-                                  Vec2(r * 0.5f, r * 2.3f), horn, horn);   // 右角
-        m.node->drawSolidCircle(Vec2(-5, r + 3), 2.5f, 0.0f, 8, Color4F::WHITE);  // 左眼
-        m.node->drawSolidCircle(Vec2(5, r + 3), 2.5f, 0.0f, 8, Color4F::WHITE);   // 右眼
+        m.node = DrawNode::create();  // 空壳：外观推迟到出生时按类型画（槽位与外观分离）
         m.node->setVisible(false);
         addChild(m.node, 2);  // zOrder 2：战场之上、箭矢（3）之下
         _monsterPool.push_back(m);
     }
 }
 
-void MainScene::spawnMonster()
+// 按类型画皮：普通怪=红色，快速怪=橙色偏小，远程怪=紫色
+void MainScene::applyMonsterSkin(Monster& m)
+{
+    m.node->clear();  // DrawNode 可以清空重画，池化复用的关键
+    const float r = m.bodyR;
+    const float k = r / MONSTER_BODY_R;  // 五官随体型等比缩放
+    Color4F body;
+    switch (m.type)
+    {
+    case MonsterType::Fast:   body = Color4F(0.90f, 0.50f, 0.15f, 1.0f); break;  // 橙
+    case MonsterType::Ranged: body = Color4F(0.62f, 0.30f, 0.72f, 1.0f); break;  // 紫
+    default:                  body = Color4F(0.72f, 0.22f, 0.18f, 1.0f); break;  // 红
+    }
+    const Color4F horn(0.50f, 0.12f, 0.10f, 1.0f);
+    m.node->drawSolidCircle(Vec2(0, r), r, 0.0f, 20, body);  // 身体
+    m.node->drawSolidTriangle(Vec2(-r * 0.7f, r * 1.7f), Vec2(-r * 0.2f, r * 1.8f),
+                              Vec2(-r * 0.5f, r * 2.3f), horn, horn);  // 左角
+    m.node->drawSolidTriangle(Vec2(r * 0.7f, r * 1.7f), Vec2(r * 0.2f, r * 1.8f),
+                              Vec2(r * 0.5f, r * 2.3f), horn, horn);   // 右角
+    m.node->drawSolidCircle(Vec2(-5 * k, r + 3 * k), 2.5f * k, 0.0f, 8, Color4F::WHITE);  // 左眼
+    m.node->drawSolidCircle(Vec2(5 * k, r + 3 * k), 2.5f * k, 0.0f, 8, Color4F::WHITE);   // 右眼
+}
+
+// 出生点按出生方向算：spawn=出怪线（默认）；left/right=侧翼，从屏外滑入
+ax::Vec2 MainScene::groupSpawnPos(const std::string& from, int lane) const
+{
+    if (_battleLayout == BattleLayout::Oblique25D && (from == "left" || from == "right"))
+    {
+        auto vs = _director->getVisibleSize();
+        auto o  = _director->getVisibleOrigin();
+        const float wallTop = o.y + vs.height * WALL_RATIO;
+        const float spawnY  = o.y + vs.height * SPAWN_RATIO;
+        const float r1      = static_cast<float>(rand()) / RAND_MAX;
+        // 战场中段高度随机一点，避免侧翼怪排队从同一个高度进来
+        const float y = wallTop + 60.0f + r1 * (spawnY - wallTop - 120.0f);
+        const float x = from == "left" ? o.x - 20.0f : o.x + vs.width + 20.0f;
+        return Vec2(x, y);
+    }
+    return laneSpawnPos(lane);  // 默认：出怪线
+}
+
+void MainScene::spawnMonster(MonsterType type, int lane, const std::string& from)
 {
     for (auto& m : _monsterPool)
     {
@@ -513,29 +636,237 @@ void MainScene::spawnMonster()
         m.active      = true;
         m.state       = MonsterState::Walk;
         m.attackTimer = 0.0f;
-        m.lane        = laneCount() > 1 ? rand() % laneCount() : 0;
+        m.type        = type;
+        m.lane        = lane >= 0 ? lane % laneCount() : (laneCount() > 1 ? rand() % laneCount() : 0);
         // 怪群感关键：同车道内横向抖动 + 个体速度差异。
         // 抖动对出生点和终点施加同一份偏移，怪物沿"平移后的车道"走直线，
-        // 不会在半途被拉回车道中心线
+        // 不会在半途被拉回车道中心线；侧翼滑入的不抖，保持轨迹干净
         const float r1 = static_cast<float>(rand()) / RAND_MAX;  // 0~1
         const float r2 = static_cast<float>(rand()) / RAND_MAX;
         Vec2 jitter;
-        if (_battleLayout == BattleLayout::Oblique25D)
+        if (from == "spawn")
         {
-            const float laneW = _director->getVisibleSize().width / LANE_COUNT;
-            jitter = Vec2((r1 - 0.5f) * laneW * 0.56f, 0);  // 行进方向垂直 → 左右散开
+            if (_battleLayout == BattleLayout::Oblique25D)
+            {
+                const float laneW = _director->getVisibleSize().width / LANE_COUNT;
+                jitter = Vec2((r1 - 0.5f) * laneW * 0.56f, 0);  // 行进方向垂直 → 左右散开
+            }
+            else
+            {
+                jitter = Vec2(0, (r1 - 0.5f) * 24.0f);          // 侧视行进水平 → 上下散开
+            }
+        }
+        // 类型数值：速度/体型/攻击方式都由类型表决定
+        const float speedMul  = type == MonsterType::Fast ? FAST_SPEED_MUL
+                              : type == MonsterType::Ranged ? RANGED_SPEED_MUL : 1.0f;
+        const float bodyScale = type == MonsterType::Fast ? FAST_BODY_SCALE : 1.0f;
+        m.speed          = MONSTER_SPEED * speedMul * (0.85f + r2 * 0.3f);  // 0.85~1.15 倍
+        m.bodyR          = MONSTER_BODY_R * bodyScale;
+        // 开火距离与攻击间隔：近战贴墙啃；远程走到远区边缘就停（按战场纵深
+        // 比例算，横竖屏/任意屏幕都停在"最远色带"下缘，而不是写死像素）
+        if (type == MonsterType::Ranged)
+        {
+            const float fieldDepth = _director->getVisibleSize().height * (SPAWN_RATIO - WALL_RATIO);
+            m.attackRange    = fieldDepth * RANGED_STOP_RATIO;
+            m.attackInterval = RANGED_ATTACK_INTERVAL;
         }
         else
         {
-            jitter = Vec2(0, (r1 - 0.5f) * 24.0f);          // 侧视行进水平 → 上下散开
+            m.attackRange    = 6.0f;
+            m.attackInterval = 1.0f;
         }
-        m.speed     = MONSTER_SPEED * (0.85f + r2 * 0.3f);  // 0.85~1.15 倍
         m.targetPos = laneWallPos(m.lane) + jitter;
-        m.node->setPosition(laneSpawnPos(m.lane) + jitter);
+        m.node->setPosition(groupSpawnPos(from, m.lane) + jitter);
+        applyMonsterSkin(m);
         m.node->setVisible(true);
         return;
     }
     AXLOGD("monster pool full ({} active), spawn dropped", MONSTER_POOL_SIZE);
+}
+
+// ---------------------------------------------------------------------------
+// 波次管理：数据驱动的核心实现。
+// 三层结构：JSON 文件（策划层）→ WaveConfig（只读内存镜像）→ SpawnGroupRuntime
+// （运行状态）。波次状态机：Idle → Spawning（按组出怪）→ Resting（清场休整）
+// → 下一波 → AllClear（全部打完）
+// ---------------------------------------------------------------------------
+bool MainScene::loadWaves()
+{
+    _waves.clear();
+    const std::string text = FileUtils::getInstance()->getStringFromFile("config/waves.json");
+    rapidjson::Document doc;
+    doc.Parse(text.c_str());
+    // 兜底：配置系统的自我修养——文件缺失/格式错误，游戏也不能瘫
+    if (doc.HasParseError() || !doc.IsObject() || !doc.HasMember("waves") || !doc["waves"].IsArray())
+    {
+        AXLOGD("waves.json missing or invalid, fallback to built-in wave");
+        WaveConfig w;
+        w.name      = "兜底波（waves.json 加载失败）";
+        w.restAfter = 3.0f;
+        w.groups.push_back({MonsterType::Normal, 10, 0.8f, 0.0f, -1, "spawn"});
+        _waves.push_back(std::move(w));
+        return false;
+    }
+    for (const auto& wv : doc["waves"].GetArray())
+    {
+        WaveConfig w;
+        if (wv.HasMember("name") && wv["name"].IsString())
+        {
+            w.name = wv["name"].GetString();
+        }
+        if (wv.HasMember("restAfter") && wv["restAfter"].IsNumber())
+        {
+            w.restAfter = static_cast<float>(wv["restAfter"].GetDouble());
+        }
+        if (wv.HasMember("groups") && wv["groups"].IsArray())
+        {
+            for (const auto& g : wv["groups"].GetArray())
+            {
+                SpawnGroupConfig cfg;
+                if (g.HasMember("type") && g["type"].IsString())
+                {
+                    const char* t = g["type"].GetString();
+                    cfg.type      = strcmp(t, "fast") == 0 ? MonsterType::Fast
+                                  : strcmp(t, "ranged") == 0 ? MonsterType::Ranged
+                                                             : MonsterType::Normal;
+                }
+                if (g.HasMember("count") && g["count"].IsInt())
+                {
+                    cfg.count = g["count"].GetInt();
+                }
+                if (g.HasMember("interval") && g["interval"].IsNumber())
+                {
+                    cfg.interval = static_cast<float>(g["interval"].GetDouble());
+                }
+                if (g.HasMember("delay") && g["delay"].IsNumber())
+                {
+                    cfg.delay = static_cast<float>(g["delay"].GetDouble());
+                }
+                if (g.HasMember("lane") && g["lane"].IsInt())
+                {
+                    cfg.lane = g["lane"].GetInt();
+                }
+                if (g.HasMember("from") && g["from"].IsString())
+                {
+                    cfg.from = g["from"].GetString();
+                }
+                if (cfg.count > 0)
+                {
+                    w.groups.push_back(std::move(cfg));
+                }
+            }
+        }
+        if (!w.groups.empty())
+        {
+            _waves.push_back(std::move(w));
+        }
+    }
+    AXLOGD("waves loaded: {}", _waves.size());
+    return true;
+}
+
+void MainScene::beginWave(size_t index)
+{
+    _waveIndex    = index;
+    const auto& w = _waves[index];
+    _groupRt.assign(w.groups.size(), SpawnGroupRuntime{});
+    // 计时器从 -delay 起步：负数期间只计时不出生，自然实现"本组延迟 N 秒"
+    for (size_t i = 0; i < w.groups.size(); ++i)
+    {
+        _groupRt[i].timer = -w.groups[i].delay;
+    }
+    _waveState = WaveState::Spawning;
+    if (_waveLabel)
+    {
+        _waveLabel->setString(w.name);
+    }
+    AXLOGD("wave {}/{} begin: {}", index + 1, _waves.size(), w.name);
+}
+
+void MainScene::updateWaves(float delta)
+{
+    if (_wallHP <= 0 || _waves.empty())
+    {
+        return;  // 城破或没配置：不再出怪
+    }
+    switch (_waveState)
+    {
+    case WaveState::Idle:
+        beginWave(0);
+        break;
+
+    case WaveState::Spawning:
+    {
+        const auto& w  = _waves[_waveIndex];
+        bool allSpawned = true;
+        for (size_t i = 0; i < w.groups.size(); ++i)
+        {
+            const auto& cfg = w.groups[i];
+            auto& rt        = _groupRt[i];
+            if (rt.spawned >= cfg.count)
+            {
+                continue;  // 本组出完
+            }
+            rt.timer += delta;
+            if (rt.timer >= 0.0f)
+            {
+                rt.timer -= cfg.interval;  // 到 0 出第一只，之后每 interval 一只
+                spawnMonster(cfg.type, cfg.lane, cfg.from);
+                ++rt.spawned;
+            }
+            if (rt.spawned < cfg.count)
+            {
+                allSpawned = false;
+            }
+        }
+        // 全部出完且场上无活怪 → 进休整（不是出完就休整，要给玩家清场的过程）
+        if (allSpawned)
+        {
+            bool anyActive = false;
+            for (const auto& m : _monsterPool)
+            {
+                if (m.active)
+                {
+                    anyActive = true;
+                    break;
+                }
+            }
+            if (!anyActive)
+            {
+                _waveState = WaveState::Resting;
+                _restTimer = w.restAfter;
+            }
+        }
+        break;
+    }
+
+    case WaveState::Resting:
+        _restTimer -= delta;
+        if (_waveLabel)
+        {
+            _waveLabel->setString(StringUtils::format("下一波来袭 %d", static_cast<int>(_restTimer) + 1));
+        }
+        if (_restTimer <= 0.0f)
+        {
+            if (_waveIndex + 1 < _waves.size())
+            {
+                beginWave(_waveIndex + 1);
+            }
+            else
+            {
+                _waveState = WaveState::AllClear;
+                if (_waveLabel)
+                {
+                    _waveLabel->setString("已守住全部波次！");
+                }
+                AXLOGD("all waves cleared, kills={}", _killCount);
+            }
+        }
+        break;
+
+    case WaveState::AllClear:
+        break;  // 结算画面留给后续里程碑
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -558,10 +889,11 @@ void MainScene::updateMonsters(float delta)
             Vec2 pos    = m.node->getPosition();
             Vec2 target = m.targetPos;  // 出生时已含车道偏移，直线推进不纠偏
             Vec2 dir    = target - pos;
-            if (dir.length() <= 6.0f)
+            // 进入开火距离就停下：近战 6px（贴墙），远程 320px（停火线）
+            if (dir.length() <= m.attackRange)
             {
-                m.state       = MonsterState::Attack;  // 到墙，转攻击
-                m.attackTimer = 0.0f;
+                m.state       = MonsterState::Attack;
+                m.attackTimer = m.attackInterval;  // 到站立刻来一发，不白等一拍
                 break;
             }
             dir.normalize();
@@ -571,14 +903,18 @@ void MainScene::updateMonsters(float delta)
         case MonsterState::Attack:
         {
             m.attackTimer += delta;
-            if (m.attackTimer >= 1.0f)
+            if (m.attackTimer >= m.attackInterval)
             {
-                m.attackTimer -= 1.0f;
-                _wallHP = std::max(0, _wallHP - MONSTER_ATTACK_DAMAGE);
-                AXLOGD("wall HP: {}, kills: {}", _wallHP, _killCount);
-                if (_wallHP == 0)
+                m.attackTimer -= m.attackInterval;
+                if (m.type == MonsterType::Ranged)
                 {
-                    AXLOGD("城墙告破！（后续做结算画面）");
+                    // 远程：发射弹丸，伤害在弹丸命中城墙时结算
+                    fireEnemyBolt(m.node->getPosition() + Vec2(0, m.bodyR), m.targetPos,
+                                  RANGED_ATTACK_DAMAGE);
+                }
+                else
+                {
+                    damageWall(MONSTER_ATTACK_DAMAGE);  // 近战：直接啃
                 }
             }
             break;
@@ -588,6 +924,134 @@ void MainScene::updateMonsters(float delta)
             m.node->setVisible(false);
             break;
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 调试用重开：清场（三池全收）+ 城墙满血 + 回到第 1 波。
+// 注意全程没有 new/delete——对象本来就是池化的，"重置"只是改状态位，
+// 这也是对象池的红利之一：重开一局是 O(池大小) 的零分配操作
+// ---------------------------------------------------------------------------
+void MainScene::clearField()
+{
+    for (auto& a : _arrowPool)
+    {
+        a.active = false;
+        a.node->setVisible(false);
+    }
+    for (auto& m : _monsterPool)
+    {
+        m.active = false;
+        m.node->setVisible(false);
+    }
+    for (auto& b : _boltPool)
+    {
+        b.active = false;
+        b.node->setVisible(false);
+    }
+}
+
+void MainScene::resetGame()
+{
+    clearField();
+    _wallHP    = WALL_MAX_HP;
+    _killCount = 0;
+    _waveState = WaveState::Idle;  // 下一帧 updateWaves 自动 beginWave(0)
+    if (_waveLabel)
+    {
+        _waveLabel->setString("");
+    }
+    AXLOGD("game reset by debug");
+}
+
+// 调试跳波：跳到指定波（清场，但不动城墙血量和击杀数——那是 resetGame 的事）
+void MainScene::gotoWave(int offset)
+{
+    if (_waves.empty())
+    {
+        return;
+    }
+    int next = static_cast<int>(_waveIndex) + offset;
+    next     = std::clamp(next, 0, static_cast<int>(_waves.size()) - 1);
+    clearField();
+    beginWave(static_cast<size_t>(next));
+    AXLOGD("jump to wave {}", next + 1);
+}
+
+// ---------------------------------------------------------------------------
+// 城墙扣血统一入口：近战啃咬和远程弹丸都走这里，城破判定只有一处
+// ---------------------------------------------------------------------------
+void MainScene::damageWall(int dmg)
+{
+    _wallHP = std::max(0, _wallHP - dmg);
+    AXLOGD("wall HP: {}, kills: {}", _wallHP, _killCount);
+    if (_wallHP == 0)
+    {
+        AXLOGD("城墙告破！（后续做结算画面）");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 敌方弹丸池：与箭矢池同一思想——开局建好，发射=激活，命中=归池
+// ---------------------------------------------------------------------------
+void MainScene::initEnemyBoltPool()
+{
+    _boltPool.reserve(ENEMY_BOLT_POOL_SIZE);
+    for (int i = 0; i < ENEMY_BOLT_POOL_SIZE; ++i)
+    {
+        EnemyBolt b;
+        b.node = DrawNode::create();
+        // 紫色小弹丸：内核 + 外圈光晕，和玩家箭矢（白色）一眼区分开
+        b.node->drawSolidCircle(Vec2::ZERO, 6.0f, 0.0f, 12, Color4F(0.75f, 0.35f, 0.90f, 1.0f));
+        b.node->drawSolidCircle(Vec2::ZERO, 3.0f, 0.0f, 10, Color4F(1.0f, 1.0f, 1.0f, 0.9f));
+        b.node->setVisible(false);
+        addChild(b.node, 2);  // 与怪物同层
+        _boltPool.push_back(b);
+    }
+}
+
+void MainScene::fireEnemyBolt(const Vec2& from, const Vec2& target, int damage)
+{
+    for (auto& b : _boltPool)
+    {
+        if (b.active)
+        {
+            continue;
+        }
+        Vec2 dir = target - from;
+        if (dir.lengthSquared() < 1.0f)
+        {
+            return;  // 零向量不能归一化（见知识点手册：normalize）
+        }
+        b.active    = true;
+        b.velocity  = dir.getNormalized() * ENEMY_BOLT_SPEED;
+        b.targetPos = target;
+        b.damage    = damage;
+        b.node->setPosition(from);
+        b.node->setVisible(true);
+        return;
+    }
+    AXLOGD("enemy bolt pool full, dropped");
+}
+
+void MainScene::updateEnemyBolts(float delta)
+{
+    for (auto& b : _boltPool)
+    {
+        if (!b.active)
+        {
+            continue;
+        }
+        Vec2 pos = b.node->getPosition() + b.velocity * delta;
+        // 到达瞄准点 = 命中城墙：结算伤害并回收
+        if ((pos - b.targetPos).lengthSquared() < 12.0f * 12.0f)
+        {
+            damageWall(b.damage);
+            b.active = false;
+            b.node->setVisible(false);
+            continue;
+        }
+        b.node->setPosition(pos);
     }
 }
 
@@ -602,6 +1066,21 @@ void MainScene::onTouchesBegan(const std::vector<ax::Touch*>& touches, ax::Event
         {
             buildBattlefield(_battleLayout == BattleLayout::Oblique25D ? BattleLayout::SideView
                                                                        : BattleLayout::Oblique25D);
+            return;
+        }
+        if (_debugRestartBtnRect.containsPoint(t->getLocation()))
+        {
+            resetGame();  // ↻ 重开：清场满血回第 1 波
+            return;
+        }
+        if (_debugPrevBtnRect.containsPoint(t->getLocation()))
+        {
+            gotoWave(-1);  // ◀ 上一波
+            return;
+        }
+        if (_debugNextBtnRect.containsPoint(t->getLocation()))
+        {
+            gotoWave(1);  // ▶ 下一波
             return;
         }
     }
@@ -641,6 +1120,18 @@ void MainScene::onKeyPressed(ax::EventKeyboard::KeyCode code, ax::Event* event)
     {
         buildBattlefield(BattleLayout::Oblique25D);
     }
+    else if (code == EventKeyboard::KeyCode::KEY_R)
+    {
+        resetGame();  // 桌面调试：R = 重开（清场满血回第 1 波）
+    }
+    else if (code == EventKeyboard::KeyCode::KEY_Q)
+    {
+        gotoWave(-1);  // Q = 上一波
+    }
+    else if (code == EventKeyboard::KeyCode::KEY_E)
+    {
+        gotoWave(1);  // E = 下一波
+    }
 }
 
 void MainScene::onKeyReleased(ax::EventKeyboard::KeyCode code, ax::Event* event)
@@ -667,20 +1158,13 @@ void MainScene::update(float delta)
             buildBattlefield(_battleLayout);
         }
 
-        // 临时出怪：固定间隔随机车道（波次管理是下一项，届时改为数据驱动）
-        if (_wallHP > 0)
-        {
-            _spawnTimer += delta;
-            if (_spawnTimer >= SPAWN_INTERVAL)
-            {
-                _spawnTimer = 0.0f;
-                spawnMonster();
-            }
-        }
+        // 波次管理：JSON 数据驱动出怪（取代写死的固定间隔）
+        updateWaves(delta);
 
-        // 游戏主循环：怪物移动、箭矢飞行、碰撞判定都在这里驱动
+        // 游戏主循环：怪物移动、箭矢飞行、敌方弹丸、碰撞判定都在这里驱动
         updateMonsters(delta);
         updateArrows(delta);
+        updateEnemyBolts(delta);
         break;
     }
 
