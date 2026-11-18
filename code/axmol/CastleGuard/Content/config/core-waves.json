@@ -1,0 +1,116 @@
+{
+  "_comment": "开发版玩法核心的稳定战斗基线。保留五关拆分前已验证的 12 波，不参与关卡进度和永久奖励。",
+  "levels": [
+    {
+      "name": "核心玩法验证",
+      "clearCrystals": 0,
+      "waves": [
+        {
+          "name": "第 1 波 · 试探",
+          "restAfter": 3.0,
+          "groups": [
+            { "type": "normal", "count": 6, "interval": 0.9 }
+          ]
+        },
+        {
+          "name": "第 2 波 · 成群",
+          "restAfter": 3.0,
+          "groups": [
+            { "type": "normal", "count": 12, "interval": 0.6 },
+            { "type": "fast", "count": 4, "interval": 0.8, "delay": 4.0 }
+          ]
+        },
+        {
+          "name": "第 3 波 · 侧翼突袭",
+          "restAfter": 3.0,
+          "groups": [
+            { "type": "fast", "count": 6, "interval": 0.5, "from": "left" },
+            { "type": "fast", "count": 6, "interval": 0.5, "from": "right", "delay": 1.5 },
+            { "type": "normal", "count": 8, "interval": 0.7, "delay": 3.0 }
+          ]
+        },
+        {
+          "name": "第 4 波 · 远程压制",
+          "restAfter": 3.0,
+          "groups": [
+            { "type": "ranged", "count": 3, "interval": 2.0 },
+            { "type": "normal", "count": 8, "interval": 0.7, "delay": 2.0 },
+            { "type": "ranged", "count": 2, "interval": 2.5, "delay": 8.0 }
+          ]
+        },
+        {
+          "name": "第 5 波 · 铁壁（护盾怪：箭打不动，用技能！）",
+          "restAfter": 3.0,
+          "groups": [
+            { "type": "shield", "count": 3, "interval": 2.5 },
+            { "type": "normal", "count": 8, "interval": 0.7, "delay": 1.0 },
+            { "type": "shield", "count": 2, "interval": 3.0, "delay": 8.0 }
+          ]
+        },
+        {
+          "name": "第 6 波 · 敢死队（自爆怪：到站前点掉它！）",
+          "restAfter": 3.0,
+          "groups": [
+            { "type": "bomber", "count": 5, "interval": 1.2 },
+            { "type": "fast", "count": 6, "interval": 0.6, "delay": 2.0 },
+            { "type": "bomber", "count": 4, "interval": 1.0, "delay": 7.0 },
+            { "type": "shield", "count": 2, "interval": 3.0, "delay": 5.0 }
+          ]
+        },
+        {
+          "name": "第 7 波 · 空袭（飞行怪：打了就跑）",
+          "restAfter": 3.0,
+          "groups": [
+            { "type": "flyer", "count": 4, "interval": 2.0 },
+            { "type": "normal", "count": 8, "interval": 0.7, "delay": 2.0 },
+            { "type": "flyer", "count": 3, "interval": 2.5, "delay": 8.0 }
+          ]
+        },
+        {
+          "name": "第 8 波 · 支援编队（治疗怪：先杀后排绿十字！）",
+          "restAfter": 3.0,
+          "groups": [
+            { "type": "shield", "count": 3, "interval": 2.0 },
+            { "type": "healer", "count": 2, "interval": 3.0, "delay": 2.0 },
+            { "type": "normal", "count": 8, "interval": 0.7, "delay": 1.0 }
+          ]
+        },
+        {
+          "name": "第 9 波 · 分裂增殖（分裂怪：别在墙边杀，或用火球）",
+          "restAfter": 3.0,
+          "groups": [
+            { "type": "splitter", "count": 5, "interval": 1.5 },
+            { "type": "fast", "count": 6, "interval": 0.6, "delay": 3.0 }
+          ]
+        },
+        {
+          "name": "第 10 波 · 幽灵夜行（隐身时箭打不中，掐时机！）",
+          "restAfter": 3.0,
+          "groups": [
+            { "type": "ghost", "count": 6, "interval": 1.2 },
+            { "type": "rager", "count": 3, "interval": 2.0, "delay": 4.0 },
+            { "type": "normal", "count": 6, "interval": 0.8, "delay": 2.0 }
+          ]
+        },
+        {
+          "name": "第 11 波 · 护符冲锋（金环怪：先破盾再击杀！）",
+          "restAfter": 3.0,
+          "groups": [
+            { "type": "aegis", "count": 5, "interval": 1.5 },
+            { "type": "summoner", "count": 2, "interval": 4.0, "delay": 3.0 },
+            { "type": "normal", "count": 6, "interval": 0.8, "delay": 1.0 }
+          ]
+        },
+        {
+          "name": "第 12 波 · Boss 降临（橙环亮起 = 全力输出窗口）",
+          "restAfter": 5.0,
+          "groups": [
+            { "type": "boss", "count": 1 },
+            { "type": "normal", "count": 6, "interval": 1.0, "delay": 4.0 },
+            { "type": "fast", "count": 4, "interval": 0.8, "delay": 10.0 }
+          ]
+        }
+      ]
+    }
+  ]
+}

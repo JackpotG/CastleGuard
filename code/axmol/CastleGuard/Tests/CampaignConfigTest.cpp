@@ -1,0 +1,62 @@
+#include "CampaignConfig.h"
+
+#include "axmol.h"
+#include "doctest/doctest.h"
+
+#include <array>
+
+TEST_SUITE("CampaignConfig")
+{
+    TEST_CASE("production campaign has five increasingly dense levels")
+    {
+        CampaignConfig campaign;
+        std::string error;
+        const auto json = ax::FileUtils::getInstance()->getStringFromFile("config/waves.json");
+
+        REQUIRE(campaign.loadFromJson(json, &error));
+        REQUIRE_EQ(campaign.levels().size(), 5);
+
+        const std::array<int, 5> expectedEnemies = {19, 29, 37, 40, 51};
+        const std::array<int, 5> expectedCrystals = {1, 1, 2, 2, 4};
+        for (size_t i = 0; i < campaign.levels().size(); ++i)
+        {
+            const auto& level = campaign.levels()[i];
+            CHECK_FALSE(level.waves.empty());
+            CHECK_EQ(level.configuredEnemyCount(), expectedEnemies[i]);
+            CHECK_EQ(level.clearCrystals, expectedCrystals[i]);
+            if (i > 0)
+            {
+                CHECK_GT(level.configuredEnemyCount(), campaign.levels()[i - 1].configuredEnemyCount());
+            }
+        }
+    }
+
+    TEST_CASE("core battle keeps the committed twelve-wave baseline")
+    {
+        CampaignConfig core;
+        std::string error;
+        const auto json = ax::FileUtils::getInstance()->getStringFromFile("config/core-waves.json");
+
+        REQUIRE(core.loadFromJson(json, &error));
+        REQUIRE_EQ(core.levels().size(), 1);
+        CHECK_EQ(core.levels().front().waves.size(), 12);
+        CHECK_EQ(core.levels().front().configuredEnemyCount(), 163);
+        CHECK_EQ(core.levels().front().clearCrystals, 0);
+    }
+
+    TEST_CASE("invalid group data rejects the whole campaign")
+    {
+        CampaignConfig campaign;
+        std::string error;
+        const std::string json = R"({
+          "levels": [{
+            "name": "broken", "clearCrystals": 1,
+            "waves": [{"name": "wave", "groups": [{"type": "unknown", "count": 1}]}]
+          }]
+        })";
+
+        CHECK_FALSE(campaign.loadFromJson(json, &error));
+        CHECK(campaign.empty());
+        CHECK_FALSE(error.empty());
+    }
+}

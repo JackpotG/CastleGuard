@@ -19,6 +19,7 @@ public:
     void layout(const ax::Vec2& origin, const ax::Size& visibleSize);
     void open();
     void setStartRunCallback(std::function<void()> callback) { _startRunCallback = std::move(callback); }
+    void setStartButtonText(const std::string& text) { _startButton->setTitleText(text); }
 
 private:
     struct RowView

@@ -39,28 +39,32 @@
       "name": "火球",
       "description": "范围爆炸伤害",
       "unlockCost": 0,
-      "defaultUnlocked": true
+      "defaultUnlocked": false,
+      "unlockStage": 3
     },
     {
       "id": "freeze",
       "name": "冰冻",
       "description": "范围减速控制",
       "unlockCost": 0,
-      "defaultUnlocked": true
+      "defaultUnlocked": false,
+      "unlockStage": 4
     },
     {
       "id": "arrow_rain",
       "name": "箭雨",
       "description": "持续覆盖一片区域",
       "unlockCost": 0,
-      "defaultUnlocked": true
+      "defaultUnlocked": false,
+      "unlockStage": 5
     },
     {
       "id": "lightning",
       "name": "闪电",
       "description": "点杀主目标并麻痹周围敌人",
       "unlockCost": 5,
-      "defaultUnlocked": false
+      "defaultUnlocked": false,
+      "unlockStage": 0
     }
   ]
 }

@@ -72,9 +72,10 @@ elseif(WINDOWS)
   ax_mark_multi_resources(common_content_files RES_TO "Content" FOLDERS ${content_folder})
 endif()
 
-# 开发者工具的中文字体（10MB）只服务开发期，正式包不打包
+# 开发者工具的中文字体（10MB）和核心巡检波次只服务开发期，正式包不打包
 if(NOT CG_DEBUG_TOOLS)
   list(FILTER common_content_files EXCLUDE REGEX "NotoSansSC")
+  list(FILTER common_content_files EXCLUDE REGEX "core-waves\\.json$")
 endif()
 
 include(AXGameSourceSetup)

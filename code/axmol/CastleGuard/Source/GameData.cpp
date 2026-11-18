@@ -15,10 +15,12 @@
 
 namespace
 {
-constexpr int SAVE_VERSION = 2;
+constexpr int SAVE_VERSION = 4;
 constexpr const char* KEY_SAVE_VERSION = "cg.save.version";
 constexpr const char* KEY_COINS        = "cg.save.coins";
 constexpr const char* KEY_CRYSTALS     = "cg.save.crystals";
+constexpr const char* KEY_HIGHEST_CLEARED_STAGE = "cg.save.campaign.highestClearedStage";
+constexpr const char* KEY_HIGHEST_REWARDED_STAGE = "cg.save.campaign.highestRewardedStage";
 constexpr const char* CATALOG_PATH     = "config/upgrades.json";
 
 constexpr std::array<const char*, static_cast<size_t>(UpgradeId::Count)> UPGRADE_KEYS = {
@@ -52,7 +54,7 @@ int readStoredInt(const char* key, int defaultValue)
             const parsed = parseInt(value, 10);
             return isNaN(parsed) ? fallback : parsed;
         } catch (e) {
-            console.warn('[Economy] read storage failed: ' + key, e);
+            console.warn('[Campaign] read storage failed: ' + key, e);
             return fallback;
         }
     }, key, defaultValue);
@@ -74,7 +76,7 @@ void writeStoredInt(const char* key, int value)
                 localStorage.setItem(key, String(value));
             }
         } catch (e) {
-            console.warn('[Economy] write storage failed: ' + key, e);
+            console.warn('[Campaign] write storage failed: ' + key, e);
         }
     }, key, value);
 #else
@@ -177,7 +179,7 @@ void EconomyModel::rewindToCheckpoint()
     }
 }
 
-SettlementSummary EconomyModel::settle(bool victory)
+SettlementSummary EconomyModel::settle(bool victory, int clearCrystalReward)
 {
     SettlementSummary result;
     result.victory       = victory;
@@ -191,12 +193,33 @@ SettlementSummary EconomyModel::settle(bool victory)
     result.committed       = true;
     result.kills           = _runKills;
     result.coinsEarned     = _runCoins;
-    result.crystalsEarned  = victory ? CLEAR_CRYSTAL_REWARD : 0;
+    result.crystalsEarned  = victory ? std::max(0, clearCrystalReward) : 0;
     _totalCoins            = addClamped(_totalCoins, result.coinsEarned);
     _totalCrystals         = addClamped(_totalCrystals, result.crystalsEarned);
     result.totalCoins      = _totalCoins;
     result.totalCrystals   = _totalCrystals;
     _runActive             = false;
+    return result;
+}
+
+SettlementSummary EconomyModel::discardRun(bool victory)
+{
+    SettlementSummary result;
+    result.victory       = victory;
+    result.totalCoins    = _totalCoins;
+    result.totalCrystals = _totalCrystals;
+    if (!_runActive)
+    {
+        return result;
+    }
+
+    result.committed = true;
+    result.kills     = _runKills;
+    _runKills        = 0;
+    _runCoins        = 0;
+    _checkpointKills = 0;
+    _checkpointCoins = 0;
+    _runActive       = false;
     return result;
 }
 
@@ -218,6 +241,16 @@ bool EconomyModel::spendCrystals(int amount)
     }
     _totalCrystals -= amount;
     return true;
+}
+
+void EconomyModel::grantCoins(int amount)
+{
+    _totalCoins = addClamped(_totalCoins, std::max(0, amount));
+}
+
+void EconomyModel::grantCrystals(int amount)
+{
+    _totalCrystals = addClamped(_totalCrystals, std::max(0, amount));
 }
 
 #if CG_DEBUG_TOOLS
@@ -313,6 +346,88 @@ PurchaseResult ProgressionModel::unlockSkill(EconomyModel& economy, const SkillD
     return result;
 }
 
+bool ProgressionModel::grantUpgradeLevel(const UpgradeDefinition& definition)
+{
+    if (!validUpgrade(definition) || definition.id == UpgradeId::Count)
+    {
+        return false;
+    }
+    const int level = upgradeLevel(definition.id);
+    if (level >= definition.maxLevel())
+    {
+        return false;
+    }
+    setUpgradeLevel(definition.id, level + 1);
+    return true;
+}
+
+std::vector<SkillId> ProgressionModel::unlockSkillsForStage(
+    int stage, const std::array<SkillDefinition, static_cast<size_t>(SkillId::Count)>& definitions)
+{
+    std::vector<SkillId> result;
+    for (const auto& definition : definitions)
+    {
+        if (definition.unlockStage > 0 && stage >= definition.unlockStage &&
+            !isSkillUnlocked(definition.id))
+        {
+            setSkillUnlocked(definition.id, true);
+            result.push_back(definition.id);
+        }
+    }
+    return result;
+}
+
+CampaignProgressionModel::CampaignProgressionModel(int highestClearedStage, int highestRewardedStage)
+{
+    setHighestClearedStage(highestClearedStage);
+    setHighestRewardedStage(highestRewardedStage);
+}
+
+int CampaignProgressionModel::pendingRewardStage() const
+{
+    return _highestRewardedStage < _highestClearedStage ? _highestRewardedStage + 1 : 0;
+}
+
+int CampaignProgressionModel::nextStage(int stageCount) const
+{
+    if (stageCount <= 0)
+    {
+        return 1;
+    }
+    return std::clamp(_highestClearedStage + 1, 1, stageCount);
+}
+
+bool CampaignProgressionModel::completeStage(int stage, int stageCount)
+{
+    if (stageCount <= 0 || stage < 1 || stage > stageCount || stage != _highestClearedStage + 1)
+    {
+        return false;
+    }
+    _highestClearedStage = stage;
+    return true;
+}
+
+bool CampaignProgressionModel::claimRewardStage(int stage)
+{
+    if (stage < 1 || stage > _highestClearedStage || stage != _highestRewardedStage + 1)
+    {
+        return false;
+    }
+    _highestRewardedStage = stage;
+    return true;
+}
+
+void CampaignProgressionModel::setHighestClearedStage(int stage)
+{
+    _highestClearedStage = std::max(0, stage);
+    _highestRewardedStage = std::min(_highestRewardedStage, _highestClearedStage);
+}
+
+void CampaignProgressionModel::setHighestRewardedStage(int stage)
+{
+    _highestRewardedStage = std::clamp(stage, 0, _highestClearedStage);
+}
+
 GameData& GameData::getInstance()
 {
     static GameData instance;
@@ -338,10 +453,10 @@ void GameData::loadCatalog()
                           {12, 26, 45, 70, 105}, {100, 120, 140, 160, 180, 200}},
     };
     _skills = {
-        SkillDefinition{SkillId::Fireball, "fireball", "火球", "范围爆炸伤害", 0, true},
-        SkillDefinition{SkillId::Freeze, "freeze", "冰冻", "范围减速控制", 0, true},
-        SkillDefinition{SkillId::ArrowRain, "arrow_rain", "箭雨", "持续覆盖一片区域", 0, true},
-        SkillDefinition{SkillId::Lightning, "lightning", "闪电", "点杀主目标并麻痹周围敌人", 5, false},
+        SkillDefinition{SkillId::Fireball, "fireball", "火球", "范围爆炸伤害", 0, false, 3},
+        SkillDefinition{SkillId::Freeze, "freeze", "冰冻", "范围减速控制", 0, false, 4},
+        SkillDefinition{SkillId::ArrowRain, "arrow_rain", "箭雨", "持续覆盖一片区域", 0, false, 5},
+        SkillDefinition{SkillId::Lightning, "lightning", "闪电", "点杀主目标并麻痹周围敌人", 5, false, 0},
     };
 
     const std::string text = ax::FileUtils::getInstance()->getStringFromFile(CATALOG_PATH);
@@ -416,9 +531,12 @@ void GameData::loadCatalog()
             {
                 continue;
             }
+            const int unlockStage = item.HasMember("unlockStage") && item["unlockStage"].IsInt()
+                                        ? std::max(0, item["unlockStage"].GetInt())
+                                        : 0;
             _skills[static_cast<size_t>(id)] = SkillDefinition{
                 id, item["id"].GetString(), item["name"].GetString(), item["description"].GetString(),
-                item["unlockCost"].GetInt(), item["defaultUnlocked"].GetBool()};
+                item["unlockCost"].GetInt(), item["defaultUnlocked"].GetBool(), unlockStage};
         }
     }
     AXLOGI("[Progression] catalog loaded: {} upgrades, {} skills", _upgrades.size(), _skills.size());
@@ -430,6 +548,11 @@ void GameData::load()
     const int coins    = version >= 1 ? readStoredInt(KEY_COINS, 0) : 0;
     const int crystals = version >= 1 ? readStoredInt(KEY_CRYSTALS, 0) : 0;
     _economy = EconomyModel(coins, crystals);
+    const int highestCleared = version >= 3 ? readStoredInt(KEY_HIGHEST_CLEARED_STAGE, 0) : 0;
+    // v4 之前通关的玩家已经拿过旧版固定奖励，迁移时不补发三选一。
+    const int highestRewarded = version >= 4 ? readStoredInt(KEY_HIGHEST_REWARDED_STAGE, 0)
+                                             : highestCleared;
+    _campaign = CampaignProgressionModel(highestCleared, highestRewarded);
     _progression = ProgressionModel();
     for (const auto& definition : _upgrades)
     {
@@ -444,8 +567,9 @@ void GameData::load()
                                              : definition.defaultUnlocked;
         _progression.setSkillUnlocked(definition.id, unlocked);
     }
-    AXLOGI("[Progression] save loaded: version={}, coins={}, crystals={}", version, _economy.totalCoins(),
-           _economy.totalCrystals());
+    AXLOGI("[Campaign] save loaded: version={}, highestClearedStage={}, highestRewardedStage={}, "
+           "coins={}, crystals={}", version, _campaign.highestClearedStage(),
+           _campaign.highestRewardedStage(), _economy.totalCoins(), _economy.totalCrystals());
 }
 
 void GameData::save() const
@@ -453,6 +577,8 @@ void GameData::save() const
     writeStoredInt(KEY_SAVE_VERSION, SAVE_VERSION);
     writeStoredInt(KEY_COINS, _economy.totalCoins());
     writeStoredInt(KEY_CRYSTALS, _economy.totalCrystals());
+    writeStoredInt(KEY_HIGHEST_CLEARED_STAGE, _campaign.highestClearedStage());
+    writeStoredInt(KEY_HIGHEST_REWARDED_STAGE, _campaign.highestRewardedStage());
     for (const auto& definition : _upgrades)
     {
         const std::string key = upgradeStorageKey(definition.key.c_str());
@@ -466,7 +592,9 @@ void GameData::save() const
 #if AX_TARGET_PLATFORM != AX_PLATFORM_WASM
     ax::UserDefault::getInstance()->flush();
 #endif
-    AXLOGI("[Economy] save committed: coins={}, crystals={}", _economy.totalCoins(), _economy.totalCrystals());
+    AXLOGI("[Campaign] save committed: highestClearedStage={}, highestRewardedStage={}, coins={}, "
+           "crystals={}", _campaign.highestClearedStage(), _campaign.highestRewardedStage(),
+           _economy.totalCoins(), _economy.totalCrystals());
 }
 
 const UpgradeDefinition& GameData::upgradeDefinition(UpgradeId id) const
@@ -514,6 +642,66 @@ PurchaseResult GameData::unlockSkill(SkillId id)
     return result;
 }
 
+CampaignRewardContext GameData::campaignRewardContext(int stage) const
+{
+    CampaignRewardContext context;
+    context.stage = std::max(1, stage);
+    for (size_t i = 0; i < context.canUpgrade.size(); ++i)
+    {
+        const auto id         = static_cast<UpgradeId>(i);
+        context.canUpgrade[i] = upgradeLevel(id) < upgradeDefinition(id).maxLevel();
+    }
+    return context;
+}
+
+bool GameData::claimCampaignReward(int stage, CampaignRewardId id)
+{
+    if (stage != _campaign.pendingRewardStage())
+    {
+        AXLOGW("[GameModes][CampaignReward] claim rejected: stage={}, pending={}", stage,
+               _campaign.pendingRewardStage());
+        return false;
+    }
+
+    const auto grant = CampaignRewardModel::grant(id, stage);
+    if (grant.upgradeIndex >= 0)
+    {
+        const auto upgrade = static_cast<UpgradeId>(grant.upgradeIndex);
+        if (upgrade >= UpgradeId::Count || !_progression.grantUpgradeLevel(upgradeDefinition(upgrade)))
+        {
+            AXLOGW("[GameModes][CampaignReward] upgrade claim rejected: stage={}, reward={}", stage,
+                   CampaignRewardModel::definition(id).key);
+            return false;
+        }
+    }
+    _economy.grantCoins(grant.coins);
+    _economy.grantCrystals(grant.crystals);
+    if (!_campaign.claimRewardStage(stage))
+    {
+        return false;
+    }
+    save();
+    AXLOGI("[GameModes][CampaignReward] claimed: stage={}, reward={}, coins={}, crystals={}, upgradeIndex={}",
+           stage, CampaignRewardModel::definition(id).key, grant.coins, grant.crystals,
+           grant.upgradeIndex);
+    return true;
+}
+
+std::vector<SkillId> GameData::beginStage(int stage)
+{
+    auto unlocked = _progression.unlockSkillsForStage(stage, _skills);
+    if (!unlocked.empty())
+    {
+        save();
+        for (const auto id : unlocked)
+        {
+            AXLOGI("[Campaign] stage milestone unlocked skill: stage={}, key={}", stage,
+                   skillDefinition(id).key);
+        }
+    }
+    return unlocked;
+}
+
 float GameData::upgradeValue(UpgradeId id) const
 {
     const auto& definition = upgradeDefinition(id);
@@ -545,8 +733,10 @@ int GameData::wallMaxHealth() const
 DebugPlayerData GameData::debugPlayerData() const
 {
     DebugPlayerData result;
-    result.coins    = _economy.totalCoins();
-    result.crystals = _economy.totalCrystals();
+    result.coins               = _economy.totalCoins();
+    result.crystals            = _economy.totalCrystals();
+    result.highestClearedStage = _campaign.highestClearedStage();
+    result.highestRewardedStage = _campaign.highestRewardedStage();
     for (size_t i = 0; i < result.upgradeLevels.size(); ++i)
     {
         result.upgradeLevels[i] = _progression.upgradeLevel(static_cast<UpgradeId>(i));
@@ -561,6 +751,8 @@ DebugPlayerData GameData::debugPlayerData() const
 void GameData::debugApplyPlayerData(const DebugPlayerData& data)
 {
     _economy.debugSetBalances(data.coins, data.crystals);
+    _campaign.setHighestClearedStage(data.highestClearedStage);
+    _campaign.setHighestRewardedStage(data.highestRewardedStage);
     for (size_t i = 0; i < data.upgradeLevels.size(); ++i)
     {
         const auto id         = static_cast<UpgradeId>(i);
@@ -573,8 +765,10 @@ void GameData::debugApplyPlayerData(const DebugPlayerData& data)
         _progression.setSkillUnlocked(static_cast<SkillId>(i), data.skillUnlocked[i]);
     }
     save();
-    AXLOGI("[Sandbox] player data applied: coins={}, crystals={}, arrowDamage={}, multiShot={}, wallHP={}",
-           _economy.totalCoins(), _economy.totalCrystals(), arrowDamage(), multiShotCount(), wallMaxHealth());
+    AXLOGI("[Sandbox] player data applied: coins={}, crystals={}, highestClearedStage={}, "
+           "highestRewardedStage={}, arrowDamage={}, multiShot={}, wallHP={}",
+           _economy.totalCoins(), _economy.totalCrystals(), _campaign.highestClearedStage(),
+           _campaign.highestRewardedStage(), arrowDamage(), multiShotCount(), wallMaxHealth());
 }
 
 void GameData::debugResetPlayerData()
@@ -592,7 +786,7 @@ void GameData::debugResetPlayerData()
 void GameData::startRun()
 {
     _economy.startRun();
-    AXLOGI("[Economy] run started: bankCoins={}, bankCrystals={}", _economy.totalCoins(),
+    AXLOGI("[Campaign][Economy] run started: bankCoins={}, bankCrystals={}", _economy.totalCoins(),
            _economy.totalCrystals());
 }
 
@@ -611,14 +805,40 @@ void GameData::rewindToCheckpoint()
     _economy.rewindToCheckpoint();
 }
 
-SettlementSummary GameData::settleRun(bool victory)
+SettlementSummary GameData::settleRun(bool victory, int stage, int stageCount, int clearCrystalReward)
 {
-    auto result = _economy.settle(victory);
+    auto result = _economy.settle(victory, clearCrystalReward);
+    if (result.committed)
+    {
+        const bool advanced  = victory && _campaign.completeStage(stage, stageCount);
+        result.stageAdvanced = advanced;
+        save();
+        AXLOGI("[Campaign][Economy] run settled: stage={}/{}, victory={}, advanced={}, kills={}, "
+               "coinsEarned={}, crystalsEarned={}", stage, stageCount, victory, advanced, result.kills,
+               result.coinsEarned, result.crystalsEarned);
+    }
+    return result;
+}
+
+SettlementSummary GameData::settleEndlessRun()
+{
+    auto result = _economy.settle(false, 0);
     if (result.committed)
     {
         save();
-        AXLOGI("[Economy] run settled: victory={}, kills={}, coinsEarned={}, crystalsEarned={}", victory,
-               result.kills, result.coinsEarned, result.crystalsEarned);
+        AXLOGI("[GameModes][Endless][Economy] run settled: kills={}, coinsEarned={}", result.kills,
+               result.coinsEarned);
+    }
+    return result;
+}
+
+SettlementSummary GameData::settlePracticeRun(bool victory)
+{
+    auto result = _economy.discardRun(victory);
+    if (result.committed)
+    {
+        AXLOGI("[DevelopmentMenu][Core] practice run discarded: victory={}, kills={}, bankCoins={}, "
+               "bankCrystals={}", victory, result.kills, result.totalCoins, result.totalCrystals);
     }
     return result;
 }

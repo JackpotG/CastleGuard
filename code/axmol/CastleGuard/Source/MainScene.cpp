@@ -25,18 +25,24 @@
 
 #include "MainScene.h"
 
+#if CG_DEBUG_TOOLS
+#    include "DevelopmentMenuPanel.h"
+#endif
 #include "GameData.h"
+#include "ModeHomePanel.h"
+#include "ModeSelectPanel.h"
+#include "ThreeChoicePanel.h"
 #include "UpgradePanel.h"
 
 #if CG_DEBUG_TOOLS
 #    include "ImGui/ImGuiPresenter.h"  // 引擎扩展：手感调优面板（正式包剔除）
 #endif
-#include "rapidjson/document.h"        // 引擎自带 JSON 解析库（波次配置用）
 
 #include <algorithm>  // std::max
+#include <array>
 #include <cfloat>     // FLT_MAX（闪电找最近主目标）
+#include <cmath>      // std::ceil
 #include <cstdlib>    // rand / srand
-#include <cstring>    // strcmp
 #include <ctime>      // time
 
 using namespace ax;
@@ -79,7 +85,8 @@ constexpr float SIDE_GROUND_RATIO  = 0.25f;
 constexpr float SIDE_HOUSE_X_RATIO = 0.10f;
 
 // ---- 射箭系统 ----
-constexpr int   ARROW_POOL_SIZE = 32;       // 对象池容量：同时在屏箭矢上限
+constexpr int MAX_MULTI_SHOT_COUNT = 8;     // RunBuffModel 的多重箭硬上限
+constexpr int ARROW_POOL_SIZE = 256;         // 低箭速 + 多重箭连续射击仍能维持完整齐射
 // 手感调优清单 4 项全在这（ImGui 面板实时拖滑杆，别编译了）：
 float ARROW_SPEED     = 1000.0f;  // ① 箭矢初速（像素/秒）
 // 重力加速度（像素/秒²）。0 = 直线弹道；调成 600~900 就是抛物线
@@ -87,6 +94,8 @@ float ARROW_GRAVITY   = 0.0f;     // ② 抛物线 vs 直线
 float FIRE_INTERVAL   = 0.18f;    // ④ 连点射速上限（调试基准；升级按比例缩短）
 constexpr float RAD2DEG         = 57.2957795f;  // 弧度→角度（180/π）
 constexpr float MULTI_SHOT_SPREAD = 0.10f;      // 多重箭相邻箭的夹角（弧度，约 5.7°）
+constexpr float ARROW_SPAWN_FORWARD_OFFSET = 24.0f;  // 箭节点原点在杆中部，前移后让箭尾贴住弓弦
+constexpr float BOW_MULTI_ARROW_SPACING = 6.0f;      // 搭载箭横向间距，避免多支箭完全重叠
 
 // ---- 调试层 ----
 #if CG_DEBUG_TOOLS
@@ -95,71 +104,33 @@ constexpr float DEBUG_BTN_SIZE  = 88.0f;    // 左上角"切换视角"按钮边�
 
 // ---- 怪物系统 ----
 constexpr int   MONSTER_POOL_SIZE     = 48;     // 对象池容量：同时在屏怪物上限（怪群）
-float MONSTER_SPEED                   = 70.0f;  // ③ 推进速度基准（ImGui 可调），个体 ±15% 差异
-constexpr int   MONSTER_ATTACK_DAMAGE = 5;      // 啃墙伤害（每秒一口）
 constexpr float MONSTER_BODY_R        = 11.0f;  // 身体半径（占位圆，脚底为节点原点）
-// 怪物类型数值表：加新怪先加这里（数值），再去 applyMonsterSkin 加外观
-constexpr float FAST_SPEED_MUL        = 1.8f;   // 快速怪速度倍率
-constexpr float FAST_BODY_SCALE       = 0.8f;   // 快速怪体型倍率
-constexpr float RANGED_SPEED_MUL      = 0.9f;   // 远程怪走得稍慢
-float RANGED_STOP_RATIO               = 0.62f;  // ⑤ 停火位：战场纵深比例（ImGui 可调）
-constexpr float RANGED_ATTACK_INTERVAL= 1.8f;   // 远程攻击间隔（秒）
-constexpr int   RANGED_ATTACK_DAMAGE  = 4;      // 每发弹丸伤害
-// 护盾怪：箭矢免疫只怕技能（克制设计：逼玩家用技能），血厚走得慢
-constexpr float SHIELD_SPEED_MUL      = 0.75f;  // 速度倍率（慢，给玩家留技能冷却时间）
-constexpr float SHIELD_BODY_SCALE     = 1.25f;  // 体型倍率（大，一眼能认出是"硬目标"）
-constexpr int   SHIELD_HP             = 3;      // 血量（当前技能伤害都是秒杀级，血量为以后伤害分级预留）
-// 自爆怪：冲墙自爆一次性大伤害，被提前点死不爆——"必须优先点杀"的压迫感来源
-constexpr float BOMBER_SPEED_MUL      = 1.4f;   // 速度倍率（快，反应窗口短）
-constexpr float BOMBER_BODY_SCALE     = 0.9f;   // 体型倍率
-constexpr int   BOMBER_DAMAGE         = 15;     // 自爆对城墙伤害（≈近战怪啃 3 秒）
+// 类型血量/速度/体型/行为数值统一归 MonsterBalance，场景只保留行为规则与表现常量。
+constexpr float MONSTER_BREATH_SCALE_X = 0.04f;   // 横向 ±4%，与纵向反相形成挤压/伸展
+constexpr float MONSTER_BREATH_SCALE_Y = 0.08f;   // 纵向 ±8%，约 4px 峰谷差，缩放后仍清晰可见
+constexpr float MONSTER_BREATH_SPEED_MIN = 2.0f;  // 呼吸相位速度下限（弧度/秒）
+constexpr float MONSTER_BREATH_SPEED_MAX = 3.0f;  // 呼吸相位速度上限
+constexpr float KNOCKBACK_TRAVEL_SPEED = 480.0f;  // 击退平滑位移速度，避免命中瞬移
+constexpr float MAX_QUEUED_KNOCKBACK   = 120.0f;  // 高频连射时限制待结算位移，防止推出战场
 constexpr float BOMBER_FX_RADIUS      = 60.0f;  // 自爆特效半径（纯表现，伤害只打城墙）
 // 飞行怪：游击手——进场后在远区空域持续游荡（航点随机+正弦摆动出曲线），
 // 攻击严格按间隔计时，移动不打断计时——频率稳定，走位飘忽
-constexpr float FLYER_SPEED_MUL        = 1.2f;   // 速度倍率（飞得快）
-constexpr float FLYER_BODY_SCALE       = 0.85f;  // 体型倍率
-constexpr float FLYER_STOP_MIN         = 0.25f;  // 进场深度下限（战场纵深比例，走到这就开始游荡）
-constexpr float FLYER_STOP_MAX         = 0.62f;  // 进场深度上限
-constexpr float FLYER_ATTACK_INTERVAL  = 2.2f;   // 攻击间隔（秒，钉死不变，保证频率稳定）
-constexpr int   FLYER_ATTACK_DAMAGE    = 3;      // 每发弹丸伤害
 constexpr float FLYER_SWAY_AMP         = 55.0f;  // 游荡正弦摆动幅度（像素/秒，越大轨迹越飘）
 constexpr float FLYER_SWAY_FREQ        = 4.0f;   // 摆动频率（弧度/秒）
 constexpr float FLYER_WINDUP           = 0.5f;   // 攻击前摇（秒）：悬停蓄力，看得见的前摇提示
 // 治疗怪：跟在怪群后方，周期性给周围友军回血——逼玩家越过前排点杀后排
-constexpr float HEALER_SPEED_MUL       = 0.7f;
-constexpr float HEALER_STOP_RATIO      = 0.45f;  // 停在场中（比远程怪更靠后）
-constexpr float HEALER_INTERVAL        = 2.5f;   // 治疗脉冲间隔（秒）
 constexpr float HEALER_RADIUS          = 110.0f; // 治疗半径
-constexpr int   HEALER_AMOUNT          = 1;      // 每次回血量
-constexpr int   HEALER_HP              = 2;
 // 分裂怪：死后分裂成两只小快怪——克单点箭，怕 AOE（火球一锅端）
-constexpr float SPLITTER_SPEED_MUL     = 1.0f;
-constexpr float SPLITTER_BODY_SCALE    = 1.15f;
-constexpr int   SPLITTER_HP            = 2;
 constexpr float SPLIT_CHILD_OFFSET     = 28.0f;  // 子体出生横向偏移
 // 狂暴怪：血越少跑得越快——要么集火秒掉，要么留到最后处理
-constexpr float RAGER_SPEED_MUL        = 1.1f;
-constexpr int   RAGER_HP               = 3;
 constexpr float RAGER_SPEED_BOOST      = 1.2f;   // 空血时额外加速比例（+120%）
 // 幽灵怪：周期性隐身，隐身时箭打不中（AOE 技能照吃）——逼玩家掐时机或留蓝
 constexpr float GHOST_SHOW_TIME        = 2.5f;   // 显形时长（秒）
 constexpr float GHOST_HIDE_TIME        = 1.8f;   // 隐身时长（秒）
 // 召唤怪：站远区周期性召唤小怪——不集火就越打越多
-constexpr float SUMMONER_SPEED_MUL     = 0.6f;
-constexpr float SUMMONER_STOP_RATIO    = 0.55f;
-constexpr float SUMMONER_INTERVAL      = 4.0f;   // 召唤间隔（秒）
-constexpr int   SUMMONER_HP            = 3;
 // 护符怪：一次性全能护盾（挡任何攻击一次）+ 高速——必须优先处理的冲锋手
-constexpr float AEGIS_SPEED_MUL        = 1.5f;
-constexpr float AEGIS_BODY_SCALE       = 0.9f;
 // Boss：自由飞（游荡复用飞行怪机制）、厚血、前摇后扇形三连发
-constexpr float BOSS_SPEED_MUL         = 0.55f;
-constexpr float BOSS_BODY_SCALE        = 2.4f;
-constexpr int   BOSS_HP                = 30;
-constexpr float BOSS_STOP_RATIO        = 0.40f;  // 进场深度（战场纵深比例）
-constexpr float BOSS_ATTACK_INTERVAL   = 3.0f;
 constexpr float BOSS_WINDUP            = 1.2f;   // 大招前摇（秒，长前摇=玩家的输出窗口）
-constexpr int   BOSS_BOLT_DAMAGE       = 4;      // 每发弹丸伤害
 constexpr int   BOSS_BOLT_COUNT        = 3;      // 扇形弹丸数
 constexpr float BOSS_BOLT_SPREAD       = 90.0f;  // 扇形横向间距（像素）
 // ---- 敌方弹丸 ----
@@ -200,6 +171,49 @@ constexpr float SKILL_BTN_SIZE     = 80.0f;
 constexpr float SETTLEMENT_BUTTON_W = 230.0f;
 constexpr float SETTLEMENT_BUTTON_H = 72.0f;
 constexpr float SETTLEMENT_BUTTON_GAP = 24.0f;
+constexpr float WALL_HEALTH_BAR_W = 360.0f;
+constexpr float BOSS_HEALTH_BAR_W = 480.0f;
+constexpr float COMBAT_HEALTH_BAR_H = 28.0f;
+
+// 墙头主武器占位：弓身与箭挂点分层；挂点承载的就是之后飞行的真实对象池箭。
+// 局部 +Y 是发射方向；侧视战场旋转 90° 后即朝右。
+Node* createWallBow(float rotation, Node*& bowVisual, Node*& arrowMount)
+{
+    auto* weapon = Node::create();
+    bowVisual = Node::create();
+    arrowMount = Node::create();
+    auto* bow = DrawNode::create();
+    const Color4F outline(0.16f, 0.09f, 0.04f, 1.0f);
+    const Color4F wood(0.72f, 0.40f, 0.14f, 1.0f);
+    const Color4F highlight(0.94f, 0.68f, 0.26f, 1.0f);
+    const Color4F stringColor(0.88f, 0.90f, 0.86f, 0.95f);
+    const Vec2 leftTip(-36.0f, 13.0f);
+    const Vec2 leftMid(-23.0f, 23.0f);
+    const Vec2 center(0.0f, 29.0f);
+    const Vec2 rightMid(23.0f, 23.0f);
+    const Vec2 rightTip(36.0f, 13.0f);
+
+    // 深色粗描边 + 木色弓臂，让小尺寸下仍有清楚轮廓。
+    bow->drawLine(leftTip, leftMid, outline, 9.0f);
+    bow->drawLine(leftMid, center, outline, 9.0f);
+    bow->drawLine(center, rightMid, outline, 9.0f);
+    bow->drawLine(rightMid, rightTip, outline, 9.0f);
+    bow->drawLine(leftTip, leftMid, wood, 5.0f);
+    bow->drawLine(leftMid, center, highlight, 5.0f);
+    bow->drawLine(center, rightMid, highlight, 5.0f);
+    bow->drawLine(rightMid, rightTip, wood, 5.0f);
+
+    // 攻击间隔内保持空弓：弦回到两端连线，箭只在真实弹体发射时出现。
+    bow->drawLine(leftTip, rightTip, stringColor, 2.0f);
+    bow->drawSolidRect(Vec2(-5.0f, 23.0f), Vec2(5.0f, 35.0f),
+                       Color4F(0.24f, 0.14f, 0.07f, 1.0f));
+
+    bowVisual->addChild(bow);
+    weapon->addChild(bowVisual);
+    weapon->addChild(arrowMount, 1);
+    weapon->setRotation(rotation);
+    return weapon;
+}
 }  // namespace
 
 // on "init" you need to initialize your instance
@@ -219,9 +233,10 @@ bool MainScene::init()
     initDebugUI();
 #endif
     // 玩家钱包和成长存档在 GameData 构造时加载；新一局从当前城墙上限开始。
-    _wallHP = GameData::getInstance().wallMaxHealth();
-    GameData::getInstance().startRun();
+    _wallMaxHP = GameData::getInstance().wallMaxHealth();
+    _wallHP    = _wallMaxHP;
     initEconomyUI();
+    initCombatHUD();
     // 技能栏同理：必须先于 buildBattlefield 创建（布局重排在重建战场时统一做）
     initSkillBar();
 
@@ -242,7 +257,7 @@ bool MainScene::init()
 
     /////////////////////////////
     // 5. 波次管理：JSON 数据驱动（改波次配置不用碰代码）
-    loadWaves();
+    loadCampaign();
     // HUD：顶部居中波次提示。位置由 buildBattlefield 负责（旋转/缩放时重排）
     _waveLabel = Label::createWithSystemFont("", "Arial", 30);
     _waveLabel->setTextColor(Color4B::WHITE);
@@ -262,6 +277,7 @@ bool MainScene::init()
     _touchListener->onTouchesBegan = AX_CALLBACK_2(MainScene::onTouchesBegan, this);
     _touchListener->onTouchesMoved = AX_CALLBACK_2(MainScene::onTouchesMoved, this);
     _touchListener->onTouchesEnded = AX_CALLBACK_2(MainScene::onTouchesEnded, this);
+    _touchListener->onTouchesCancelled = AX_CALLBACK_2(MainScene::onTouchesCancelled, this);
     _eventDispatcher->addEventListenerWithSceneGraphPriority(_touchListener, this);
 
 #if CG_DEBUG_TOOLS
@@ -275,6 +291,8 @@ bool MainScene::init()
     // scheduleUpdate() is required to ensure update(float) is called on every loop
     scheduleUpdate();
 
+    showEntryMenu();
+
     return true;
 }
 
@@ -285,6 +303,14 @@ bool MainScene::init()
 // ---------------------------------------------------------------------------
 void MainScene::buildBattlefield(BattleLayout layout)
 {
+    // 已装填的真实箭属于旧弓的子节点；先取回场景池，再销毁旧战场。
+    for (auto& a : _arrowPool)
+    {
+        parkArrow(a);
+    }
+    _wallBowWeapon = nullptr;  // 旧弓属于旧 battlefield，移除容器前先清掉非拥有指针
+    _wallBowVisual = nullptr;
+    _wallBowArrowMount = nullptr;
     if (_battlefield)
     {
         removeChild(_battlefield);
@@ -305,12 +331,7 @@ void MainScene::buildBattlefield(BattleLayout layout)
     // 抗锯齿"吞掉"（上次看不到出怪线的原因），虚线段一律用 drawSolidRect
     const float dash = 26.0f, gap = 16.0f, lineW = 6.0f;
 
-    // 布局重建后战场几何变了，飞行中的箭和在场怪物全部回收（回池，不销毁）
-    for (auto& a : _arrowPool)
-    {
-        a.active = false;
-        a.node->setVisible(false);
-    }
+    // 布局重建后战场几何变了，在场怪物与其他弹体全部回收（回池，不销毁）
     for (auto& m : _monsterPool)
     {
         m.active = false;
@@ -361,14 +382,15 @@ void MainScene::buildBattlefield(BattleLayout layout)
         house->drawSolidRect(Vec2(-34, 0), Vec2(34, 96), Color4F(0.55f, 0.55f, 0.60f, 1.0f));   // 墙体
         house->drawSolidRect(Vec2(-42, 96), Vec2(42, 112), Color4F(0.45f, 0.45f, 0.50f, 1.0f));  // 檐口
         house->drawSolidRect(Vec2(-10, 0), Vec2(10, 36), Color4F(0.30f, 0.22f, 0.14f, 1.0f));    // 门
-        house->drawLine(Vec2(0, 112), Vec2(0, 150), Color4F::WHITE);                             // 旗杆
-        house->drawSolidTriangle(Vec2(0, 150), Vec2(0, 132), Vec2(28, 141),
-                                 Color4F::RED, Color4F::RED);                                      // 旗面
         house->setPosition(Vec2(origin.x + visibleSize.width * SIDE_HOUSE_X_RATIO, groundTop));
         _battlefield->addChild(house, 1);
 
-        // 箭手位：屋顶旗杆下（箭从这里射出）
-        _archerPos = house->getPosition() + Vec2(0, 112);
+        // 屋顶弓朝向右侧战场；箭矢从拉弦释放点发射。
+        _archerPos = house->getPosition() + Vec2(0, 120);
+        _wallBowWeapon = createWallBow(90.0f, _wallBowVisual, _wallBowArrowMount);
+        _wallBowWeapon->setPosition(_archerPos);
+        _wallBowWeapon->setScale(0.88f);
+        _battlefield->addChild(_wallBowWeapon, 2);
 
         // 出怪口（右缘，地面高度处的一小段红色虚线"门"）
         const float gateH = visibleSize.height * 0.10f;
@@ -421,7 +443,7 @@ void MainScene::buildBattlefield(BattleLayout layout)
         }
         _battlefield->addChild(lanes, 1);
 
-        // 城墙（底）：横条墙体 + 顶缘墙垛 + 中央箭手位小旗（箭矢从这里射出）
+        // 城墙（底）：横条墙体 + 顶缘墙垛 + 中央主弓（箭矢从这里射出）
         auto wall = DrawNode::create();
         wall->drawSolidRect(origin, Vec2(right, wallTop), Color4F(0.50f, 0.50f, 0.55f, 1.0f));
         const float merlonW = 22.0f, merlonH = 14.0f, merlonGap = 14.0f;
@@ -431,15 +453,13 @@ void MainScene::buildBattlefield(BattleLayout layout)
                                 Color4F(0.62f, 0.62f, 0.67f, 1.0f));
         }
         const float centerX = (origin.x + right) * 0.5f;
-        wall->drawSolidCircle(Vec2(centerX, wallTop), 10.0f, 0.0f, 16,
-                              Color4F(0.85f, 0.70f, 0.30f, 1.0f));
-        wall->drawLine(Vec2(centerX, wallTop), Vec2(centerX, wallTop + 46), Color4F::WHITE);
-        wall->drawSolidTriangle(Vec2(centerX, wallTop + 46), Vec2(centerX, wallTop + 28),
-                                Vec2(centerX + 26, wallTop + 37), Color4F::RED, Color4F::RED);
         _battlefield->addChild(wall, 1);
 
-        // 箭手位：城墙顶缘中央（金点处）
-        _archerPos = Vec2(centerX, wallTop);
+        // 斜俯视主弓朝向上方战场，拉弦点就是弹体出生点。
+        _archerPos = Vec2(centerX, wallTop + 8.0f);
+        _wallBowWeapon = createWallBow(0.0f, _wallBowVisual, _wallBowArrowMount);
+        _wallBowWeapon->setPosition(_archerPos);
+        _battlefield->addChild(_wallBowWeapon, 2);
 
         // 出怪线（顶）：横向红色虚线，贯穿全宽
         auto spawnLine = DrawNode::create();
@@ -451,11 +471,15 @@ void MainScene::buildBattlefield(BattleLayout layout)
         _battlefield->addChild(spawnLine, 1);
     }
 
+    // 新战场初始即处于装填完成状态；箭数跟随当前多重箭属性。
+    refreshWallBowLoadedArrows();
+
 #if CG_DEBUG_TOOLS
     layoutDebugUI(origin, top);  // 调试按钮重排（正式包无此函数）
 #endif
     layoutSkillBar(origin, right);  // 技能栏重排（正式玩法 UI）
     layoutEconomyUI(origin, right, top);
+    layoutCombatHUD(origin, visibleSize);
     // 波次 HUD：顶部居中
     if (_waveLabel)
     {
@@ -464,7 +488,15 @@ void MainScene::buildBattlefield(BattleLayout layout)
 
     // 战场重建回收了在场怪物（见函数开头）→ 重打当前波。
     // 配置是只读的，重置运行时状态即可；AllClear（全部打完）就不重开了
-    if (!_settlementVisible && !_waves.empty() &&
+    if (!_settlementVisible && (!_choicePanel || !_choicePanel->isVisible()) &&
+        (!_upgradePanel || !_upgradePanel->isVisible()) &&
+        (!_modeSelectPanel || !_modeSelectPanel->isVisible())
+#if CG_DEBUG_TOOLS
+        && (!_developmentMenuPanel || !_developmentMenuPanel->isVisible())
+#endif
+        && (!_campaignMenuPanel || !_campaignMenuPanel->isVisible())
+        && (!_roguelikeMenuPanel || !_roguelikeMenuPanel->isVisible())
+        && !_waves.empty() &&
         (_waveState == WaveState::Spawning || _waveState == WaveState::Resting))
     {
         // 重建会清掉场上怪并重播当前波，先回滚到本波起点，避免重复击杀刷金币。
@@ -478,6 +510,104 @@ void MainScene::buildBattlefield(BattleLayout layout)
            visibleSize.width, visibleSize.height);
 }
 
+// ---------------------------------------------------------------------------
+// 共享战斗血条：只读取本局战斗状态，不持有生命规则。
+// 城墙条固定在技能栏上方；Boss 条固定在顶部，避免跟随大体型节点遮挡瞄准。
+// ---------------------------------------------------------------------------
+void MainScene::initCombatHUD()
+{
+    _wallHealthBar = DrawNode::create();
+    addChild(_wallHealthBar, 6);
+    _wallHealthLabel = Label::createWithSystemFont("", "Arial", 19);
+    _wallHealthLabel->setTextColor(Color4B::WHITE);
+    _wallHealthLabel->enableOutline(Color4B(0, 0, 0, 220), 2);
+    addChild(_wallHealthLabel, 6);
+
+    _bossHealthBar = DrawNode::create();
+    addChild(_bossHealthBar, 6);
+    _bossHealthLabel = Label::createWithSystemFont("", "Arial", 25);
+    _bossHealthLabel->setTextColor(Color4B(255, 222, 224, 255));
+    addChild(_bossHealthLabel, 6);
+
+    _wallHealthBar->setVisible(false);
+    _wallHealthLabel->setVisible(false);
+    _bossHealthBar->setVisible(false);
+    _bossHealthLabel->setVisible(false);
+    AXLOGI("[CombatCore] health HUD initialized");
+}
+
+void MainScene::layoutCombatHUD(const Vec2& origin, const Size& visibleSize)
+{
+    const float centerX = origin.x + visibleSize.width * 0.5f;
+    const float wallW   = std::min(WALL_HEALTH_BAR_W, visibleSize.width * 0.50f);
+    const float bossW   = std::min(BOSS_HEALTH_BAR_W, visibleSize.width * 0.68f);
+    const float wallY   = origin.y + SKILL_BTN_SIZE + 55.0f;
+    const float bossY   = origin.y + visibleSize.height - 135.0f;
+    _wallHealthRect = Rect(centerX - wallW * 0.5f, wallY, wallW, COMBAT_HEALTH_BAR_H);
+    _bossHealthRect = Rect(centerX - bossW * 0.5f, bossY, bossW, COMBAT_HEALTH_BAR_H);
+    _wallHealthLabel->setPosition(Vec2(centerX, wallY + COMBAT_HEALTH_BAR_H * 0.5f));
+    _bossHealthLabel->setPosition(Vec2(centerX, bossY + 38.0f));
+}
+
+void MainScene::refreshCombatHUD()
+{
+    if (!_wallHealthBar || !_bossHealthBar)
+    {
+        return;
+    }
+    const bool battleVisible = _gameState == GameState::update;
+    _wallHealthBar->setVisible(battleVisible);
+    _wallHealthLabel->setVisible(battleVisible);
+    if (battleVisible)
+    {
+        const float ratio = std::clamp(static_cast<float>(_wallHP) /
+                                           static_cast<float>(std::max(1, _wallMaxHP)),
+                                       0.0f, 1.0f);
+        const Color4F fill = ratio > 0.55f ? Color4F(0.24f, 0.78f, 0.42f, 0.96f)
+                             : ratio > 0.25f ? Color4F(0.92f, 0.68f, 0.20f, 0.96f)
+                                             : Color4F(0.90f, 0.25f, 0.20f, 0.96f);
+        const Vec2 min = _wallHealthRect.origin;
+        const Vec2 max(min.x + _wallHealthRect.size.width, min.y + _wallHealthRect.size.height);
+        _wallHealthBar->clear();
+        _wallHealthBar->drawSolidRect(min, max, Color4F(0.04f, 0.06f, 0.08f, 0.88f));
+        _wallHealthBar->drawSolidRect(min, Vec2(min.x + _wallHealthRect.size.width * ratio, max.y), fill);
+        _wallHealthBar->drawRect(min, max, Color4F(0.80f, 0.86f, 0.90f, 0.95f), 2.0f);
+        _wallHealthLabel->setString(StringUtils::format("城墙  %d / %d", _wallHP, _wallMaxHP));
+    }
+
+    int bossCount = 0;
+    int bossHP = 0;
+    int bossMaxHP = 0;
+    for (const auto& monster : _monsterPool)
+    {
+        if (monster.active && monster.state != MonsterState::Dead &&
+            monster.type == MonsterType::Boss)
+        {
+            ++bossCount;
+            bossHP += std::max(0, monster.hp);
+            bossMaxHP += monster.maxHp;
+        }
+    }
+    const bool bossVisible = battleVisible && bossCount > 0 && bossMaxHP > 0;
+    _bossHealthBar->setVisible(bossVisible);
+    _bossHealthLabel->setVisible(bossVisible);
+    if (bossVisible)
+    {
+        const float ratio = std::clamp(static_cast<float>(bossHP) / bossMaxHP, 0.0f, 1.0f);
+        const Vec2 min = _bossHealthRect.origin;
+        const Vec2 max(min.x + _bossHealthRect.size.width, min.y + _bossHealthRect.size.height);
+        _bossHealthBar->clear();
+        _bossHealthBar->drawSolidRect(min, max, Color4F(0.05f, 0.03f, 0.06f, 0.92f));
+        _bossHealthBar->drawSolidRect(
+            min, Vec2(min.x + _bossHealthRect.size.width * ratio, max.y),
+            Color4F(0.78f, 0.16f, 0.26f, 0.98f));
+        _bossHealthBar->drawRect(min, max, Color4F(1.0f, 0.72f, 0.76f, 0.96f), 2.5f);
+        _bossHealthLabel->setString(
+            bossCount > 1 ? StringUtils::format("BOSS x%d  %d / %d", bossCount, bossHP, bossMaxHP)
+                          : StringUtils::format("BOSS  %d / %d", bossHP, bossMaxHP));
+    }
+}
+
 #if CG_DEBUG_TOOLS
 // ---------------------------------------------------------------------------
 // 调试层：左上角常驻"切换视角"按钮。
@@ -487,6 +617,27 @@ void MainScene::buildBattlefield(BattleLayout layout)
 void MainScene::initDebugUI()
 {
     const float s = DEBUG_BTN_SIZE;
+
+    // 四宫格 = 返回开发总入口。zOrder 高于所有模态页，任何玩法状态下都可退出。
+    _debugModeMenuBtn = Node::create();
+    auto menuBg = DrawNode::create();
+    menuBg->drawSolidRect(Vec2::ZERO, Vec2(s, s), Color4F(0.07f, 0.14f, 0.18f, 0.88f));
+    menuBg->drawRect(Vec2::ZERO, Vec2(s, s), Color4F(0.35f, 0.90f, 0.82f, 1.0f), 2.5f);
+    const Color4F menuIcon(0.82f, 1.0f, 0.95f, 1.0f);
+    const float tile = s * 0.20f;
+    const float gap = s * 0.10f;
+    const float gridMin = (s - tile * 2.0f - gap) * 0.5f;
+    for (int row = 0; row < 2; ++row)
+    {
+        for (int column = 0; column < 2; ++column)
+        {
+            const Vec2 min(gridMin + column * (tile + gap), gridMin + row * (tile + gap));
+            menuBg->drawSolidRect(min, min + Vec2(tile, tile), menuIcon);
+        }
+    }
+    _debugModeMenuBtn->addChild(menuBg);
+    addChild(_debugModeMenuBtn, 60);
+
     _debugBtn     = Node::create();
 
     auto bg = DrawNode::create();
@@ -550,13 +701,19 @@ void MainScene::initDebugUI()
 }
 
 // 调试按钮跟随布局定位：左上角留边区（避开右上角的微信胶囊菜单）。
-// 三排：⇄ 切视角 / ↻ 重开 / ◀ ▶ ⚙（跳波 + 调参）
+// 三排：▦ 开发总入口 + ⇄ 切视角 / ↻ 重开 / ◀ ▶ ⚙（跳波 + 调参）
 void MainScene::layoutDebugUI(const Vec2& origin, float top)
 {
     const float s = DEBUG_BTN_SIZE;
+    if (_debugModeMenuBtn)
+    {
+        const Vec2 p(origin.x + 16.0f, top - 16.0f - s);
+        _debugModeMenuBtn->setPosition(p);
+        _debugModeMenuBtnRect = Rect(p.x, p.y, s, s);
+    }
     if (_debugBtn)
     {
-        Vec2 p(origin.x + 16.0f, top - 16.0f - s);
+        Vec2 p(origin.x + 16.0f + s + 12.0f, top - 16.0f - s);
         _debugBtn->setPosition(p);
         _debugBtnRect = Rect(p.x, p.y, s, s);
     }
@@ -641,6 +798,11 @@ void MainScene::onImGuiDraw()
             drawTuningTab();
             ImGui::EndTabItem();
         }
+        if (ImGui::BeginTabItem("怪物参数"))
+        {
+            drawMonsterTuningTab();
+            ImGui::EndTabItem();
+        }
         if (ImGui::BeginTabItem("沙盒"))
         {
             drawSandboxTab();
@@ -654,11 +816,9 @@ void MainScene::onImGuiDraw()
 void MainScene::drawTuningTab()
 {
     ImGui::SeparatorText("射箭");
-    ImGui::SliderFloat("箭矢速度", &ARROW_SPEED, 300.0f, 2000.0f, "%.0f 像素/秒");
+    // 允许归零：箭从弓上脱离后停在发射点，便于逐帧检查单箭/多重箭表现。
+    ImGui::SliderFloat("箭矢速度", &ARROW_SPEED, 0.0f, 2000.0f, "%.0f 像素/秒");
     ImGui::SliderFloat("射速上限", &FIRE_INTERVAL, 0.05f, 0.50f, "%.2f 秒/发");
-    ImGui::SeparatorText("怪物");
-    ImGui::SliderFloat("怪物速度", &MONSTER_SPEED, 20.0f, 200.0f, "%.0f 像素/秒");
-    ImGui::SliderFloat("远程停火位", &RANGED_STOP_RATIO, 0.40f, 0.85f, "%.2f（纵深比）");
     // 进阶参数：玩法实验性质，默认收起——抛物线弹道会显著改变瞄准手感，
     // 属于"丰富玩法"的候选（比如后续做成可解锁的箭塔改造）
     if (ImGui::CollapsingHeader("进阶参数（玩法实验）"))
@@ -673,6 +833,89 @@ void MainScene::drawTuningTab()
     ImGui::SeparatorText("战场状态");
     ImGui::Text("城墙血量: %d  击杀: %d  蓝量: %.0f", _wallHP,
                 GameData::getInstance().economy().runKills(), _mana);
+}
+
+void MainScene::drawMonsterTuningTab()
+{
+    static const char* monsterNames[] = {"普通怪", "快速怪", "远程怪", "护盾怪", "自爆怪",
+                                         "飞行怪", "治疗怪", "分裂怪", "狂暴怪", "幽灵怪",
+                                         "召唤怪", "护符怪", "Boss"};
+    static const char* powerLabels[] = {"啃墙伤害", "啃墙伤害", "弹丸伤害", "啃墙伤害", "自爆伤害",
+                                        "弹丸伤害", "治疗量", "啃墙伤害", "啃墙伤害", "啃墙伤害",
+                                        "召唤数量", "啃墙伤害", "单发伤害"};
+
+    ImGui::SeparatorText("全局");
+    float baseSpeed = _monsterBalance.baseSpeed();
+    if (ImGui::SliderFloat("基础速度", &baseSpeed, 10.0f, 300.0f, "%.0f 像素/秒"))
+    {
+        _monsterBalance.setBaseSpeed(baseSpeed);
+        _monsterTuningDirtyType = _monsterTuningType;
+    }
+    float baseBodyRadius = _monsterBalance.baseBodyRadius();
+    if (ImGui::SliderFloat("基础体型", &baseBodyRadius, 8.0f, 24.0f, "%.0f 像素半径"))
+    {
+        _monsterBalance.setBaseBodyRadius(baseBodyRadius);
+        _monsterTuningDirtyType = _monsterTuningType;
+    }
+
+    ImGui::SeparatorText("类型参数");
+    ImGui::Combo("怪物类型", &_monsterTuningType, monsterNames,
+                 static_cast<int>(MonsterBalance::TYPE_COUNT));
+    const auto type = static_cast<MonsterType>(_monsterTuningType);
+    auto value      = _monsterBalance.parameters(type);
+    bool changed    = false;
+    changed |= ImGui::SliderInt("生命上限", &value.maxHp, 1, 100);
+    changed |= ImGui::SliderFloat("速度倍率", &value.speedMultiplier, 0.1f, 4.0f, "%.2f 倍");
+    changed |= ImGui::SliderFloat("体型倍率", &value.bodyScale, 0.4f, 3.0f, "%.2f 倍");
+    changed |= ImGui::SliderFloat("击退承受系数", &value.knockbackFactor, 0.0f, 2.0f, "%.2f 倍");
+    changed |= ImGui::SliderInt(powerLabels[_monsterTuningType], &value.actionPower, 0, 50);
+    if (type != MonsterType::Bomber)
+    {
+        changed |= ImGui::SliderFloat("行为间隔", &value.actionInterval, 0.1f, 10.0f, "%.2f 秒");
+    }
+
+    const bool usesStopRatio = type == MonsterType::Ranged || type == MonsterType::Flyer ||
+                               type == MonsterType::Healer || type == MonsterType::Summoner ||
+                               type == MonsterType::Boss;
+    if (usesStopRatio)
+    {
+        changed |= ImGui::SliderFloat("驻足位置下限", &value.stopRatioMin, 0.05f, 0.90f, "%.2f 纵深");
+        changed |= ImGui::SliderFloat("驻足位置上限", &value.stopRatioMax, 0.05f, 0.90f, "%.2f 纵深");
+    }
+
+    if (changed)
+    {
+        _monsterBalance.setParameters(type, value);
+        _monsterTuningDirtyType = _monsterTuningType;
+    }
+    if (_monsterTuningDirtyType >= 0 && !ImGui::IsAnyItemActive())
+    {
+        const auto loggedType  = static_cast<MonsterType>(_monsterTuningDirtyType);
+        const auto& loggedData = _monsterBalance.parameters(loggedType);
+        AXLOGI("[MonsterTuning] updated: type={}, baseSpeed={}, baseBodyRadius={}, hp={}, speedMul={}, "
+               "bodyScale={}, knockbackFactor={}, power={}, interval={}, stop=[{},{}]",
+               monsterNames[_monsterTuningDirtyType], _monsterBalance.baseSpeed(),
+               _monsterBalance.baseBodyRadius(), loggedData.maxHp, loggedData.speedMultiplier,
+               loggedData.bodyScale, loggedData.knockbackFactor, loggedData.actionPower,
+               loggedData.actionInterval,
+               loggedData.stopRatioMin, loggedData.stopRatioMax);
+        _monsterTuningDirtyType = -1;
+    }
+
+    ImGui::TextDisabled("生效范围：之后生成的怪物");
+    if (ImGui::Button("恢复当前怪物默认值"))
+    {
+        _monsterBalance.reset(type);
+        _monsterTuningDirtyType = -1;
+        AXLOGI("[MonsterTuning] reset type: {}", monsterNames[_monsterTuningType]);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("全部恢复默认值"))
+    {
+        _monsterBalance.resetAll();
+        _monsterTuningDirtyType = -1;
+        AXLOGI("[MonsterTuning] reset all monster parameters");
+    }
 }
 
 void MainScene::syncSandboxDraft()
@@ -709,6 +952,7 @@ void MainScene::sandboxOpenUpgradePreview()
     {
         return;
     }
+    stopContinuousFire();
     _settlementVisible = true;
     _gameState         = GameState::end;
     _settlementLayer->setVisible(false);
@@ -739,11 +983,51 @@ void MainScene::drawSandboxTab()
     }
 
     const bool runControllable = data.economy().runActive() && !_settlementVisible;
+    const char* modeName = _gameMode == GameMode::Core ? "玩法核心"
+                           : _gameMode == GameMode::Endless ? "肉鸽模式"
+                                                            : "闯关模式";
+    ImGui::Text("当前模式: %s", modeName);
+    if (_gameMode == GameMode::Core)
+    {
+        ImGui::Text("核心波次: %d / %d", static_cast<int>(_waveIndex) + 1,
+                    static_cast<int>(_waves.size()));
+    }
+    else if (_gameMode == GameMode::Endless)
+    {
+        ImGui::Text("当前波次: %d", _endlessWaveNumber);
+    }
+    else
+    {
+        ImGui::Text("当前关卡: %d / %d", static_cast<int>(_levelIndex) + 1,
+                    static_cast<int>(_campaign.levels().size()));
+    }
+    ImGui::BeginDisabled(_gameMode != GameMode::Campaign);
+    if (ImGui::Button("上一关"))
+    {
+        sandboxGotoLevel(-1);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("下一关"))
+    {
+        sandboxGotoLevel(1);
+    }
+    ImGui::EndDisabled();
+
     ImGui::BeginDisabled(!runControllable);
     if (ImGui::Button("立即获胜并结算"))
     {
-        AXLOGI("[Sandbox] forced victory");
-        showSettlement(true);
+        AXLOGI("[Sandbox] forced clear: mode={}",
+               _gameMode == GameMode::Core ? "core"
+               : _gameMode == GameMode::Endless ? "endless"
+                                                : "campaign");
+        if (_gameMode == GameMode::Endless)
+        {
+            offerRunBuff();
+        }
+        else
+        {
+            showSettlement(true);
+        }
     }
     ImGui::SameLine();
     if (ImGui::Button("立即失败并结算"))
@@ -759,7 +1043,8 @@ void MainScene::drawSandboxTab()
     ImGui::SameLine();
     if (ImGui::Button("回满城墙"))
     {
-        _wallHP = data.wallMaxHealth();
+        _wallMaxHP = data.wallMaxHealth();
+        _wallHP    = _wallMaxHP;
         AXLOGI("[Sandbox] wall restored: hp={}", _wallHP);
     }
     ImGui::SameLine();
@@ -798,6 +1083,9 @@ void MainScene::drawSandboxTab()
     ImGui::TextDisabled("修改草稿后点击“应用到存档”，桌面与微信存档都会立即写入。");
     ImGui::InputInt("金币", &_sandboxDraft.coins, 100, 1000);
     ImGui::InputInt("水晶", &_sandboxDraft.crystals, 10, 100);
+    ImGui::InputInt("已通关关数", &_sandboxDraft.highestClearedStage, 1, 1);
+    ImGui::InputInt("已领养成奖励关数", &_sandboxDraft.highestRewardedStage, 1, 1);
+    ImGui::TextDisabled("关卡进度在重开或开始下一局时生效。正式战役共 5 关。");
 
     const char* upgradeNames[] = {"强弓等级", "疾射等级", "多重箭等级", "城墙等级"};
     for (size_t i = 0; i < _sandboxDraft.upgradeLevels.size(); ++i)
@@ -817,6 +1105,9 @@ void MainScene::drawSandboxTab()
     {
         _sandboxDraft.coins    = 999999;
         _sandboxDraft.crystals = 999999;
+        _sandboxDraft.highestClearedStage =
+            std::max(0, static_cast<int>(_campaign.levels().size()) - 1);
+        _sandboxDraft.highestRewardedStage = _sandboxDraft.highestClearedStage;
         for (size_t i = 0; i < _sandboxDraft.upgradeLevels.size(); ++i)
         {
             _sandboxDraft.upgradeLevels[i] = data.upgradeDefinition(static_cast<UpgradeId>(i)).maxLevel();
@@ -830,9 +1121,16 @@ void MainScene::drawSandboxTab()
     }
     if (ImGui::Button("应用到存档"))
     {
+        _sandboxDraft.highestClearedStage =
+            std::clamp(_sandboxDraft.highestClearedStage, 0,
+                       static_cast<int>(_campaign.levels().size()));
+        _sandboxDraft.highestRewardedStage =
+            std::clamp(_sandboxDraft.highestRewardedStage, 0,
+                       _sandboxDraft.highestClearedStage);
         data.debugApplyPlayerData(_sandboxDraft);
         syncSandboxDraft();
-        _wallHP = std::min(_wallHP, data.wallMaxHealth());
+        _wallMaxHP = data.wallMaxHealth();
+        _wallHP = std::min(_wallHP, _wallMaxHP);
         refreshEconomyHUD();
         refreshSkillHUD();
     }
@@ -844,12 +1142,13 @@ void MainScene::drawSandboxTab()
 
     if (ImGui::BeginPopupModal("确认恢复初始存档", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
     {
-        ImGui::Text("金币、水晶和全部升级会恢复初始值。\n本局临时击杀收益不受影响。");
+        ImGui::Text("金币、水晶、关卡进度和全部升级会恢复初始值。\n本局临时击杀收益不受影响。");
         if (ImGui::Button("确认恢复"))
         {
             data.debugResetPlayerData();
             syncSandboxDraft();
-            _wallHP = std::min(_wallHP, data.wallMaxHealth());
+            _wallMaxHP = data.wallMaxHealth();
+            _wallHP = std::min(_wallHP, _wallMaxHP);
             refreshEconomyHUD();
             refreshSkillHUD();
             ImGui::CloseCurrentPopup();
@@ -865,10 +1164,10 @@ void MainScene::drawSandboxTab()
 #endif  // CG_DEBUG_TOOLS（调试层整块结束）
 
 // ---------------------------------------------------------------------------
-// 对象池初始化：开局一次性创建 ARROW_POOL_SIZE 支箭，全部隐藏。
+// 对象池初始化：开局一次性创建 ARROW_POOL_SIZE 支真实箭，先放在场景池中。
 // 为什么第一天就上对象池：游戏里箭矢每秒创建/销毁几十次，若每次都 new 节点
-// 再 removeFromParent，内存分配抖动会造成帧率毛刺；池化后"发射"只是
-// 把一个闲置槽位 setVisible(true)，"回收"只是 setVisible(false)。
+// 再 removeFromParent，内存分配抖动会造成帧率毛刺；池化后装填/发射只切换父节点，
+// 箭对象本身从弓上一路复用到飞行与回收，不再创建第二套表现。
 // ---------------------------------------------------------------------------
 void MainScene::initArrowPool()
 {
@@ -885,6 +1184,8 @@ void MainScene::initArrowPool()
         addChild(a.node, 3);  // zOrder 3：在战场（0/1）之上
         _arrowPool.push_back(a);
     }
+    // init 顺序中弓先于对象池创建；池建好后立即把真实箭挂到已有弓上。
+    refreshWallBowLoadedArrows();
 }
 
 // ---------------------------------------------------------------------------
@@ -893,61 +1194,259 @@ void MainScene::initArrowPool()
 //   速度向量 velocity = dir * ARROW_SPEED          （方向 × 速率）
 //   每帧积分   position += velocity * delta         （欧拉积分，游戏物理的根基）
 // ---------------------------------------------------------------------------
-void MainScene::fireArrow(const ax::Vec2& target)
+PlayerCombatStats MainScene::currentCombatStats() const
 {
-    // 射速上限：冷却没转好就忽略这次点击（手感调优清单第 4 项）
-    if (_fireCooldown > 0.0f)
+    const auto& data = GameData::getInstance();
+    PlayerCombatStats base;
+    base.arrowDamage    = data.arrowDamage();
+    base.fireInterval   = FIRE_INTERVAL * (data.fireInterval() / 0.18f);
+    base.multiShotCount = data.multiShotCount();
+    return _gameMode == GameMode::Endless ? _runBuffs.resolve(base) : base;
+}
+
+void MainScene::reparentArrowNode(Arrow& arrow, Node* parent, int localZOrder)
+{
+    if (!arrow.node || !parent)
     {
         return;
     }
+    if (arrow.node->getParent() == parent)
+    {
+        arrow.node->setLocalZOrder(localZOrder);
+        return;
+    }
+
+    // removeChild 会 release；临时 retain 保证换父节点期间对象池裸指针仍然有效。
+    arrow.node->retain();
+    arrow.node->removeFromParentAndCleanup(false);
+    parent->addChild(arrow.node, localZOrder);
+    arrow.node->release();
+}
+
+void MainScene::parkArrow(Arrow& arrow)
+{
+    if (!arrow.node)
+    {
+        return;
+    }
+    reparentArrowNode(arrow, this, 3);
+    arrow.active = false;
+    arrow.loaded = false;
+    arrow.loadedShotIndex = -1;
+    arrow.node->setScale(1.0f);
+    arrow.node->setVisible(false);
+}
+
+void MainScene::refreshWallBowLoadedArrows()
+{
+    if (!_wallBowArrowMount || _fireCooldown > 0.0f)
+    {
+        return;
+    }
+
+    const int count = std::clamp(currentCombatStats().multiShotCount, 1, MAX_MULTI_SHOT_COUNT);
+    int loadedCount = 0;
+    for (const auto& arrow : _arrowPool)
+    {
+        loadedCount += arrow.loaded ? 1 : 0;
+    }
+    if (loadedCount == count)
+    {
+        _wallBowArrowMount->setVisible(true);
+        for (auto& arrow : _arrowPool)
+        {
+            if (arrow.loaded)
+            {
+                arrow.node->setVisible(true);
+            }
+        }
+        return;
+    }
+
+    // 属性变化时整组重新装填，保证序号、间距和角度始终与真实弹道一一对应。
+    _wallBowArrowMount->setVisible(false);
+    for (auto& arrow : _arrowPool)
+    {
+        if (arrow.loaded)
+        {
+            parkArrow(arrow);
+        }
+    }
+
+    // 先预留完整一组。槽位不足时保持空弓等待，绝不部分装填或拆散一次齐射。
+    std::array<Arrow*, MAX_MULTI_SHOT_COUNT> reserved{};
+    int reservedCount = 0;
+    for (auto& arrow : _arrowPool)
+    {
+        if (!arrow.active && !arrow.loaded)
+        {
+            reserved[reservedCount++] = &arrow;
+            if (reservedCount == count)
+            {
+                break;
+            }
+        }
+    }
+    if (reservedCount != count)
+    {
+        return;
+    }
+
+    const float bowScale = _wallBowWeapon ? _wallBowWeapon->getScaleX() : 1.0f;
+    for (int shot = 0; shot < count; ++shot)
+    {
+        auto& arrow = *reserved[shot];
+        const float centeredShot = shot - (count - 1) * 0.5f;
+        const float offset = centeredShot * MULTI_SHOT_SPREAD;
+        const Vec2 localDirection(-sinf(offset), cosf(offset));
+        reparentArrowNode(arrow, _wallBowArrowMount, shot);
+        arrow.active = false;
+        arrow.loaded = true;
+        arrow.loadedShotIndex = shot;
+        arrow.node->setPosition(localDirection * ARROW_SPAWN_FORWARD_OFFSET +
+                                Vec2(-centeredShot * BOW_MULTI_ARROW_SPACING, 0.0f));
+        // 对象池箭几何朝 +X；旋转到弓的局部 +Y，再叠加多重箭扇形偏角。
+        arrow.node->setRotation(-90.0f - offset * RAD2DEG);
+        arrow.node->setScale(bowScale > 0.0f ? 1.0f / bowScale : 1.0f);
+        arrow.node->setVisible(true);
+    }
+    // 所有真实箭都挂好以后才一次显示，渲染侧不会看到装填中的半成品。
+    _wallBowArrowMount->setVisible(true);
+}
+
+void MainScene::updateWallBowAim(const Vec2& target)
+{
+    if (!_wallBowWeapon)
+    {
+        return;
+    }
+    const Vec2 direction = target - _archerPos;
+    if (direction.lengthSquared() < 1.0f)
+    {
+        return;
+    }
+    const float targetAngle = atan2f(direction.y, direction.x) * RAD2DEG;
+    // 弓图形的局部 +Y 为箭头方向；Axmol 节点正旋转为顺时针，因此换算为 90°-目标角。
+    _wallBowWeapon->setRotation(90.0f - targetAngle);
+}
+
+void MainScene::playWallBowFireAnimation()
+{
+    if (!_wallBowVisual)
+    {
+        return;
+    }
+
+    // 每轮发射从同一释放姿态开始；停止上一轮余震，保证高射速下仍逐箭清晰回弹。
+    _wallBowVisual->stopAllActions();
+    _wallBowVisual->setScale(1.14f, 0.82f);
+    _wallBowVisual->runAction(Sequence::create(
+        ScaleTo::create(0.055f, 0.94f, 1.10f),
+        ScaleTo::create(0.105f, 1.0f, 1.0f),
+        nullptr));
+}
+
+void MainScene::fireArrow(const ax::Vec2& target)
+{
     Vec2 dir = target - _archerPos;
     if (dir.lengthSquared() < 1.0f)
     {
         return;  // 点就点在箭手位上，无方向可射
     }
+    // 先转弓、再检查射速；长按拖动时即使处于两箭之间，武器也能逐帧跟随瞄准。
+    updateWallBowAim(target);
+    // 射速上限：冷却没转好就忽略这次点击（手感调优清单第 4 项）
+    if (_fireCooldown > 0.0f)
+    {
+        return;
+    }
     dir.normalize();
 
-    auto& data       = GameData::getInstance();
-    const int count  = data.multiShotCount();
-    const int damage = data.arrowDamage();
+    const auto stats = currentCombatStats();
+    const int count  = std::clamp(stats.multiShotCount, 1, MAX_MULTI_SHOT_COUNT);
     const float baseAngle = atan2f(dir.y, dir.x);
+    refreshWallBowLoadedArrows();
+
+    // 发射同样采用两阶段提交：先确认整组齐全，再改变任何箭的父节点与状态。
+    std::array<Arrow*, MAX_MULTI_SHOT_COUNT> volley{};
+    for (auto& candidate : _arrowPool)
+    {
+        if (candidate.loaded && candidate.loadedShotIndex >= 0 && candidate.loadedShotIndex < count)
+        {
+            volley[candidate.loadedShotIndex] = &candidate;
+        }
+    }
+    for (int shot = 0; shot < count; ++shot)
+    {
+        if (!volley[shot])
+        {
+            AXLOGD("[ContinuousFire] waiting for full volley: required={}, poolCapacity={}",
+                   count, ARROW_POOL_SIZE);
+            return;
+        }
+    }
+
     int fired = 0;
     for (int shot = 0; shot < count; ++shot)
     {
-        Arrow* slot = nullptr;
-        for (auto& candidate : _arrowPool)
-        {
-            if (!candidate.active)
-            {
-                slot = &candidate;
-                break;
-            }
-        }
-        if (!slot)
-        {
-            break;
-        }
+        Arrow* slot = volley[shot];
 
-        const float offset = (shot - (count - 1) * 0.5f) * MULTI_SHOT_SPREAD;
+        const float centeredShot = shot - (count - 1) * 0.5f;
+        const float offset = centeredShot * MULTI_SHOT_SPREAD;
         const float angle  = baseAngle + offset;
         const Vec2 shotDir(cosf(angle), sinf(angle));
+        const Vec2 worldPosition = slot->node->convertToWorldSpace(Vec2::ZERO);
+        reparentArrowNode(*slot, this, 3);
+        slot->node->setPosition(convertToNodeSpace(worldPosition));
+        const float criticalRoll = static_cast<float>(rand()) / static_cast<float>(RAND_MAX);
+        slot->critical = criticalRoll < stats.criticalChance;
         slot->active   = true;
-        slot->damage   = damage;
+        slot->loaded   = false;
+        slot->loadedShotIndex = -1;
+        slot->damage   = slot->critical
+                             ? static_cast<int>(std::ceil(stats.arrowDamage * stats.criticalDamage))
+                             : stats.arrowDamage;
+        slot->knockbackDistance = stats.knockbackDistance;
         slot->velocity = shotDir * ARROW_SPEED;
-        slot->node->setPosition(_archerPos);
         slot->node->setRotation(-angle * RAD2DEG);
+        slot->node->setScale(slot->critical ? 1.35f : 1.0f);
         slot->node->setVisible(true);
         ++fired;
     }
     if (fired > 0)
     {
-        // FIRE_INTERVAL 仍供调试面板实时调手感；成长表给出相对默认 0.18 秒的倍率。
-        _fireCooldown = FIRE_INTERVAL * (data.fireInterval() / 0.18f);
+        playWallBowFireAnimation();
+        _fireCooldown = stats.fireInterval;
     }
     else
     {
-        AXLOGD("箭矢池已满（{} 支在飞），本次射击丢弃", ARROW_POOL_SIZE);
+        AXLOGD("[ContinuousFire] volley was not fired: activeCapacity={}", ARROW_POOL_SIZE);
     }
+}
+
+void MainScene::beginContinuousFire(ax::Touch* touch)
+{
+    if (!touch || _continuousFireActive || _gameState != GameState::update)
+    {
+        return;
+    }
+    _continuousFireActive  = true;
+    _continuousFireTouchId = touch->getID();
+    _continuousFireTarget  = touch->getLocation();
+    AXLOGD("[ContinuousFire] hold started: touchId={}, target=({:.1f}, {:.1f})",
+           _continuousFireTouchId, _continuousFireTarget.x, _continuousFireTarget.y);
+    fireArrow(_continuousFireTarget);  // 点按仍然立即射出第一轮，不增加操作延迟
+}
+
+void MainScene::stopContinuousFire(int touchId)
+{
+    if (!_continuousFireActive || (touchId >= 0 && touchId != _continuousFireTouchId))
+    {
+        return;
+    }
+    AXLOGD("[ContinuousFire] hold stopped: touchId={}", _continuousFireTouchId);
+    _continuousFireActive  = false;
+    _continuousFireTouchId = -1;
 }
 
 // ---------------------------------------------------------------------------
@@ -975,11 +1474,11 @@ void MainScene::killMonster(Monster& m)
 }
 
 // 扣血统一入口：箭、火球、闪电都走这里。扣血与击杀分离，加新怪时不用再动伤害逻辑
-void MainScene::damageMonster(Monster& m, int dmg)
+bool MainScene::damageMonster(Monster& m, int dmg)
 {
-    if (m.state == MonsterState::Dead)
+    if (m.state == MonsterState::Dead || dmg <= 0)
     {
-        return;
+        return false;
     }
     // 护符怪的一次性全能护盾：挡【任何】伤害（箭和技能都挡）。挡下后重画皮，
     // 金环消失——"盾破了"必须有即时视觉反馈，玩家才知道下一击能杀
@@ -988,13 +1487,32 @@ void MainScene::damageMonster(Monster& m, int dmg)
         m.shieldCharges--;
         spawnFx(0, m.node->getPosition() + Vec2(0, m.bodyR), m.bodyR + 10.0f, 0.2f);  // 碎盾闪光
         applyMonsterSkin(m);
-        return;
+        return false;
     }
     m.hp -= dmg;
     if (m.hp <= 0)
     {
         killMonster(m);
     }
+    return true;
+}
+
+void MainScene::applyKnockback(Monster& m, float sourceDistance)
+{
+    if (m.state == MonsterState::Dead)
+    {
+        return;
+    }
+    const float distance = _monsterBalance.resolveKnockbackDistance(m.type, sourceDistance);
+    Vec2 away = m.node->getPosition() - m.targetPos;
+    if (distance <= 0.0f || away.lengthSquared() < 1.0f)
+    {
+        return;
+    }
+    away.normalize();
+    m.knockbackDirection = away;
+    m.knockbackRemaining = std::min(MAX_QUEUED_KNOCKBACK,
+                                    m.knockbackRemaining + distance);
 }
 
 // ---------------------------------------------------------------------------
@@ -1054,7 +1572,12 @@ void MainScene::updateArrows(float delta)
                 }
                 else
                 {
-                    damageMonster(m, a.damage);  // 箭的伤害在发射时由局外升级值固化
+                    // 箭的伤害与击退都在发射时固化。护符挡伤时不触发击退；
+                    // 击杀后也无需排位移，存活目标才进入平滑击退队列。
+                    if (damageMonster(m, a.damage) && m.state != MonsterState::Dead)
+                    {
+                        applyKnockback(m, a.knockbackDistance);
+                    }
                 }
                 a.active = false;              // 箭也回收（命中即消失）
                 a.node->setVisible(false);
@@ -1170,6 +1693,9 @@ void MainScene::initMonsterPool()
         m.node->addChild(m.windupMark, 1);
         _monsterPool.push_back(m);
     }
+    AXLOGI("[MonsterBreath] initialized: pool={}, scaleX={}, scaleY={}, speed=[{},{}]",
+           MONSTER_POOL_SIZE, MONSTER_BREATH_SCALE_X, MONSTER_BREATH_SCALE_Y,
+           MONSTER_BREATH_SPEED_MIN, MONSTER_BREATH_SPEED_MAX);
 }
 
 // 按类型画皮。读图识怪原则：每种怪都有专属的"零件"（盾环/引信/翅膀/十字…），
@@ -1327,70 +1853,51 @@ void MainScene::setupMonster(Monster& m, MonsterType type, const Vec2& spawnPos,
     m.attackTimer   = 0.0f;
     m.slowTimer     = 0.0f;   // 技能状态复位（池化复用，上一局的减速/麻痹不能带过来）
     m.stunTimer     = 0.0f;
+    m.knockbackDirection = Vec2::ZERO;
+    m.knockbackRemaining = 0.0f;
     m.windupTimer   = 0.0f;   // 攻击前摇复位（飞行怪/Boss）
-    m.hp            = 1;      // 基准 1 血；下方类型表里特殊怪会覆盖
+    m.hp            = 1;
     m.shieldCharges = 0;      // 一次性护盾复位（护符怪在类型表里给 1 层）
     m.ghostHidden   = false;  // 幽灵状态复位
     m.ghostTimer    = GHOST_SHOW_TIME;
     m.type          = type;
-    // 类型数值表：速度/体型/血量/攻击方式都由类型决定。
-    // 这就是"数值表驱动"的裸实现——加新怪只动这张表和画皮，驱动逻辑零改动
+    // 出生时固化当前数值：开发者工具调参只影响之后生成的怪物，场上对象不会突变。
+    const auto& parameters = _monsterBalance.parameters(type);
     const float r2 = static_cast<float>(rand()) / RAND_MAX;  // 个体速度随机源
-    float speedMul  = 1.0f;
-    float bodyScale = 1.0f;
-    switch (type)
+    const float breathPhaseSeed = static_cast<float>(rand()) / static_cast<float>(RAND_MAX);
+    const float breathSpeedSeed = static_cast<float>(rand()) / static_cast<float>(RAND_MAX);
+    m.hp          = parameters.maxHp;
+    m.maxHp       = parameters.maxHp;
+    m.actionPower = parameters.actionPower;
+    m.speed       = _monsterBalance.baseSpeed() * parameters.speedMultiplier * (0.85f + r2 * 0.3f);
+    m.bodyR       = _monsterBalance.baseBodyRadius() * parameters.bodyScale;
+    m.breathPhase = breathPhaseSeed * 6.2831853f;
+    m.breathSpeed = MONSTER_BREATH_SPEED_MIN +
+                    breathSpeedSeed * (MONSTER_BREATH_SPEED_MAX - MONSTER_BREATH_SPEED_MIN);
+    m.node->setScale(1.0f);  // 对象池复用时清掉上一只怪停留的呼吸缩放
+    if (type == MonsterType::Aegis)
     {
-    case MonsterType::Fast:     speedMul = FAST_SPEED_MUL;     bodyScale = FAST_BODY_SCALE;     break;
-    case MonsterType::Ranged:   speedMul = RANGED_SPEED_MUL;                                    break;
-    case MonsterType::Shield:   speedMul = SHIELD_SPEED_MUL;   bodyScale = SHIELD_BODY_SCALE;   m.hp = SHIELD_HP;   break;
-    case MonsterType::Bomber:   speedMul = BOMBER_SPEED_MUL;   bodyScale = BOMBER_BODY_SCALE;   break;
-    case MonsterType::Flyer:    speedMul = FLYER_SPEED_MUL;    bodyScale = FLYER_BODY_SCALE;    break;
-    case MonsterType::Healer:   speedMul = HEALER_SPEED_MUL;                                    m.hp = HEALER_HP;   break;
-    case MonsterType::Splitter: speedMul = SPLITTER_SPEED_MUL; bodyScale = SPLITTER_BODY_SCALE; m.hp = SPLITTER_HP; break;
-    case MonsterType::Rager:    speedMul = RAGER_SPEED_MUL;                                     m.hp = RAGER_HP;    break;
-    case MonsterType::Ghost:                                                                                      break;
-    case MonsterType::Summoner: speedMul = SUMMONER_SPEED_MUL;                                  m.hp = SUMMONER_HP; break;
-    case MonsterType::Aegis:    speedMul = AEGIS_SPEED_MUL;    bodyScale = AEGIS_BODY_SCALE;    m.shieldCharges = 1; break;
-    case MonsterType::Boss:     speedMul = BOSS_SPEED_MUL;     bodyScale = BOSS_BODY_SCALE;     m.hp = BOSS_HP;     break;
-    default:                                                                                    break;
+        m.shieldCharges = 1;
     }
-    m.maxHp = m.hp;  // 血量上限跟着初始值走（狂暴怪按 hp/maxHp 算狂暴加速）
-    m.speed = MONSTER_SPEED * speedMul * (0.85f + r2 * 0.3f);  // 0.85~1.15 倍
-    m.bodyR = MONSTER_BODY_R * bodyScale;
+    const float markerScale = m.bodyR / MONSTER_BODY_R;
+    m.slowMark->setScale(markerScale);
+    m.stunMark->setScale(markerScale);
+    m.windupMark->setScale(markerScale);
     // 开火距离与攻击间隔：近战贴墙啃；远程/治疗/召唤按战场纵深比例停在各自的
     // 功能位（比例而非写死像素，横竖屏都成立）；飞行怪/Boss 进场后开始游荡
     const float fieldDepth = _director->getVisibleSize().height * (SPAWN_RATIO - WALL_RATIO);
-    if (type == MonsterType::Flyer)
+    if (parameters.stopRatioMax > 0.0f)
     {
         const float t = static_cast<float>(rand()) / RAND_MAX;
-        m.attackRange    = fieldDepth * (FLYER_STOP_MIN + t * (FLYER_STOP_MAX - FLYER_STOP_MIN));
-        m.attackInterval = FLYER_ATTACK_INTERVAL;
-    }
-    else if (type == MonsterType::Ranged)
-    {
-        m.attackRange    = fieldDepth * RANGED_STOP_RATIO;
-        m.attackInterval = RANGED_ATTACK_INTERVAL;
-    }
-    else if (type == MonsterType::Healer)
-    {
-        m.attackRange    = fieldDepth * HEALER_STOP_RATIO;
-        m.attackInterval = HEALER_INTERVAL;   // attackTimer 复用为治疗脉冲计时
-    }
-    else if (type == MonsterType::Summoner)
-    {
-        m.attackRange    = fieldDepth * SUMMONER_STOP_RATIO;
-        m.attackInterval = SUMMONER_INTERVAL; // attackTimer 复用为召唤计时
-    }
-    else if (type == MonsterType::Boss)
-    {
-        m.attackRange    = fieldDepth * BOSS_STOP_RATIO;
-        m.attackInterval = BOSS_ATTACK_INTERVAL;
+        const float stopRatio = parameters.stopRatioMin +
+                                t * (parameters.stopRatioMax - parameters.stopRatioMin);
+        m.attackRange = fieldDepth * stopRatio;
     }
     else
     {
-        m.attackRange    = 6.0f;
-        m.attackInterval = 1.0f;
+        m.attackRange = 6.0f;
     }
+    m.attackInterval = parameters.actionInterval;
     m.targetPos = targetPos;
     if (type == MonsterType::Flyer || type == MonsterType::Boss)
     {
@@ -1402,6 +1909,11 @@ void MainScene::setupMonster(Monster& m, MonsterType type, const Vec2& spawnPos,
     m.node->setPosition(spawnPos);
     applyMonsterSkin(m);
     m.node->setVisible(true);
+    if (type == MonsterType::Boss)
+    {
+        AXLOGI("[CombatCore] boss spawned: hp={}, knockbackFactor={}", m.maxHp,
+               parameters.knockbackFactor);
+    }
 }
 
 void MainScene::spawnMonster(MonsterType type, int lane, const std::string& from)
@@ -1434,95 +1946,130 @@ void MainScene::spawnMonster(MonsterType type, int lane, const std::string& from
 }
 
 // ---------------------------------------------------------------------------
-// 波次管理：数据驱动的核心实现。
-// 三层结构：JSON 文件（策划层）→ WaveConfig（只读内存镜像）→ SpawnGroupRuntime
-// （运行状态）。波次状态机：Idle → Spawning（按组出怪）→ Resting（清场休整）
-// → 下一波 → AllClear（全部打完）
+// 五关战役：CampaignConfig 负责结构与校验，场景只持有当前关的波次运行时。
+// 状态机：Idle → Spawning（按组出怪）→ Resting（清场休整）→ 下一波 → AllClear。
 // ---------------------------------------------------------------------------
-bool MainScene::loadWaves()
+bool MainScene::loadCampaign()
 {
-    _waves.clear();
     const std::string text = FileUtils::getInstance()->getStringFromFile("config/waves.json");
-    rapidjson::Document doc;
-    doc.Parse(text.c_str());
-    // 兜底：配置系统的自我修养——文件缺失/格式错误，游戏也不能瘫
-    if (doc.HasParseError() || !doc.IsObject() || !doc.HasMember("waves") || !doc["waves"].IsArray())
+    std::string error;
+    const bool loaded = _campaign.loadFromJson(text, &error);
+    if (!loaded)
     {
-        AXLOGD("waves.json 缺失或格式错误，启用内置兜底波次");
-        WaveConfig w;
-        w.name      = "兜底波（waves.json 加载失败）";
-        w.restAfter = 3.0f;
-        w.groups.push_back({MonsterType::Normal, 10, 0.8f, 0.0f, -1, "spawn"});
-        _waves.push_back(std::move(w));
-        return false;
+        _campaign.useFallback();
+        AXLOGW("[Campaign] config invalid, using fallback: {}", error);
     }
-    for (const auto& wv : doc["waves"].GetArray())
+
+    for (size_t i = 0; i < _campaign.levels().size(); ++i)
     {
-        WaveConfig w;
-        if (wv.HasMember("name") && wv["name"].IsString())
+        const auto& level = _campaign.levels()[i];
+        AXLOGI("[Campaign] level configured: stage={}, waves={}, enemies={}, crystals={}", i + 1,
+               level.waves.size(), level.configuredEnemyCount(), level.clearCrystals);
+    }
+
+#if CG_DEBUG_TOOLS
+    const std::string coreText = FileUtils::getInstance()->getStringFromFile("config/core-waves.json");
+    std::string coreError;
+    const bool coreLoaded = _coreBattle.loadFromJson(coreText, &coreError);
+    if (!coreLoaded)
+    {
+        _coreBattle = _campaign;
+        AXLOGW("[DevelopmentMenu][Core] baseline config invalid, using campaign fallback: {}",
+               coreError);
+    }
+    else
+    {
+        const auto& core = _coreBattle.levels().front();
+        AXLOGI("[DevelopmentMenu][Core] baseline configured: waves={}, enemies={}",
+               core.waves.size(), core.configuredEnemyCount());
+    }
+    return loaded && coreLoaded;
+#else
+    return loaded;
+#endif
+}
+
+const LevelConfig& MainScene::currentLevel() const
+{
+    return _campaign.levels()[_levelIndex];
+}
+
+void MainScene::activateLevel(size_t index, bool announceUnlocks)
+{
+    _levelIndex = std::min(index, _campaign.levels().size() - 1);
+    _waves      = currentLevel().waves;
+    _waveIndex = 0;
+    _waveState = WaveState::Idle;
+    _groupRt.clear();
+
+    auto unlocked = GameData::getInstance().beginStage(static_cast<int>(_levelIndex) + 1);
+    refreshSkillHUD();
+    if (announceUnlocks)
+    {
+        showSkillUnlocks(unlocked);
+    }
+    AXLOGI("[Campaign] level activated: stage={}/{}, name={}, waves={}", _levelIndex + 1,
+           _campaign.levels().size(), currentLevel().name, _waves.size());
+}
+
+void MainScene::prepareEndlessWave(int waveNumber)
+{
+    std::vector<const WaveConfig*> templates;
+    for (const auto& level : _campaign.levels())
+    {
+        for (const auto& wave : level.waves)
         {
-            w.name = wv["name"].GetString();
-        }
-        if (wv.HasMember("restAfter") && wv["restAfter"].IsNumber())
-        {
-            w.restAfter = static_cast<float>(wv["restAfter"].GetDouble());
-        }
-        if (wv.HasMember("groups") && wv["groups"].IsArray())
-        {
-            for (const auto& g : wv["groups"].GetArray())
-            {
-                SpawnGroupConfig cfg;
-                if (g.HasMember("type") && g["type"].IsString())
-                {
-                    // type 字符串 → 枚举的登记处：加新怪在这里补一行就能被波次配置驱动
-                    const char* t = g["type"].GetString();
-                    if      (!strcmp(t, "fast"))     cfg.type = MonsterType::Fast;
-                    else if (!strcmp(t, "ranged"))   cfg.type = MonsterType::Ranged;
-                    else if (!strcmp(t, "shield"))   cfg.type = MonsterType::Shield;
-                    else if (!strcmp(t, "bomber"))   cfg.type = MonsterType::Bomber;
-                    else if (!strcmp(t, "flyer"))    cfg.type = MonsterType::Flyer;
-                    else if (!strcmp(t, "healer"))   cfg.type = MonsterType::Healer;
-                    else if (!strcmp(t, "splitter")) cfg.type = MonsterType::Splitter;
-                    else if (!strcmp(t, "rager"))    cfg.type = MonsterType::Rager;
-                    else if (!strcmp(t, "ghost"))    cfg.type = MonsterType::Ghost;
-                    else if (!strcmp(t, "summoner")) cfg.type = MonsterType::Summoner;
-                    else if (!strcmp(t, "aegis"))    cfg.type = MonsterType::Aegis;
-                    else if (!strcmp(t, "boss"))     cfg.type = MonsterType::Boss;
-                    else                             cfg.type = MonsterType::Normal;
-                }
-                if (g.HasMember("count") && g["count"].IsInt())
-                {
-                    cfg.count = g["count"].GetInt();
-                }
-                if (g.HasMember("interval") && g["interval"].IsNumber())
-                {
-                    cfg.interval = static_cast<float>(g["interval"].GetDouble());
-                }
-                if (g.HasMember("delay") && g["delay"].IsNumber())
-                {
-                    cfg.delay = static_cast<float>(g["delay"].GetDouble());
-                }
-                if (g.HasMember("lane") && g["lane"].IsInt())
-                {
-                    cfg.lane = g["lane"].GetInt();
-                }
-                if (g.HasMember("from") && g["from"].IsString())
-                {
-                    cfg.from = g["from"].GetString();
-                }
-                if (cfg.count > 0)
-                {
-                    w.groups.push_back(std::move(cfg));
-                }
-            }
-        }
-        if (!w.groups.empty())
-        {
-            _waves.push_back(std::move(w));
+            templates.push_back(&wave);
         }
     }
-    AXLOGD("波次配置已加载：{} 波", _waves.size());
-    return true;
+    if (templates.empty())
+    {
+        _waves.clear();
+        return;
+    }
+
+    const int safeWave = std::max(1, waveNumber);
+    const size_t templateIndex = static_cast<size_t>(safeWave - 1) % templates.size();
+    const int cycle = (safeWave - 1) / static_cast<int>(templates.size());
+    WaveConfig wave = *templates[templateIndex];
+    wave.name = StringUtils::format("无尽第 %d 波", safeWave);
+    wave.restAfter = 2.0f;
+    const float intervalScale = std::pow(0.93f, static_cast<float>(cycle));
+    for (auto& group : wave.groups)
+    {
+        group.count += cycle * std::max(1, group.count / 3);
+        group.interval = std::max(0.18f, group.interval * intervalScale);
+    }
+    _waves = {std::move(wave)};
+    _waveIndex = 0;
+    _waveState = WaveState::Idle;
+    _groupRt.clear();
+    _endlessWaveNumber = safeWave;
+    AXLOGI("[GameModes][Endless] wave prepared: wave={}, template={}, cycle={}", safeWave,
+           templateIndex + 1, cycle);
+}
+
+void MainScene::advanceEndlessWave()
+{
+    prepareEndlessWave(_endlessWaveNumber + 1);
+    _gameState = GameState::update;
+}
+
+void MainScene::showSkillUnlocks(const std::vector<SkillId>& skills)
+{
+    if (skills.empty() || !_skillHint)
+    {
+        return;
+    }
+    std::string names;
+    for (const auto id : skills)
+    {
+        if (!names.empty()) names += "、";
+        names += GameData::getInstance().skillDefinition(id).name;
+    }
+    _skillHint->setString("新技能解锁：" + names + "！");
+    _skillHint->setVisible(true);
+    _skillHintTimer = 4.0f;
 }
 
 void MainScene::beginWave(size_t index)
@@ -1540,9 +2087,34 @@ void MainScene::beginWave(size_t index)
     _waveState = WaveState::Spawning;
     if (_waveLabel)
     {
-        _waveLabel->setString(w.name);
+        if (_gameMode == GameMode::Endless)
+        {
+            _waveLabel->setString(w.name);
+        }
+        else if (_gameMode == GameMode::Core)
+        {
+            _waveLabel->setString("核心验证 · " + w.name);
+        }
+        else
+        {
+            _waveLabel->setString(currentLevel().name + " · " + w.name);
+        }
     }
-    AXLOGD("波次 {}/{} 开始：{}", index + 1, _waves.size(), w.name);
+    if (_gameMode == GameMode::Endless)
+    {
+        AXLOGI("[GameModes][Endless] wave started: wave={}, completed={}", _endlessWaveNumber,
+               _endlessCompletedWaves);
+    }
+    else if (_gameMode == GameMode::Campaign)
+    {
+        AXLOGI("[Campaign] wave started: stage={}/{}, wave={}/{}, name={}", _levelIndex + 1,
+               _campaign.levels().size(), index + 1, _waves.size(), w.name);
+    }
+    else
+    {
+        AXLOGI("[DevelopmentMenu][Core] wave started: wave={}/{}, name={}", index + 1,
+               _waves.size(), w.name);
+    }
 }
 
 void MainScene::updateWaves(float delta)
@@ -1606,7 +2178,22 @@ void MainScene::updateWaves(float delta)
         _restTimer -= delta;
         if (_waveLabel)
         {
-            _waveLabel->setString(StringUtils::format("下一波来袭 %d", static_cast<int>(_restTimer) + 1));
+            if (_gameMode == GameMode::Endless)
+            {
+                _waveLabel->setString(StringUtils::format("无尽第 %d 波完成", _endlessWaveNumber));
+            }
+            else if (_gameMode == GameMode::Core)
+            {
+                _waveLabel->setString(StringUtils::format("核心验证 · 下一波来袭 %d",
+                                                           static_cast<int>(_restTimer) + 1));
+            }
+            else
+            {
+                _waveLabel->setString(StringUtils::format("第 %d/%d 关 · 下一波来袭 %d",
+                                                           static_cast<int>(_levelIndex) + 1,
+                                                           static_cast<int>(_campaign.levels().size()),
+                                                           static_cast<int>(_restTimer) + 1));
+            }
         }
         if (_restTimer <= 0.0f)
         {
@@ -1617,12 +2204,37 @@ void MainScene::updateWaves(float delta)
             else
             {
                 _waveState = WaveState::AllClear;
+                if (_gameMode == GameMode::Endless)
+                {
+                    ++_endlessCompletedWaves;
+                    AXLOGI("[GameModes][Endless] wave cleared: wave={}, completed={}, kills={}",
+                           _endlessWaveNumber, _endlessCompletedWaves,
+                           GameData::getInstance().economy().runKills());
+                    if (_endlessCompletedWaves % 3 == 0)
+                    {
+                        offerRunBuff();
+                    }
+                    else
+                    {
+                        advanceEndlessWave();
+                    }
+                    break;
+                }
+                if (_gameMode == GameMode::Core)
+                {
+                    if (_waveLabel) _waveLabel->setString("核心玩法验证完成！");
+                    AXLOGI("[DevelopmentMenu][Core] all waves cleared: waves={}, kills={}",
+                           _waves.size(), GameData::getInstance().economy().runKills());
+                    showSettlement(true);
+                    break;
+                }
                 if (_waveLabel)
                 {
-                    _waveLabel->setString("已守住全部波次！");
+                    _waveLabel->setString(StringUtils::format("第 %d 关守住了！",
+                                                               static_cast<int>(_levelIndex) + 1));
                 }
-                AXLOGI("[Economy] all waves cleared: kills={}",
-                       GameData::getInstance().economy().runKills());
+                AXLOGI("[Campaign] level cleared: stage={}/{}, kills={}", _levelIndex + 1,
+                       _campaign.levels().size(), GameData::getInstance().economy().runKills());
                 showSettlement(true);
             }
         }
@@ -1640,12 +2252,24 @@ void MainScene::updateWaves(float delta)
 // ---------------------------------------------------------------------------
 void MainScene::updateMonsters(float delta)
 {
+    const auto visibleSize = _director->getVisibleSize();
+    const auto origin = _director->getVisibleOrigin();
     for (auto& m : _monsterPool)
     {
         if (!m.active)
         {
             continue;
         }
+        // 程序化呼吸：正弦曲线驱动轻微 squash-and-stretch。只改变绘制缩放，
+        // m.bodyR 与圆形命中判定保持不变，因此这是纯表现动画。
+        m.breathPhase += m.breathSpeed * delta;
+        if (m.breathPhase >= 6.2831853f)
+        {
+            m.breathPhase -= 6.2831853f;
+        }
+        const float breath = sinf(m.breathPhase);
+        m.node->setScale(1.0f - MONSTER_BREATH_SCALE_X * breath,
+                         1.0f + MONSTER_BREATH_SCALE_Y * breath);
         // 冰冻减速（技能系统）：计时衰减 + 蓝环标记显隐
         if (m.slowTimer > 0.0f)
         {
@@ -1668,6 +2292,29 @@ void MainScene::updateMonsters(float delta)
         if (m.windupMark)
         {
             m.windupMark->setVisible(m.windupTimer > 0.0f);
+        }
+        // 击退是独立于 Walk/Attack 的短位移层：每帧先向远离城墙方向结算一小段，
+        // 再让原状态机继续行动。这样不会瞬移，也不会额外制造一套 AI 状态。
+        if (m.knockbackRemaining > 0.0f)
+        {
+            const float step = std::min(m.knockbackRemaining, KNOCKBACK_TRAVEL_SPEED * delta);
+            Vec2 pushed = m.node->getPosition() + m.knockbackDirection * step;
+            pushed.x = std::clamp(pushed.x, origin.x + m.bodyR,
+                                  origin.x + visibleSize.width - m.bodyR);
+            pushed.y = std::clamp(pushed.y, origin.y,
+                                  origin.y + visibleSize.height - m.bodyR * 2.0f);
+            m.node->setPosition(pushed);
+            m.knockbackRemaining -= step;
+
+            // 贴墙/驻足单位被推离自己的攻击距离后，需要重新走回阵位。
+            // 飞行怪与 Boss 的 Attack 本身包含自由游荡，不切回 Walk。
+            if (m.state == MonsterState::Attack && m.type != MonsterType::Flyer &&
+                m.type != MonsterType::Boss &&
+                (m.targetPos - pushed).length() > m.attackRange + 2.0f)
+            {
+                m.state = MonsterState::Walk;
+                m.attackTimer = 0.0f;
+            }
         }
         // 幽灵怪：显形/隐身周期轮转。隐身时半透明（看得见打不中，给玩家预判的线索），
         // 箭矢判定在 updateArrows 里跳过隐身个体
@@ -1697,7 +2344,7 @@ void MainScene::updateMonsters(float delta)
                     // 被箭/技能提前点死走不到这里（killMonster 直接进 Dead），
                     // 所以"提前点杀不爆"的策略空间天然成立
                     spawnFx(0, pos + Vec2(0, m.bodyR), BOMBER_FX_RADIUS, 0.35f);
-                    damageWall(BOMBER_DAMAGE);
+                    damageWall(m.actionPower);
                     killMonster(m);
                     break;
                 }
@@ -1738,7 +2385,7 @@ void MainScene::updateMonsters(float delta)
                     if (m.windupTimer <= 0.0f)
                     {
                         fireEnemyBolt(m.node->getPosition() + Vec2(0, m.bodyR), laneWallPos(m.lane),
-                                      FLYER_ATTACK_DAMAGE);
+                                      m.actionPower);
                         m.attackTimer = 0.0f;  // 从发射这一刻重新计下一发，频率恒定
                     }
                     break;
@@ -1783,7 +2430,7 @@ void MainScene::updateMonsters(float delta)
                         for (int i = 0; i < BOSS_BOLT_COUNT; ++i)
                         {
                             const float off = (i - (BOSS_BOLT_COUNT - 1) / 2.0f) * BOSS_BOLT_SPREAD;
-                            fireEnemyBolt(from, laneWallPos(m.lane) + Vec2(off, 0), BOSS_BOLT_DAMAGE);
+                            fireEnemyBolt(from, laneWallPos(m.lane) + Vec2(off, 0), m.actionPower);
                         }
                         m.attackTimer = 0.0f;
                     }
@@ -1831,7 +2478,7 @@ void MainScene::updateMonsters(float delta)
                         }
                         if ((o.node->getPosition() - c).lengthSquared() < r2 && o.hp < o.maxHp)
                         {
-                            o.hp = std::min(o.maxHp, o.hp + HEALER_AMOUNT);
+                            o.hp = std::min(o.maxHp, o.hp + m.actionPower);
                         }
                     }
                     spawnFx(4, c + Vec2(0, m.bodyR), HEALER_RADIUS, 0.5f);  // 绿环治疗波
@@ -1847,7 +2494,10 @@ void MainScene::updateMonsters(float delta)
                 {
                     m.attackTimer -= m.attackInterval;
                     const Vec2 at = m.node->getPosition() + Vec2(20.0f, 10.0f);
-                    spawnMinion(MonsterType::Normal, at);
+                    for (int i = 0; i < m.actionPower; ++i)
+                    {
+                        spawnMinion(MonsterType::Normal, at + Vec2(8.0f * i, 0.0f));
+                    }
                     spawnFx(0, at, 30.0f, 0.25f);  // 召唤出现的小爆光
                 }
                 break;
@@ -1860,11 +2510,11 @@ void MainScene::updateMonsters(float delta)
                 {
                     // 远程：发射弹丸，伤害在弹丸命中城墙时结算
                     fireEnemyBolt(m.node->getPosition() + Vec2(0, m.bodyR), laneWallPos(m.lane),
-                                  RANGED_ATTACK_DAMAGE);
+                                  m.actionPower);
                 }
                 else
                 {
-                    damageWall(MONSTER_ATTACK_DAMAGE);  // 近战：直接啃
+                    damageWall(m.actionPower);  // 近战：直接啃
                 }
             }
             break;
@@ -1878,20 +2528,21 @@ void MainScene::updateMonsters(float delta)
 }
 
 // ---------------------------------------------------------------------------
-// 重开：清场（三池全收）+ 城墙满血 + 回到第 1 波。
+// 开关卡：清场（三池全收）+ 城墙满血 + 回到该关第 1 波。
 // 注意全程没有 new/delete——对象本来就是池化的，"重置"只是改状态位，
 // 这也是对象池的红利之一：重开一局是 O(池大小) 的零分配操作
 // ---------------------------------------------------------------------------
 void MainScene::clearField()
 {
+    stopContinuousFire();
     for (auto& a : _arrowPool)
     {
-        a.active = false;
-        a.node->setVisible(false);
+        parkArrow(a);
     }
     for (auto& m : _monsterPool)
     {
         m.active = false;
+        m.node->setScale(1.0f);
         m.node->setVisible(false);
     }
     for (auto& b : _boltPool)
@@ -1915,8 +2566,220 @@ void MainScene::clearField()
 
 void MainScene::resetGame()
 {
+    if (_gameMode == GameMode::Endless)
+    {
+        startEndlessRun();
+        return;
+    }
+    if (_gameMode == GameMode::Core)
+    {
+        startCoreRun();
+        return;
+    }
+    startCampaignRun();
+}
+
+void MainScene::showEntryMenu()
+{
+#if CG_DEBUG_TOOLS
+    showDevelopmentMenu();
+#else
+    showModeSelect();
+#endif
+}
+
+void MainScene::showModeSelect()
+{
+    stopContinuousFire();
     clearField();
-    _wallHP    = GameData::getInstance().wallMaxHealth();
+    _settlementVisible = false;
+    _settlementLayer->setVisible(false);
+    _upgradePanel->setVisible(false);
+    _choicePanel->setVisible(false);
+    _campaignMenuPanel->setVisible(false);
+    _roguelikeMenuPanel->setVisible(false);
+    _modeSelectPanel->setVisible(true);
+#if CG_DEBUG_TOOLS
+    _developmentMenuPanel->setVisible(false);
+#endif
+    _runBuffLabel->setVisible(false);
+    _gameState = GameState::menu1;
+    if (_waveLabel) _waveLabel->setString("");
+    AXLOGI("[GameModes] selection opened");
+}
+
+void MainScene::showCampaignMenu()
+{
+    stopContinuousFire();
+    clearField();
+    _gameMode = GameMode::Campaign;
+    _settlementVisible = false;
+    _settlementLayer->setVisible(false);
+    _upgradePanel->setVisible(false);
+    _choicePanel->setVisible(false);
+    _campaignMenuPanel->setVisible(false);
+    _roguelikeMenuPanel->setVisible(false);
+    _modeSelectPanel->setVisible(false);
+#if CG_DEBUG_TOOLS
+    _developmentMenuPanel->setVisible(false);
+#endif
+    _campaignMenuPanel->open(static_cast<int>(_campaign.levels().size()));
+    _runBuffLabel->setVisible(false);
+    _gameState = GameState::menu1;
+    if (_waveLabel) _waveLabel->setString("");
+    AXLOGI("[ModeNavigation] home opened: mode=campaign");
+}
+
+void MainScene::showRoguelikeMenu()
+{
+    stopContinuousFire();
+    clearField();
+    _gameMode = GameMode::Endless;
+    _settlementVisible = false;
+    _settlementLayer->setVisible(false);
+    _upgradePanel->setVisible(false);
+    _choicePanel->setVisible(false);
+    _campaignMenuPanel->setVisible(false);
+    _roguelikeMenuPanel->setVisible(false);
+    _modeSelectPanel->setVisible(false);
+#if CG_DEBUG_TOOLS
+    _developmentMenuPanel->setVisible(false);
+#endif
+    _roguelikeMenuPanel->open(static_cast<int>(_campaign.levels().size()));
+    _runBuffLabel->setVisible(false);
+    _gameState = GameState::menu1;
+    if (_waveLabel) _waveLabel->setString("");
+    AXLOGI("[ModeNavigation] home opened: mode=roguelike");
+}
+
+void MainScene::showCurrentModeMenu()
+{
+    if (_gameMode == GameMode::Campaign)
+    {
+        showCampaignMenu();
+    }
+    else if (_gameMode == GameMode::Endless)
+    {
+        showRoguelikeMenu();
+    }
+    else
+    {
+        showEntryMenu();
+    }
+}
+
+#if CG_DEBUG_TOOLS
+void MainScene::showDevelopmentMenu()
+{
+    stopContinuousFire();
+    clearField();
+    _settlementVisible = false;
+    _settlementLayer->setVisible(false);
+    _upgradePanel->setVisible(false);
+    _choicePanel->setVisible(false);
+    _campaignMenuPanel->setVisible(false);
+    _roguelikeMenuPanel->setVisible(false);
+    _modeSelectPanel->setVisible(false);
+    _developmentMenuPanel->setVisible(true);
+    _runBuffLabel->setVisible(false);
+    _gameState = GameState::menu1;
+    if (_waveLabel) _waveLabel->setString("");
+    AXLOGI("[DevelopmentMenu] opened");
+}
+
+void MainScene::selectDevelopmentMode(DevelopmentMenuEntry entry)
+{
+    _developmentMenuPanel->setVisible(false);
+    switch (entry)
+    {
+    case DevelopmentMenuEntry::Core:
+        AXLOGI("[DevelopmentMenu] selected: mode=core");
+        selectMode(GameMode::Core);
+        break;
+    case DevelopmentMenuEntry::Campaign:
+        AXLOGI("[DevelopmentMenu] selected: mode=campaign");
+        selectMode(GameMode::Campaign);
+        break;
+    case DevelopmentMenuEntry::Roguelike:
+        AXLOGI("[DevelopmentMenu] selected: mode=roguelike");
+        selectMode(GameMode::Endless);
+        break;
+    }
+}
+#endif
+
+void MainScene::selectMode(GameMode mode)
+{
+    _gameMode = mode;
+    _modeSelectPanel->setVisible(false);
+#if CG_DEBUG_TOOLS
+    _developmentMenuPanel->setVisible(false);
+#endif
+    const char* modeName = mode == GameMode::Core ? "core"
+                           : mode == GameMode::Endless ? "endless"
+                                                        : "campaign";
+    AXLOGI("[GameModes] selected: mode={}", modeName);
+    if (mode == GameMode::Endless)
+    {
+        showRoguelikeMenu();
+        return;
+    }
+    _runBuffs.reset();
+    refreshRunBuffHUD();
+    if (mode == GameMode::Core)
+    {
+        startCoreRun();
+        return;
+    }
+    showCampaignMenu();
+}
+
+void MainScene::beginCampaignBattle()
+{
+    AXLOGI("[ModeNavigation] battle requested: mode=campaign");
+    _runBuffs.reset();
+    refreshRunBuffHUD();
+    const int pendingStage = GameData::getInstance().pendingCampaignRewardStage();
+    if (pendingStage > 0)
+    {
+        offerCampaignReward(pendingStage, true);
+        return;
+    }
+    startCampaignRun();
+}
+
+void MainScene::startCoreRun()
+{
+    _runBuffs.reset();
+    resetBattleForRun();
+    _waves.clear();
+    const auto& sourceLevels = _coreBattle.empty() ? _campaign.levels() : _coreBattle.levels();
+    for (const auto& level : sourceLevels)
+    {
+        _waves.insert(_waves.end(), level.waves.begin(), level.waves.end());
+    }
+    _levelIndex = 0;
+    _waveIndex  = 0;
+    _waveState  = WaveState::Idle;
+    _groupRt.clear();
+    refreshRunBuffHUD();
+    AXLOGI("[DevelopmentMenu][Core] run started: waves={}, wallHP={}, arrowDamage={}, multiShot={}, "
+           "fireInterval={:.3f}", _waves.size(), _wallHP, GameData::getInstance().arrowDamage(),
+           GameData::getInstance().multiShotCount(), GameData::getInstance().fireInterval());
+}
+
+void MainScene::startCampaignRun()
+{
+    const int stage = GameData::getInstance().nextStage(static_cast<int>(_campaign.levels().size()));
+    startLevel(static_cast<size_t>(stage - 1));
+}
+
+void MainScene::resetBattleForRun()
+{
+    stopContinuousFire();
+    clearField();
+    _wallMaxHP = GameData::getInstance().wallMaxHealth();
+    _wallHP    = _wallMaxHP;
     _mana      = MANA_MAX;  // 技能系统：蓝量冷却一并复位
     for (int i = 0; i < SKILL_COUNT; ++i)
     {
@@ -1930,15 +2793,45 @@ void MainScene::resetGame()
     _settlementVisible = false;
     _settlementLayer->setVisible(false);
     _upgradePanel->setVisible(false);
+    _choicePanel->setVisible(false);
+    _campaignMenuPanel->setVisible(false);
+    _roguelikeMenuPanel->setVisible(false);
+    _modeSelectPanel->setVisible(false);
+#if CG_DEBUG_TOOLS
+    _developmentMenuPanel->setVisible(false);
+#endif
+    _skillHint->setVisible(false);
+    _lastCampaignRewardName.clear();
     _gameState = GameState::update;
     GameData::getInstance().startRun();
     refreshEconomyHUD();
-    _waveState = WaveState::Idle;  // 下一帧 updateWaves 自动 beginWave(0)
     if (_waveLabel)
     {
         _waveLabel->setString("");
     }
-    AXLOGI("[Progression] run restarted: wallHP={}, arrowDamage={}, multiShot={}, fireInterval={:.3f}",
+}
+
+void MainScene::startLevel(size_t index)
+{
+    resetBattleForRun();
+    activateLevel(index, true);
+    _waveState = WaveState::Idle;  // 下一帧 updateWaves 自动 beginWave(0)
+    refreshRunBuffHUD();
+    AXLOGI("[Campaign] run started: stage={}/{}, wallHP={}, arrowDamage={}, multiShot={}, "
+           "fireInterval={:.3f}", _levelIndex + 1, _campaign.levels().size(), _wallHP,
+           GameData::getInstance().arrowDamage(), GameData::getInstance().multiShotCount(),
+           GameData::getInstance().fireInterval());
+}
+
+void MainScene::startEndlessRun()
+{
+    _runBuffs.reset();
+    _endlessWaveNumber     = 1;
+    _endlessCompletedWaves = 0;
+    resetBattleForRun();
+    prepareEndlessWave(1);
+    refreshRunBuffHUD();
+    AXLOGI("[GameModes][Endless] run started: wallHP={}, arrowDamage={}, multiShot={}, fireInterval={:.3f}",
            _wallHP, GameData::getInstance().arrowDamage(), GameData::getInstance().multiShotCount(),
            GameData::getInstance().fireInterval());
 }
@@ -1955,9 +2848,20 @@ void MainScene::gotoWave(int offset)
     int next = static_cast<int>(_waveIndex) + offset;
     next     = std::clamp(next, 0, static_cast<int>(_waves.size()) - 1);
     clearField();
-    _wallHP = GameData::getInstance().wallMaxHealth();
+    _wallMaxHP = GameData::getInstance().wallMaxHealth();
+    _wallHP    = _wallMaxHP;
     beginWave(static_cast<size_t>(next));
-    AXLOGD("调试跳波：第 {} 波", next + 1);
+    AXLOGI("[Campaign] sandbox wave jump: stage={}, wave={}", _levelIndex + 1, next + 1);
+}
+
+void MainScene::sandboxGotoLevel(int offset)
+{
+    _gameMode = GameMode::Campaign;
+    _runBuffs.reset();
+    const int next = std::clamp(static_cast<int>(_levelIndex) + offset, 0,
+                                static_cast<int>(_campaign.levels().size()) - 1);
+    startLevel(static_cast<size_t>(next));
+    AXLOGI("[Campaign] sandbox level jump: stage={}/{}", next + 1, _campaign.levels().size());
 }
 #endif  // CG_DEBUG_TOOLS
 
@@ -1973,6 +2877,7 @@ void MainScene::damageWall(int dmg)
     }
 #endif
     _wallHP = std::max(0, _wallHP - dmg);
+    refreshCombatHUD();
     AXLOGD("城墙血量：{}，击杀：{}", _wallHP, GameData::getInstance().economy().runKills());
     if (_wallHP == 0)
     {
@@ -1981,7 +2886,7 @@ void MainScene::damageWall(int dmg)
         {
             _waveLabel->setString("城墙告破！点 ↻ 重开");
         }
-        AXLOGI("[Economy] wall destroyed: entering defeat settlement");
+        AXLOGI("[Campaign] wall destroyed: entering defeat settlement");
         showSettlement(false);
     }
 }
@@ -2090,9 +2995,9 @@ void MainScene::initEconomyUI()
     restartBg->drawRect(Vec2::ZERO, Vec2(SETTLEMENT_BUTTON_W, SETTLEMENT_BUTTON_H),
                         Color4F(0.75f, 1.0f, 0.84f, 1.0f), 3.0f);
     _settlementRestartBtn->addChild(restartBg);
-    auto restartLabel = Label::createWithSystemFont("再来一局", "Arial", 30);
-    restartLabel->setPosition(Vec2(SETTLEMENT_BUTTON_W * 0.5f, SETTLEMENT_BUTTON_H * 0.5f));
-    _settlementRestartBtn->addChild(restartLabel, 1);
+    _settlementRestartLabel = Label::createWithSystemFont("再来一局", "Arial", 30);
+    _settlementRestartLabel->setPosition(Vec2(SETTLEMENT_BUTTON_W * 0.5f, SETTLEMENT_BUTTON_H * 0.5f));
+    _settlementRestartBtn->addChild(_settlementRestartLabel, 1);
     _settlementLayer->addChild(_settlementRestartBtn, 2);
 
     _settlementUpgradeBtn = Node::create();
@@ -2107,11 +3012,71 @@ void MainScene::initEconomyUI()
     _settlementUpgradeBtn->addChild(upgradeLabel, 1);
     _settlementLayer->addChild(_settlementUpgradeBtn, 2);
 
+    _settlementModeBtn = Node::create();
+    auto modeBg = DrawNode::create();
+    modeBg->drawSolidRect(Vec2::ZERO, Vec2(SETTLEMENT_BUTTON_W, SETTLEMENT_BUTTON_H),
+                          Color4F(0.40f, 0.30f, 0.58f, 1.0f));
+    modeBg->drawRect(Vec2::ZERO, Vec2(SETTLEMENT_BUTTON_W, SETTLEMENT_BUTTON_H),
+                     Color4F(0.88f, 0.82f, 1.0f, 1.0f), 3.0f);
+    _settlementModeBtn->addChild(modeBg);
+    _settlementHomeLabel = Label::createWithSystemFont("返回主页", "Arial", 28);
+    _settlementHomeLabel->setPosition(Vec2(SETTLEMENT_BUTTON_W * 0.5f, SETTLEMENT_BUTTON_H * 0.5f));
+    _settlementModeBtn->addChild(_settlementHomeLabel, 1);
+    _settlementLayer->addChild(_settlementModeBtn, 2);
+
     _upgradePanel = UpgradePanel::create();
     _upgradePanel->setStartRunCallback([this]() { resetGame(); });
     addChild(_upgradePanel, 30);
 
+    _choicePanel = ThreeChoicePanel::create();
+    _choicePanel->setChoiceCallback([this](size_t index) {
+        if (_campaignRewards.hasPendingOffer())
+        {
+            chooseCampaignReward(_campaignRewards.choices()[index]);
+        }
+        else if (_runBuffs.hasPendingOffer())
+        {
+            chooseRunBuff(_runBuffs.choices()[index]);
+        }
+    });
+    addChild(_choicePanel, 40);
+
+    _modeSelectPanel = ModeSelectPanel::create();
+    _modeSelectPanel->setChoiceCallback(
+        [this](bool endless) { selectMode(endless ? GameMode::Endless : GameMode::Campaign); });
+    addChild(_modeSelectPanel, 45);
+
+    _campaignMenuPanel = ModeHomePanel::create(ModeHomeKind::Campaign);
+    _campaignMenuPanel->setStartCallback([this]() { beginCampaignBattle(); });
+    _campaignMenuPanel->setWorkshopCallback([this]() {
+        _campaignMenuPanel->setVisible(false);
+        _upgradePanel->setStartButtonText("返回闯关主页");
+        _upgradePanel->setStartRunCallback([this]() { showCampaignMenu(); });
+        _upgradePanel->open();
+        AXLOGI("[ModeNavigation] campaign workshop opened");
+    });
+    addChild(_campaignMenuPanel, 43);
+
+    _roguelikeMenuPanel = ModeHomePanel::create(ModeHomeKind::Roguelike);
+    _roguelikeMenuPanel->setStartCallback([this]() {
+        AXLOGI("[ModeNavigation] battle requested: mode=roguelike");
+        startEndlessRun();
+    });
+    addChild(_roguelikeMenuPanel, 43);
+
+#if CG_DEBUG_TOOLS
+    _developmentMenuPanel = DevelopmentMenuPanel::create();
+    _developmentMenuPanel->setChoiceCallback(
+        [this](DevelopmentMenuEntry entry) { selectDevelopmentMode(entry); });
+    addChild(_developmentMenuPanel, 46);
+#endif
+
+    _runBuffLabel = Label::createWithSystemFont("", "Arial", 21);
+    _runBuffLabel->setTextColor(Color4B(250, 220, 125, 255));
+    addChild(_runBuffLabel, 5);
+
     refreshEconomyHUD();
+    refreshRunBuffHUD();
 }
 
 void MainScene::layoutEconomyUI(const Vec2& origin, float right, float top)
@@ -2128,8 +3093,16 @@ void MainScene::layoutEconomyUI(const Vec2& origin, float right, float top)
 
     const auto visibleSize = _director->getVisibleSize();
     _upgradePanel->layout(origin, visibleSize);
+    _choicePanel->layout(origin, visibleSize);
+    _modeSelectPanel->layout(origin, visibleSize);
+    _campaignMenuPanel->layout(origin, visibleSize);
+    _roguelikeMenuPanel->layout(origin, visibleSize);
+#if CG_DEBUG_TOOLS
+    _developmentMenuPanel->layout(origin, visibleSize);
+#endif
+    _runBuffLabel->setPosition(Vec2(origin.x + visibleSize.width * 0.5f, top - 64.0f));
     const float panelW     = std::min(560.0f, visibleSize.width * 0.86f);
-    const float panelH     = std::min(420.0f, visibleSize.height * 0.72f);
+    const float panelH     = std::min(520.0f, visibleSize.height * 0.76f);
     const Vec2 center((origin.x + right) * 0.5f, origin.y + visibleSize.height * 0.5f);
     const Vec2 panelMin(center.x - panelW * 0.5f, center.y - panelH * 0.5f);
     const Vec2 panelMax(center.x + panelW * 0.5f, center.y + panelH * 0.5f);
@@ -2145,12 +3118,25 @@ void MainScene::layoutEconomyUI(const Vec2& origin, float right, float top)
     _settlementTotals->setPosition(Vec2(center.x, center.y - panelH * 0.10f));
 
     const float buttonsW = SETTLEMENT_BUTTON_W * 2.0f + SETTLEMENT_BUTTON_GAP;
-    const Vec2 upgradePos(center.x - buttonsW * 0.5f, panelMin.y + 28.0f);
-    const Vec2 restartPos(upgradePos.x + SETTLEMENT_BUTTON_W + SETTLEMENT_BUTTON_GAP, upgradePos.y);
+    Vec2 upgradePos(center.x - buttonsW * 0.5f, panelMin.y + 28.0f);
+    Vec2 restartPos(upgradePos.x + SETTLEMENT_BUTTON_W + SETTLEMENT_BUTTON_GAP, upgradePos.y);
+    Vec2 modePos(center.x - SETTLEMENT_BUTTON_W * 0.5f,
+                 upgradePos.y + SETTLEMENT_BUTTON_H + 20.0f);
+    if (_gameMode == GameMode::Endless)
+    {
+        modePos = Vec2(center.x - buttonsW * 0.5f, panelMin.y + 28.0f);
+        restartPos = Vec2(modePos.x + SETTLEMENT_BUTTON_W + SETTLEMENT_BUTTON_GAP, modePos.y);
+    }
+    else if (_gameMode == GameMode::Core)
+    {
+        restartPos = Vec2(center.x - SETTLEMENT_BUTTON_W * 0.5f, panelMin.y + 28.0f);
+    }
     _settlementUpgradeBtn->setPosition(upgradePos);
     _settlementRestartBtn->setPosition(restartPos);
+    _settlementModeBtn->setPosition(modePos);
     _settlementUpgradeRect = Rect(upgradePos.x, upgradePos.y, SETTLEMENT_BUTTON_W, SETTLEMENT_BUTTON_H);
     _settlementRestartRect = Rect(restartPos.x, restartPos.y, SETTLEMENT_BUTTON_W, SETTLEMENT_BUTTON_H);
+    _settlementModeRect = Rect(modePos.x, modePos.y, SETTLEMENT_BUTTON_W, SETTLEMENT_BUTTON_H);
 }
 
 void MainScene::refreshEconomyHUD()
@@ -2171,18 +3157,187 @@ void MainScene::refreshEconomyHUD()
     _crystalLabel->setString(StringUtils::format("水晶  %d", economy.totalCrystals()));
 }
 
+void MainScene::refreshRunBuffHUD()
+{
+    if (!_runBuffLabel)
+    {
+        return;
+    }
+    std::string text;
+    for (size_t i = 0; i < RunBuffModel::BUFF_COUNT; ++i)
+    {
+        const auto id = static_cast<RunBuffId>(i);
+        const int stack = _runBuffs.stacks(id);
+        if (stack <= 0)
+        {
+            continue;
+        }
+        if (!text.empty()) text += "   ";
+        text += StringUtils::format("%s Lv.%d", RunBuffModel::definition(id).name, stack);
+    }
+    _runBuffLabel->setString(text);
+    _runBuffLabel->setVisible(_gameMode == GameMode::Endless && !text.empty());
+}
+
+void MainScene::offerRunBuff()
+{
+    const uint32_t seed = static_cast<uint32_t>(rand()) ^
+                          static_cast<uint32_t>(_endlessWaveNumber) * 0x9E3779B9u;
+    if (!_runBuffs.beginOffer(seed))
+    {
+        AXLOGW("[GameModes][Roguelike] offer rejected because another offer is pending");
+        return;
+    }
+    stopContinuousFire();
+    _gameState   = GameState::pause;
+    _aimingSkill = -1;
+    _aimDragging = false;
+    _aimIndicator->setVisible(false);
+    std::array<ThreeChoiceCard, ThreeChoicePanel::CHOICE_COUNT> cards;
+    const Color4B accents[] = {
+        Color4B(235, 178, 61, 255), Color4B(77, 199, 163, 255),
+        Color4B(235, 87, 82, 255), Color4B(87, 158, 245, 255),
+    };
+    for (size_t i = 0; i < cards.size(); ++i)
+    {
+        const auto id          = _runBuffs.choices()[i];
+        const auto& definition = RunBuffModel::definition(id);
+        const int current      = _runBuffs.stacks(id);
+        cards[i] = ThreeChoiceCard{
+            definition.name,
+            definition.description,
+            StringUtils::format("当前层数 %d  ->  %d", current,
+                                std::min(current + 1, definition.maxStacks)),
+            accents[static_cast<size_t>(id)],
+        };
+    }
+    _choicePanel->open("无尽增益 · 三选一", "仅本次无尽守城生效，失败后全部清空", cards);
+    AXLOGI("[GameModes][Roguelike] offer opened: endlessWave={}, offer={}", _endlessWaveNumber,
+           _runBuffs.offerCount());
+}
+
+void MainScene::chooseRunBuff(RunBuffId id)
+{
+    if (!_runBuffs.select(id))
+    {
+        AXLOGW("[GameModes][Roguelike] invalid selection ignored: id={}", static_cast<int>(id));
+        return;
+    }
+    _choicePanel->setVisible(false);
+    refreshRunBuffHUD();
+    AXLOGI("[GameModes][Roguelike] selected: key={}, stacks={}", RunBuffModel::definition(id).key,
+           _runBuffs.stacks(id));
+    advanceEndlessWave();
+}
+
+void MainScene::offerCampaignReward(int stage, bool resumeRunAfterChoice)
+{
+    _campaignRewards.reset();
+    const uint32_t seed = 0xC0FFEEu ^ static_cast<uint32_t>(stage) * 0x85EBCA6Bu;
+    if (!_campaignRewards.beginOffer(seed, GameData::getInstance().campaignRewardContext(stage)))
+    {
+        AXLOGW("[GameModes][CampaignReward] offer rejected: stage={}", stage);
+        return;
+    }
+    _resumeCampaignAfterReward = resumeRunAfterChoice;
+    stopContinuousFire();
+    _gameState   = GameState::pause;
+    _aimingSkill = -1;
+    _aimDragging = false;
+    _aimIndicator->setVisible(false);
+
+    std::array<ThreeChoiceCard, ThreeChoicePanel::CHOICE_COUNT> cards;
+    for (size_t i = 0; i < cards.size(); ++i)
+    {
+        const auto id          = _campaignRewards.choices()[i];
+        const auto& definition = CampaignRewardModel::definition(id);
+        const bool resource    = definition.upgradeIndex < 0;
+        cards[i] = ThreeChoiceCard{
+            definition.name,
+            CampaignRewardModel::description(id, stage),
+            resource ? "立即入账并保存" : "永久养成 · 无需消耗货币",
+            resource ? Color4B(91, 192, 225, 255) : Color4B(235, 178, 61, 255),
+        };
+    }
+    _choicePanel->open(StringUtils::format("第 %d 关养成奖励", stage),
+                       "首次通关奖励 · 选择后永久保存", cards);
+    AXLOGI("[GameModes][CampaignReward] offer opened: stage={}, resume={}", stage,
+           resumeRunAfterChoice);
+}
+
+void MainScene::chooseCampaignReward(CampaignRewardId id)
+{
+    const int stage = _campaignRewards.stage();
+    if (!_campaignRewards.select(id))
+    {
+        AXLOGW("[GameModes][CampaignReward] invalid selection ignored: stage={}, id={}", stage,
+               static_cast<int>(id));
+        return;
+    }
+    if (!GameData::getInstance().claimCampaignReward(stage, id))
+    {
+        AXLOGW("[GameModes][CampaignReward] selection became unavailable; refreshing offer: stage={}",
+               stage);
+        offerCampaignReward(stage, _resumeCampaignAfterReward);
+        return;
+    }
+    _choicePanel->setVisible(false);
+    refreshEconomyHUD();
+    _lastCampaignRewardName = CampaignRewardModel::definition(id).name;
+    AXLOGI("[GameModes][CampaignReward] selection completed: stage={}, reward={}", stage,
+           CampaignRewardModel::definition(id).key);
+    if (_hasPendingSettlement)
+    {
+        const auto result = _pendingSettlement;
+        _hasPendingSettlement = false;
+        presentSettlement(result, true);
+    }
+    else if (_resumeCampaignAfterReward)
+    {
+        _resumeCampaignAfterReward = false;
+        startCampaignRun();
+    }
+}
+
 void MainScene::showSettlement(bool victory)
 {
     if (_settlementVisible)
     {
         return;
     }
-    const auto result = GameData::getInstance().settleRun(victory);
+    const int stage      = static_cast<int>(_levelIndex) + 1;
+    const int stageCount = static_cast<int>(_campaign.levels().size());
+    SettlementSummary result;
+    if (_gameMode == GameMode::Endless)
+    {
+        result = GameData::getInstance().settleEndlessRun();
+    }
+    else if (_gameMode == GameMode::Core)
+    {
+        result = GameData::getInstance().settlePracticeRun(victory);
+    }
+    else
+    {
+        result = GameData::getInstance().settleRun(victory, stage, stageCount,
+                                                    currentLevel().clearCrystals);
+    }
     if (!result.committed)
     {
         return;
     }
+    if (_gameMode == GameMode::Campaign && result.stageAdvanced)
+    {
+        _pendingSettlement    = result;
+        _hasPendingSettlement = true;
+        offerCampaignReward(stage, false);
+        return;
+    }
+    presentSettlement(result, victory);
+}
 
+void MainScene::presentSettlement(const SettlementSummary& result, bool victory)
+{
+    stopContinuousFire();
     _settlementVisible = true;
     _gameState         = GameState::end;
     _aimingSkill       = -1;
@@ -2190,13 +3345,62 @@ void MainScene::showSettlement(bool victory)
     _aimIndicator->setVisible(false);
     _skillHint->setVisible(false);
 
-    _settlementTitle->setString(victory ? "守城成功" : "城墙告破");
+    const auto& data = GameData::getInstance();
+    const int stage      = static_cast<int>(_levelIndex) + 1;
+    const int stageCount = static_cast<int>(_campaign.levels().size());
+    const int clearedStages = std::min(data.highestClearedStage(), stageCount);
+    const bool campaignClear = _gameMode == GameMode::Campaign && victory && clearedStages >= stageCount;
+    _settlementTitle->setString(
+        _gameMode == GameMode::Core ? (victory ? "核心玩法验证完成" : "核心玩法验证失败")
+        : _gameMode == GameMode::Endless ? "无尽守城结束"
+        : campaignClear ? "五关全通！"
+                        : StringUtils::format("第 %d 关%s", stage, victory ? "通过" : "失败"));
     _settlementTitle->setTextColor(victory ? Color4B(120, 245, 160, 255) : Color4B(255, 125, 105, 255));
-    _settlementRewards->setString(StringUtils::format("本局击杀  %d\n金币 +%d    水晶 +%d", result.kills,
-                                                        result.coinsEarned, result.crystalsEarned));
-    _settlementTotals->setString(
-        StringUtils::format("持有：金币 %d    水晶 %d", result.totalCoins, result.totalCrystals));
+    const std::string rewardSuffix = _lastCampaignRewardName.empty()
+                                         ? ""
+                                         : "    养成：" + _lastCampaignRewardName;
+    if (_gameMode == GameMode::Core)
+    {
+        _settlementRewards->setString(
+            StringUtils::format("本局击杀  %d\n练习局：不结算金币、水晶或关卡进度", result.kills));
+        _settlementTotals->setString(
+            StringUtils::format("永久数据未改变：金币 %d    水晶 %d", data.economy().totalCoins(),
+                                data.economy().totalCrystals()));
+    }
+    else if (_gameMode == GameMode::Endless)
+    {
+        _settlementRewards->setString(
+            StringUtils::format("守住 %d 波    击杀 %d\n金币 +%d", _endlessCompletedWaves,
+                                result.kills, result.coinsEarned));
+        _settlementTotals->setString(
+            StringUtils::format("持有：金币 %d    水晶 %d", data.economy().totalCoins(),
+                                data.economy().totalCrystals()));
+    }
+    else
+    {
+        _settlementRewards->setString(
+            StringUtils::format("本局击杀  %d\n金币 +%d    水晶 +%d%s", result.kills,
+                                result.coinsEarned, result.crystalsEarned, rewardSuffix.c_str()));
+        _settlementTotals->setString(
+            StringUtils::format("持有：金币 %d    水晶 %d    进度 %d/%d",
+                                data.economy().totalCoins(), data.economy().totalCrystals(),
+                                clearedStages, stageCount));
+    }
+    const std::string nextText = _gameMode == GameMode::Core ? "再次验证"
+                                     : _gameMode == GameMode::Endless ? "再守一次"
+                                     : victory ? (campaignClear ? "重玩终章" : "下一关")
+                                               : "重试本关";
+    _settlementRestartLabel->setString(nextText);
+    _settlementUpgradeBtn->setVisible(_gameMode == GameMode::Campaign);
+    _settlementModeBtn->setVisible(_gameMode != GameMode::Core);
+    _settlementHomeLabel->setString(_gameMode == GameMode::Endless ? "返回肉鸽主页"
+                                                                    : "返回闯关主页");
+    _upgradePanel->setStartRunCallback([this]() { resetGame(); });
+    _upgradePanel->setStartButtonText(nextText);
     _settlementLayer->setVisible(true);
+    const auto visibleSize = _director->getVisibleSize();
+    const auto origin = _director->getVisibleOrigin();
+    layoutEconomyUI(origin, origin.x + visibleSize.width, origin.y + visibleSize.height);
     refreshEconomyHUD();
 }
 
@@ -2333,6 +3537,17 @@ void MainScene::layoutSkillBar(const Vec2& origin, float right)
     }
 }
 
+bool MainScene::isSkillAvailable(SkillId id) const
+{
+    // 五关拆分前的稳定核心基线默认开放三项基础技能。这里只改变本局可用性，
+    // 不调用解锁接口，因此不会绕过闯关进度写入玩家存档。
+    if (_gameMode == GameMode::Core && id != SkillId::Lightning)
+    {
+        return true;
+    }
+    return GameData::getInstance().isSkillUnlocked(id);
+}
+
 // 点技能按钮：再点同一个 = 取消；冷却中/蓝不足 → 提示
 void MainScene::tryAimSkill(int index)
 {
@@ -2340,9 +3555,12 @@ void MainScene::tryAimSkill(int index)
     {
         return;
     }
-    if (!GameData::getInstance().isSkillUnlocked(static_cast<SkillId>(index)))
+    if (!isSkillAvailable(static_cast<SkillId>(index)))
     {
-        _skillHint->setString("技能尚未解锁，可在结算后的城堡工坊购买");
+        const auto& definition = GameData::getInstance().skillDefinition(static_cast<SkillId>(index));
+        _skillHint->setString(definition.unlockStage > 0
+                                  ? StringUtils::format("技能尚未解锁：第 %d 关自动解锁", definition.unlockStage)
+                                  : "技能尚未解锁，可在结算后的城堡工坊购买");
         _skillHint->setVisible(true);
         _skillHintTimer = 1.8f;
         return;
@@ -2769,7 +3987,7 @@ void MainScene::refreshSkillHUD()
             continue;
         }
         _skillCdShade[i]->clear();
-        const bool unlocked = GameData::getInstance().isSkillUnlocked(static_cast<SkillId>(i));
+        const bool unlocked = isSkillAvailable(static_cast<SkillId>(i));
         if (!unlocked)
         {
             _skillCdShade[i]->drawSolidRect(Vec2::ZERO, Vec2(SKILL_BTN_SIZE, SKILL_BTN_SIZE),
@@ -2796,6 +4014,30 @@ void MainScene::refreshSkillHUD()
 
 void MainScene::onTouchesBegan(const std::vector<ax::Touch*>& touches, ax::Event* event)
 {
+#if CG_DEBUG_TOOLS
+    for (auto&& touch : touches)
+    {
+        if (_debugModeMenuBtnRect.containsPoint(touch->getLocation()))
+        {
+            stopContinuousFire();
+            AXLOGI("[ModeNavigation] development menu requested");
+            showDevelopmentMenu();
+            return;
+        }
+    }
+#endif
+    if ((_upgradePanel && _upgradePanel->isVisible()) ||
+        (_choicePanel && _choicePanel->isVisible()) ||
+        (_modeSelectPanel && _modeSelectPanel->isVisible())
+#if CG_DEBUG_TOOLS
+        || (_developmentMenuPanel && _developmentMenuPanel->isVisible())
+#endif
+        || (_campaignMenuPanel && _campaignMenuPanel->isVisible())
+        || (_roguelikeMenuPanel && _roguelikeMenuPanel->isVisible())
+    )
+    {
+        return;  // 模态面板由 UI 系统处理，触摸不能穿透到战场
+    }
     // 结算与升级页都是模态界面，不能穿透到射箭/技能/调试按钮。
     if (_settlementVisible)
     {
@@ -2805,7 +4047,8 @@ void MainScene::onTouchesBegan(const std::vector<ax::Touch*>& touches, ax::Event
         }
         for (auto&& t : touches)
         {
-            if (_settlementUpgradeRect.containsPoint(t->getLocation()))
+            if (_settlementUpgradeBtn->isVisible() &&
+                _settlementUpgradeRect.containsPoint(t->getLocation()))
             {
                 _settlementLayer->setVisible(false);
                 _upgradePanel->open();
@@ -2814,6 +4057,13 @@ void MainScene::onTouchesBegan(const std::vector<ax::Touch*>& touches, ax::Event
             if (_settlementRestartRect.containsPoint(t->getLocation()))
             {
                 resetGame();
+                break;
+            }
+            if (_settlementModeBtn->isVisible() &&
+                _settlementModeRect.containsPoint(t->getLocation()))
+            {
+                AXLOGI("[ModeNavigation] settlement home requested");
+                showCurrentModeMenu();
                 break;
             }
         }
@@ -2827,27 +4077,32 @@ void MainScene::onTouchesBegan(const std::vector<ax::Touch*>& touches, ax::Event
 #if CG_DEBUG_TOOLS
         if (_debugBtnRect.containsPoint(t->getLocation()))
         {
+            stopContinuousFire();
             buildBattlefield(_battleLayout == BattleLayout::Oblique25D ? BattleLayout::SideView
                                                                        : BattleLayout::Oblique25D);
             return;
         }
         if (_debugRestartBtnRect.containsPoint(t->getLocation()))
         {
+            stopContinuousFire();
             resetGame();  // ↻ 重开：清场满血回第 1 波
             return;
         }
         if (_debugPrevBtnRect.containsPoint(t->getLocation()))
         {
+            stopContinuousFire();
             gotoWave(-1);  // ◀ 上一波
             return;
         }
         if (_debugNextBtnRect.containsPoint(t->getLocation()))
         {
+            stopContinuousFire();
             gotoWave(1);  // ▶ 下一波
             return;
         }
         if (_debugTuneBtnRect.containsPoint(t->getLocation()))
         {
+            stopContinuousFire();
             toggleTuningPanel();  // ⚙ 手感调优面板
             return;
         }
@@ -2857,6 +4112,7 @@ void MainScene::onTouchesBegan(const std::vector<ax::Touch*>& touches, ax::Event
         {
             if (_skillBtnRects[i].containsPoint(t->getLocation()))
             {
+                stopContinuousFire();
                 tryAimSkill(i);
                 return;
             }
@@ -2875,23 +4131,32 @@ void MainScene::onTouchesBegan(const std::vector<ax::Touch*>& touches, ax::Event
     // EventListenerTouchAllAtOnce 的 touches 数组长度 = 当前按下的手指数
     if (touches.size() >= 2)
     {
+        stopContinuousFire();
         buildBattlefield(_battleLayout == BattleLayout::Oblique25D ? BattleLayout::SideView
                                                                    : BattleLayout::Oblique25D);
         return;
     }
 #endif
     // 瞄准模式下的战场按下已在上面处理（显示范围圈），释放由 onTouchesEnded 结算
-    for (auto&& t : touches)
+    if (!touches.empty())
     {
-        // 单指点击屏幕 → 从箭手位向点击方向射箭
-        // t->getLocation() 是世界坐标（已含分辨率适配的换算）
-        fireArrow(t->getLocation());
+        // 按下立即射第一轮；保持按住时由 update() 按原有射速持续射击。
+        // Touch 位置是世界坐标，拖动时会持续更新，因此也支持按住扫射转向。
+        beginContinuousFire(touches.front());
     }
 }
 
 void MainScene::onTouchesMoved(const std::vector<ax::Touch*>& touches, ax::Event* event)
 {
-    if (_settlementVisible)
+    if (_settlementVisible || (_upgradePanel && _upgradePanel->isVisible()) ||
+        (_choicePanel && _choicePanel->isVisible()) ||
+        (_modeSelectPanel && _modeSelectPanel->isVisible())
+#if CG_DEBUG_TOOLS
+        || (_developmentMenuPanel && _developmentMenuPanel->isVisible())
+#endif
+        || (_campaignMenuPanel && _campaignMenuPanel->isVisible())
+        || (_roguelikeMenuPanel && _roguelikeMenuPanel->isVisible())
+    )
     {
         return;
     }
@@ -2899,12 +4164,36 @@ void MainScene::onTouchesMoved(const std::vector<ax::Touch*>& touches, ax::Event
     if (_aimingSkill >= 0 && _aimDragging && !touches.empty())
     {
         updateAimIndicator(touches[0]->getLocation());
+        return;
+    }
+    if (_continuousFireActive)
+    {
+        for (auto&& t : touches)
+        {
+            if (t->getID() == _continuousFireTouchId)
+            {
+                _continuousFireTarget = t->getLocation();
+                break;
+            }
+        }
     }
 }
 
 void MainScene::onTouchesEnded(const std::vector<ax::Touch*>& touches, ax::Event* event)
 {
-    if (_settlementVisible)
+    for (auto&& t : touches)
+    {
+        stopContinuousFire(t->getID());
+    }
+    if (_settlementVisible || (_upgradePanel && _upgradePanel->isVisible()) ||
+        (_choicePanel && _choicePanel->isVisible()) ||
+        (_modeSelectPanel && _modeSelectPanel->isVisible())
+#if CG_DEBUG_TOOLS
+        || (_developmentMenuPanel && _developmentMenuPanel->isVisible())
+#endif
+        || (_campaignMenuPanel && _campaignMenuPanel->isVisible())
+        || (_roguelikeMenuPanel && _roguelikeMenuPanel->isVisible())
+    )
     {
         return;
     }
@@ -2916,9 +4205,31 @@ void MainScene::onTouchesEnded(const std::vector<ax::Touch*>& touches, ax::Event
     }
 }
 
+void MainScene::onTouchesCancelled(const std::vector<ax::Touch*>& touches, ax::Event* event)
+{
+    for (auto&& t : touches)
+    {
+        stopContinuousFire(t->getID());
+    }
+    if (_aimDragging)
+    {
+        _aimDragging = false;
+        _aimIndicator->setVisible(false);
+    }
+}
+
 void MainScene::onKeyPressed(ax::EventKeyboard::KeyCode code, ax::Event* event)
 {
 #if CG_DEBUG_TOOLS
+    if ((_upgradePanel && _upgradePanel->isVisible()) ||
+        (_choicePanel && _choicePanel->isVisible()) ||
+        (_modeSelectPanel && _modeSelectPanel->isVisible()) ||
+        (_developmentMenuPanel && _developmentMenuPanel->isVisible()) ||
+        (_campaignMenuPanel && _campaignMenuPanel->isVisible()) ||
+        (_roguelikeMenuPanel && _roguelikeMenuPanel->isVisible()))
+    {
+        return;
+    }
     // 桌面调试键：1/2 切视角、R 重开、Q/E 跳波、T 开发者工具、U 预览升级页。
     if (code == EventKeyboard::KeyCode::KEY_1 && _battleLayout != BattleLayout::SideView)
     {
@@ -2988,6 +4299,15 @@ void MainScene::update(float delta)
 #else
         _fireCooldown = std::max(0.0f, _fireCooldown - delta);
 #endif
+        if (_fireCooldown <= 0.0f)
+        {
+            // 装填完成：恢复待发射箭；若增益改变多重箭数量，会在此同步表现。
+            refreshWallBowLoadedArrows();
+        }
+        if (_continuousFireActive)
+        {
+            fireArrow(_continuousFireTarget);
+        }
 
         // 游戏主循环：怪物移动、箭矢飞行、敌方弹丸、技能系统都在这里驱动
         updateMonsters(delta);
@@ -2998,9 +4318,23 @@ void MainScene::update(float delta)
     }
 
     case GameState::pause:
+    {
+        // 三选一暂停战斗，但窗口旋转/缩放仍需重排模态界面。
+        const auto& vs = _director->getVisibleSize();
+        if (vs.width != _lastVisibleSize.width || vs.height != _lastVisibleSize.height)
+        {
+            buildBattlefield(_battleLayout);
+        }
+        break;
+    }
     case GameState::menu1:
     case GameState::menu2:
     {
+        const auto& vs = _director->getVisibleSize();
+        if (vs.width != _lastVisibleSize.width || vs.height != _lastVisibleSize.height)
+        {
+            buildBattlefield(_battleLayout);
+        }
         break;
     }
 
@@ -3016,6 +4350,7 @@ void MainScene::update(float delta)
     }
 
     }  // switch
+    refreshCombatHUD();
 }
 
 MainScene::MainScene()

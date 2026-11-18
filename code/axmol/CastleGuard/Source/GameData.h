@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CampaignReward.h"
+
 #include <array>
 #include <string>
 #include <vector>
@@ -13,6 +15,7 @@ struct SettlementSummary
 {
     bool committed       = false;
     bool victory         = false;
+    bool stageAdvanced   = false;
     int kills            = 0;
     int coinsEarned      = 0;
     int crystalsEarned   = 0;
@@ -33,9 +36,12 @@ public:
     bool recordKill();
     void checkpointRun();
     void rewindToCheckpoint();
-    SettlementSummary settle(bool victory);
+    SettlementSummary settle(bool victory, int clearCrystalReward = CLEAR_CRYSTAL_REWARD);
+    SettlementSummary discardRun(bool victory);
     bool spendCoins(int amount);
     bool spendCrystals(int amount);
+    void grantCoins(int amount);
+    void grantCrystals(int amount);
 #if CG_DEBUG_TOOLS
     void debugSetBalances(int coins, int crystals);
 #endif
@@ -101,6 +107,7 @@ struct SkillDefinition
     std::string description;
     int unlockCost       = 0;
     bool defaultUnlocked = false;
+    int unlockStage      = 0;  // >0 表示进入该关自动解锁；0 表示不由关卡里程碑解锁
 };
 
 enum class PurchaseStatus
@@ -132,10 +139,33 @@ public:
 
     PurchaseResult purchaseUpgrade(EconomyModel& economy, const UpgradeDefinition& definition);
     PurchaseResult unlockSkill(EconomyModel& economy, const SkillDefinition& definition);
+    bool grantUpgradeLevel(const UpgradeDefinition& definition);
+    std::vector<SkillId> unlockSkillsForStage(
+        int stage, const std::array<SkillDefinition, static_cast<size_t>(SkillId::Count)>& definitions);
 
 private:
     std::array<int, static_cast<size_t>(UpgradeId::Count)> _levels{};
     std::array<bool, static_cast<size_t>(SkillId::Count)> _unlocked{};
+};
+
+// 纯关卡进度规则：只允许顺序通关，防止异常结算或调试跳关越级写坏存档。
+class CampaignProgressionModel
+{
+public:
+    explicit CampaignProgressionModel(int highestClearedStage = 0, int highestRewardedStage = 0);
+
+    int highestClearedStage() const { return _highestClearedStage; }
+    int highestRewardedStage() const { return _highestRewardedStage; }
+    int pendingRewardStage() const;
+    int nextStage(int stageCount) const;
+    bool completeStage(int stage, int stageCount);
+    bool claimRewardStage(int stage);
+    void setHighestClearedStage(int stage);
+    void setHighestRewardedStage(int stage);
+
+private:
+    int _highestClearedStage = 0;
+    int _highestRewardedStage = 0;
 };
 
 #if CG_DEBUG_TOOLS
@@ -144,6 +174,8 @@ struct DebugPlayerData
 {
     int coins    = 0;
     int crystals = 0;
+    int highestClearedStage = 0;
+    int highestRewardedStage = 0;
     std::array<int, static_cast<size_t>(UpgradeId::Count)> upgradeLevels{};
     std::array<bool, static_cast<size_t>(SkillId::Count)> skillUnlocked{};
 };
@@ -162,7 +194,15 @@ public:
     bool recordKill();
     void checkpointRun();
     void rewindToCheckpoint();
-    SettlementSummary settleRun(bool victory);
+    SettlementSummary settleRun(bool victory, int stage, int stageCount, int clearCrystalReward);
+    SettlementSummary settleEndlessRun();
+    SettlementSummary settlePracticeRun(bool victory);
+    std::vector<SkillId> beginStage(int stage);
+    int nextStage(int stageCount) const { return _campaign.nextStage(stageCount); }
+    int highestClearedStage() const { return _campaign.highestClearedStage(); }
+    int pendingCampaignRewardStage() const { return _campaign.pendingRewardStage(); }
+    CampaignRewardContext campaignRewardContext(int stage) const;
+    bool claimCampaignReward(int stage, CampaignRewardId id);
 
     const UpgradeDefinition& upgradeDefinition(UpgradeId id) const;
     const SkillDefinition& skillDefinition(SkillId id) const;
@@ -194,6 +234,7 @@ private:
 
     EconomyModel _economy;
     ProgressionModel _progression;
+    CampaignProgressionModel _campaign;
     std::array<UpgradeDefinition, static_cast<size_t>(UpgradeId::Count)> _upgrades;
     std::array<SkillDefinition, static_cast<size_t>(SkillId::Count)> _skills;
 };

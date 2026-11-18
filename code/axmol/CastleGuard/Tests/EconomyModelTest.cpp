@@ -2,6 +2,8 @@
 
 #include "doctest/doctest.h"
 
+#include <algorithm>
+
 TEST_SUITE("EconomyModel")
 {
     TEST_CASE("victory banks kill coins and clear crystals")
@@ -38,6 +40,18 @@ TEST_SUITE("EconomyModel")
         CHECK_EQ(result.totalCrystals, 0);
     }
 
+    TEST_CASE("each level can provide its configured crystal reward")
+    {
+        EconomyModel economy;
+        economy.startRun();
+
+        const auto result = economy.settle(true, 2);
+
+        CHECK(result.committed);
+        CHECK_EQ(result.crystalsEarned, 2);
+        CHECK_EQ(result.totalCrystals, 2);
+    }
+
     TEST_CASE("settlement is idempotent and kills outside a run are ignored")
     {
         EconomyModel economy(3, 4);
@@ -65,6 +79,38 @@ TEST_SUITE("EconomyModel")
         CHECK_EQ(economy.runKills(), 0);
         CHECK_EQ(economy.runCoins(), 0);
         CHECK_EQ(economy.totalCoins(), 8);
+        CHECK_EQ(economy.totalCrystals(), 6);
+    }
+
+    TEST_CASE("practice settlement reports kills without banking temporary rewards")
+    {
+        EconomyModel economy(8, 6);
+        economy.startRun();
+        CHECK(economy.recordKill());
+        CHECK(economy.recordKill());
+
+        const auto result = economy.discardRun(true);
+
+        CHECK(result.committed);
+        CHECK(result.victory);
+        CHECK_EQ(result.kills, 2);
+        CHECK_EQ(result.coinsEarned, 0);
+        CHECK_EQ(result.crystalsEarned, 0);
+        CHECK_EQ(result.totalCoins, 8);
+        CHECK_EQ(result.totalCrystals, 6);
+        CHECK_FALSE(economy.runActive());
+        CHECK_FALSE(economy.recordKill());
+    }
+
+    TEST_CASE("permanent grants are clamped to non-negative amounts")
+    {
+        EconomyModel economy(3, 2);
+        economy.grantCoins(7);
+        economy.grantCrystals(4);
+        economy.grantCoins(-100);
+        economy.grantCrystals(-100);
+
+        CHECK_EQ(economy.totalCoins(), 10);
         CHECK_EQ(economy.totalCrystals(), 6);
     }
 
@@ -136,5 +182,99 @@ TEST_SUITE("ProgressionModel")
         CHECK_EQ(secondUnlock.status, PurchaseStatus::AlreadyUnlocked);
         CHECK_EQ(economy.totalCoins(), 100);
         CHECK_EQ(economy.totalCrystals(), 15);
+    }
+
+    TEST_CASE("free progression reward raises a level without spending currency")
+    {
+        EconomyModel economy(5, 2);
+        ProgressionModel progression;
+
+        CHECK(progression.grantUpgradeLevel(damageUpgrade));
+        CHECK_EQ(progression.upgradeLevel(UpgradeId::ArrowDamage), 1);
+        CHECK_EQ(economy.totalCoins(), 5);
+        progression.setUpgradeLevel(UpgradeId::ArrowDamage, damageUpgrade.maxLevel());
+        CHECK_FALSE(progression.grantUpgradeLevel(damageUpgrade));
+    }
+
+    TEST_CASE("the first milestone skill unlocks at stage three")
+    {
+        ProgressionModel progression;
+        const std::array<SkillDefinition, static_cast<size_t>(SkillId::Count)> skills = {
+            SkillDefinition{SkillId::Fireball, "fireball", "Fireball", "AOE", 0, false, 3},
+            SkillDefinition{SkillId::Freeze, "freeze", "Freeze", "Control", 0, false, 4},
+            SkillDefinition{SkillId::ArrowRain, "arrow_rain", "Rain", "AOE", 0, false, 5},
+            SkillDefinition{SkillId::Lightning, "lightning", "Lightning", "Stun", 5, false, 0},
+        };
+
+        CHECK(progression.unlockSkillsForStage(2, skills).empty());
+        CHECK_FALSE(progression.isSkillUnlocked(SkillId::Fireball));
+
+        const auto stageThree = progression.unlockSkillsForStage(3, skills);
+        REQUIRE_EQ(stageThree.size(), 1);
+        CHECK_EQ(stageThree.front(), SkillId::Fireball);
+        CHECK(progression.isSkillUnlocked(SkillId::Fireball));
+        CHECK_FALSE(progression.isSkillUnlocked(SkillId::Freeze));
+        CHECK(progression.unlockSkillsForStage(3, skills).empty());
+
+        const auto stageFive = progression.unlockSkillsForStage(5, skills);
+        CHECK_EQ(stageFive.size(), 2);
+        CHECK(progression.isSkillUnlocked(SkillId::Freeze));
+        CHECK(progression.isSkillUnlocked(SkillId::ArrowRain));
+        CHECK_FALSE(progression.isSkillUnlocked(SkillId::Lightning));
+    }
+}
+
+TEST_SUITE("CampaignProgressionModel")
+{
+    TEST_CASE("progress advances sequentially and final stage remains replayable")
+    {
+        CampaignProgressionModel campaign;
+
+        CHECK_EQ(campaign.nextStage(5), 1);
+        CHECK_FALSE(campaign.completeStage(3, 5));
+        CHECK_EQ(campaign.highestClearedStage(), 0);
+
+        CHECK(campaign.completeStage(1, 5));
+        CHECK_EQ(campaign.nextStage(5), 2);
+        CHECK_FALSE(campaign.completeStage(1, 5));
+        CHECK(campaign.completeStage(2, 5));
+        CHECK(campaign.completeStage(3, 5));
+        CHECK(campaign.completeStage(4, 5));
+        CHECK(campaign.completeStage(5, 5));
+        CHECK_EQ(campaign.nextStage(5), 5);
+        CHECK_FALSE(campaign.completeStage(5, 5));
+    }
+
+    TEST_CASE("first-clear rewards remain pending and can only be claimed in order")
+    {
+        CampaignProgressionModel campaign(3, 1);
+        CHECK_EQ(campaign.pendingRewardStage(), 2);
+        CHECK_FALSE(campaign.claimRewardStage(3));
+        CHECK(campaign.claimRewardStage(2));
+        CHECK_EQ(campaign.pendingRewardStage(), 3);
+        CHECK(campaign.claimRewardStage(3));
+        CHECK_EQ(campaign.pendingRewardStage(), 0);
+        CHECK_FALSE(campaign.claimRewardStage(3));
+    }
+}
+
+TEST_SUITE("ProductionProgressionCatalog")
+{
+    TEST_CASE("production catalog places its first automatic skill at stage three")
+    {
+        const auto& data = GameData::getInstance();
+        int firstUnlockStage = 999;
+        for (int i = 0; i < static_cast<int>(SkillId::Count); ++i)
+        {
+            const auto& definition = data.skillDefinition(static_cast<SkillId>(i));
+            if (definition.unlockStage > 0)
+            {
+                firstUnlockStage = std::min(firstUnlockStage, definition.unlockStage);
+            }
+        }
+
+        CHECK_EQ(firstUnlockStage, 3);
+        CHECK_EQ(data.skillDefinition(SkillId::Fireball).unlockStage, 3);
+        CHECK_FALSE(data.skillDefinition(SkillId::Fireball).defaultUnlocked);
     }
 }

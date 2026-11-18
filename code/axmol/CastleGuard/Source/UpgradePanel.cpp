@@ -235,10 +235,14 @@ void UpgradePanel::refreshRow(RowView& row)
         const bool unlocked    = data.isSkillUnlocked(id);
         row.title->setString(definition.name);
         row.detail->setString(definition.description);
-        row.button->setTitleText(unlocked ? "已解锁" : StringUtils::format("%d 水晶", definition.unlockCost));
-        row.button->setTouchEnabled(!unlocked && definition.unlockCost > 0);
-        row.button->setBright(!unlocked);
-        drawButtonBackground(row.buttonBg, row.button->getContentSize(), !unlocked && definition.unlockCost > 0);
+        const bool stageUnlock = !unlocked && definition.unlockStage > 0;
+        row.button->setTitleText(unlocked ? "已解锁"
+                                         : stageUnlock ? StringUtils::format("第 %d 关解锁", definition.unlockStage)
+                                                       : StringUtils::format("%d 水晶", definition.unlockCost));
+        row.button->setTouchEnabled(!unlocked && !stageUnlock && definition.unlockCost > 0);
+        row.button->setBright(!unlocked && !stageUnlock);
+        drawButtonBackground(row.buttonBg, row.button->getContentSize(),
+                             !unlocked && !stageUnlock && definition.unlockCost > 0);
         return;
     }
 

@@ -25,10 +25,18 @@
 
 #pragma once
 
+#include "CampaignConfig.h"
 #include "GameData.h"
+#include "MonsterBalance.h"
+#include "RunBuff.h"
 #include "axmol.h"
 
 class UpgradePanel;
+class ThreeChoicePanel;
+class ModeSelectPanel;
+class ModeHomePanel;
+class DevelopmentMenuPanel;
+enum class DevelopmentMenuEntry;
 
 // 调试内容开关（CMake 选项 -DCG_DEBUG_TOOLS=ON/OFF 注入）：
 // 1 = 开发版（调试按钮、ImGui 开发者工具、桌面调试键都可用）；
@@ -50,6 +58,13 @@ class MainScene : public ax::Scene
         menu2,
     };
 
+    enum class GameMode
+    {
+        Core,
+        Campaign,
+        Endless,
+    };
+
 public:
     bool init() override;
     void update(float delta) override;
@@ -62,6 +77,7 @@ public:
     void onTouchesBegan(const std::vector<ax::Touch*>& touches, ax::Event* event);
     void onTouchesMoved(const std::vector<ax::Touch*>& touches, ax::Event* event);
     void onTouchesEnded(const std::vector<ax::Touch*>& touches, ax::Event* event);
+    void onTouchesCancelled(const std::vector<ax::Touch*>& touches, ax::Event* event);
 
     // Keyboard
     void onKeyPressed(ax::EventKeyboard::KeyCode code, ax::Event* event);
@@ -88,7 +104,12 @@ private:
     // ---- 射箭系统 ----
     void initArrowPool();                       // 初始化对象池（init 时一次性建好）
     void fireArrow(const ax::Vec2& target);     // 从箭手位向目标点射出一支箭
+    void beginContinuousFire(ax::Touch* touch); // 按下立即射击，并记录长按瞄准点
+    void stopContinuousFire(int touchId = -1); // 抬起/取消/进入模态界面时停止续射
     void updateArrows(float delta);             // 每帧驱动箭矢飞行与回收
+    void updateWallBowAim(const ax::Vec2& target);  // 弓身实时朝向当前射击目标
+    void playWallBowFireAnimation();            // 成功发射后播放空弓释放与回弹
+    void refreshWallBowLoadedArrows();           // 装填完成时同步多重箭数量与扇形角度
 
     // 箭矢 = 池中的一个槽位。对象池核心思想：游戏循环里绝不 new/delete，
     // 频繁创建销毁会造成内存碎片和卡顿；开局一次建好，用完归还重复利用
@@ -97,10 +118,19 @@ private:
         ax::DrawNode* node = nullptr;  // 箭矢图形（池化复用）
         ax::Vec2 velocity;             // 当前速度向量（像素/秒）
         int damage = 1;                // 发射时固化伤害，飞行途中升级不会改变这支箭
+        float knockbackDistance = 0.0f;  // 发射时固化击退距离，后续 Buff/换装不会追改
+        bool critical = false;         // 暴击在发射时判定，用缩放提供即时视觉反馈
+        int loadedShotIndex = -1;      // 装填时在多重箭扇形中的序号
+        bool loaded = false;           // true 时同一个 node 正挂在弓上等待发射
         bool active = false;           // 该槽位是否正在飞行中
     };
+    void reparentArrowNode(Arrow& arrow, ax::Node* parent, int localZOrder);
+    void parkArrow(Arrow& arrow);      // 回到场景对象池并隐藏，避免随旧弓一起销毁
     std::vector<Arrow> _arrowPool;
     ax::Vec2 _archerPos = ax::Vec2::ZERO;      // 箭手发射点（随布局重建更新）
+    ax::Node* _wallBowWeapon = nullptr;         // 挂在 _battlefield 下，重建战场时重新创建
+    ax::Node* _wallBowVisual = nullptr;         // 只承载弓身动画，不影响父节点的瞄准旋转
+    ax::Node* _wallBowArrowMount = nullptr;     // 真实对象池箭的弓上挂点
 
     // ---- 调试层（CG_DEBUG_TOOLS=0 时整块不编译，正式包零残留） ----
 #if CG_DEBUG_TOOLS
@@ -117,26 +147,35 @@ private:
     ax::Rect _debugNextBtnRect;
     ax::Node* _debugTuneBtn = nullptr;     // ⚙ 手感调优面板（ImGui）
     ax::Rect _debugTuneBtnRect;
+    ax::Node* _debugModeMenuBtn = nullptr; // 开发总入口（四宫格）
+    ax::Rect _debugModeMenuBtnRect;
     void gotoWave(int offset);             // 调试跳波：offset = ±1（清场但不动血量）
 
     // ---- 手感调优面板（ImGui 扩展） ----
     void toggleTuningPanel();              // 显示/隐藏面板（添加/移除渲染循环）
     void onImGuiDraw();                    // ImGui 每帧回调：实时调参与沙盒工具
     void drawTuningTab();
+    void drawMonsterTuningTab();
     void drawSandboxTab();
     void syncSandboxDraft();
     void sandboxKillAllMonsters();
     void sandboxOpenUpgradePreview();
+    void sandboxGotoLevel(int offset);
     bool _tuningVisible = false;
     bool _sandboxInvincibleWall  = false;
     bool _sandboxInfiniteMana    = false;
     bool _sandboxNoSkillCooldown = false;
     bool _sandboxNoFireCooldown  = false;
+    int _monsterTuningType       = 0;
+    int _monsterTuningDirtyType  = -1;
     DebugPlayerData _sandboxDraft;
 #endif
     void clearField();  // 全部对象池回收（重开与调试跳波共用）
-    void resetGame();   // 清场、重置本局资源并从第 1 波重新开始
+    void resetGame();   // 按当前模式开始下一局
     float _fireCooldown = 0.0f;            // 射速上限冷却（游戏机制，正式包保留）
+    bool _continuousFireActive = false;     // 长按是否仍在持续射击
+    int _continuousFireTouchId = -1;        // 只跟踪启动长按的那根手指
+    ax::Vec2 _continuousFireTarget = ax::Vec2::ZERO;  // 可随拖动实时更新的瞄准点
 
     // ---- 怪物系统 ----
     // 简单状态机：走（沿车道向城墙推进）→ 攻击（到墙啃咬扣血）→ 死（回池）
@@ -145,24 +184,6 @@ private:
         Walk,
         Attack,
         Dead,
-    };
-    // 怪物类型：波次 JSON 的 "type" 字段映射到这里。
-    // 新增类型 = 枚举加一项 + spawnMonster/applyMonsterSkin 里一份数值外观，驱动逻辑零改动
-    enum class MonsterType
-    {
-        Normal,   // 普通怪：基准速度（红色）
-        Fast,     // 快速怪：1.8 倍速、体型偏小（橙色）
-        Ranged,   // 远程怪：不贴墙，在停火线外发射弹丸（紫色）
-        Shield,   // 护盾怪：箭矢免疫、只怕技能，血厚走得慢（青钢色）
-        Bomber,   // 自爆怪：冲墙自爆造成大伤害，被提前点死不爆（黑色橙引信）
-        Flyer,    // 飞行怪：远区游荡，蓄力停滞后射击（白色带翅膀）
-        Healer,   // 治疗怪：跟在怪群后方，周期性给周围友军回血（浅绿+十字）
-        Splitter, // 分裂怪：死后分裂成两只小快怪（品红色，怕 AOE）
-        Rager,    // 狂暴怪：血越少跑得越快（深红怒眉）
-        Ghost,    // 幽灵怪：周期性隐身，隐身时箭打不中、技能可命中（半透明白）
-        Summoner, // 召唤怪：站远区周期性召唤小怪（深紫法杖）
-        Aegis,    // 护符怪：一次性全能护盾挡任何攻击一次，破盾后高速冲锋（亮黄金环）
-        Boss,     // Boss：自由飞、厚血、前摇后扇形三连发（暗紫王冠）
     };
     // 怪物 = 池中的一个槽位。Prefab 思想的裸实现：定义一个"模板"（外观+行为），
     // 需要时从池里取一个实例按模板初始化，而不是每次 new 一个新对象
@@ -178,6 +199,8 @@ private:
         int  shieldCharges   = 0;       // 一次性全能护盾层数（护符怪：挡任何伤害一次）
         float ghostTimer     = 0.0f;    // 幽灵怪隐身周期计时
         bool  ghostHidden    = false;   // 幽灵怪当前是否隐身（隐身时箭打不中，AOE 照吃）
+        float breathPhase    = 0.0f;    // 呼吸动画相位；每次出生随机，避免怪群同步起伏
+        float breathSpeed    = 2.5f;    // 呼吸相位速度（弧度/秒），出生时随机
         float speed        = 70.0f;     // 个体速度（类型倍率 × 85%~115% 随机）
         float bodyR        = 11.0f;     // 体型半径（随类型缩放，命中判定也用它）
         MonsterType type   = MonsterType::Normal;
@@ -185,8 +208,11 @@ private:
         float attackTimer    = 0.0f;    // 攻击节奏计时
         float attackRange    = 6.0f;    // 开火距离：近战=6px 贴墙，远程=停火线
         float attackInterval = 1.0f;    // 攻击间隔（近战每秒一口，远程更慢）
+        int actionPower       = 5;       // 伤害/治疗量/召唤数量，出生时从怪物参数固化
         float slowTimer      = 0.0f;    // 冰冻剩余时间（>0 时移速打折扣，技能系统）
         float stunTimer      = 0.0f;    // 麻痹剩余时间（>0 时不能移动不能攻击，闪电技能）
+        ax::Vec2 knockbackDirection;    // 指向远离城墙的单位向量
+        float knockbackRemaining = 0.0f;  // 尚未平滑结算的击退距离
         int  hp              = 1;       // 血量（当前全是 1 血；M1 护盾怪起开始 >1）
         ax::DrawNode* slowMark = nullptr;  // 冰冻标记（蓝环，挂在怪节点上，减速时可见）
         ax::DrawNode* stunMark = nullptr;  // 麻痹标记（黄电纹，麻痹时可见）
@@ -207,10 +233,24 @@ private:
     ax::Vec2 laneWallPos(int lane) const;   // 车道 → 城墙目标点（按当前布局计算）
     int laneCount() const;                  // 当前布局的有效车道数
     ax::Vec2 pickFlyerWaypoint() const;     // 飞行怪游荡航点：远区空域内随机取一点
+    void applyKnockback(Monster& m, float sourceDistance);  // 箭命中后按怪物抗性排队平滑位移
 
     std::vector<Monster> _monsterPool;
-    int _wallHP    = 100;           // 城墙血量；每局上限由 GameData 的升级值提供
+    MonsterBalance _monsterBalance;
+    int _wallHP    = 100;           // 城墙当前血量
+    int _wallMaxHP = 100;           // 本局开战时固化的城墙上限
     void damageWall(int dmg);        // 城墙扣血统一入口（近战啃咬/远程弹丸都走这）
+
+    // ---- 共享战斗 HUD：玩法核心 / 闯关 / 肉鸽共用 ----
+    void initCombatHUD();
+    void layoutCombatHUD(const ax::Vec2& origin, const ax::Size& visibleSize);
+    void refreshCombatHUD();
+    ax::DrawNode* _wallHealthBar = nullptr;
+    ax::Label* _wallHealthLabel = nullptr;
+    ax::Rect _wallHealthRect;
+    ax::DrawNode* _bossHealthBar = nullptr;
+    ax::Label* _bossHealthLabel = nullptr;
+    ax::Rect _bossHealthRect;
 
     // ---- 结算与经济（M1）----
     // 奖励规则与持久化归 GameData；场景只负责展示和触发结算。
@@ -218,20 +258,63 @@ private:
     void layoutEconomyUI(const ax::Vec2& origin, float right, float top);
     void refreshEconomyHUD();
     void showSettlement(bool victory);
+    void presentSettlement(const SettlementSummary& result, bool victory);
+    void offerRunBuff();
+    void chooseRunBuff(RunBuffId id);
+    void offerCampaignReward(int stage, bool resumeRunAfterChoice);
+    void chooseCampaignReward(CampaignRewardId id);
+    void refreshRunBuffHUD();
+    PlayerCombatStats currentCombatStats() const;
+    void showEntryMenu();
+    void showModeSelect();
+    void showCampaignMenu();
+    void showRoguelikeMenu();
+    void showCurrentModeMenu();
+    void selectMode(GameMode mode);
+    void beginCampaignBattle();
+    void startCoreRun();
+    void startCampaignRun();
+    void startEndlessRun();
+    void resetBattleForRun();
+    void prepareEndlessWave(int waveNumber);
+    void advanceEndlessWave();
     ax::Label* _coinLabel               = nullptr;
     ax::Label* _crystalLabel            = nullptr;
     ax::Node* _settlementLayer          = nullptr;
     ax::DrawNode* _settlementBackdrop   = nullptr;
     ax::DrawNode* _settlementPanel      = nullptr;
     ax::Node* _settlementRestartBtn     = nullptr;
+    ax::Label* _settlementRestartLabel  = nullptr;
     ax::Node* _settlementUpgradeBtn     = nullptr;
+    ax::Node* _settlementModeBtn        = nullptr;
+    ax::Label* _settlementHomeLabel     = nullptr;
     ax::Label* _settlementTitle         = nullptr;
     ax::Label* _settlementRewards       = nullptr;
     ax::Label* _settlementTotals        = nullptr;
     ax::Rect _settlementRestartRect;
     ax::Rect _settlementUpgradeRect;
+    ax::Rect _settlementModeRect;
     bool _settlementVisible             = false;
     UpgradePanel* _upgradePanel         = nullptr;
+    ThreeChoicePanel* _choicePanel      = nullptr;
+    ModeSelectPanel* _modeSelectPanel   = nullptr;
+    ModeHomePanel* _campaignMenuPanel   = nullptr;
+    ModeHomePanel* _roguelikeMenuPanel  = nullptr;
+#if CG_DEBUG_TOOLS
+    void showDevelopmentMenu();
+    void selectDevelopmentMode(DevelopmentMenuEntry entry);
+    DevelopmentMenuPanel* _developmentMenuPanel = nullptr;
+#endif
+    ax::Label* _runBuffLabel            = nullptr;
+    RunBuffModel _runBuffs;
+    CampaignRewardModel _campaignRewards;
+    SettlementSummary _pendingSettlement;
+    bool _hasPendingSettlement          = false;
+    bool _resumeCampaignAfterReward     = false;
+    std::string _lastCampaignRewardName;
+    GameMode _gameMode                  = GameMode::Campaign;
+    int _endlessWaveNumber              = 0;
+    int _endlessCompletedWaves          = 0;
 
     // 敌方弹丸：远程怪的"箭"。和玩家箭矢同一个对象池思想，
     // 区别只是方向相反、命中的是城墙（看见弹丸飞 = 远程怪在工作，不是隔空扣血）
@@ -265,11 +348,12 @@ private:
     void initSkillBar();                                       // 技能按钮 + 蓝条（init 建一次）
     void layoutSkillBar(const ax::Vec2& origin, float right);  // 随布局重建重排
     void tryAimSkill(int index);                               // 点按钮：进入/切换/取消瞄准
+    bool isSkillAvailable(SkillId id) const;                   // 核心验证恢复基线技能，不改存档
     void castSkill(const ax::Vec2& pos);                       // 瞄准模式下点战场：释放
     void updateSkills(float delta);                            // 每帧：回蓝/冷却/弹道/特效
     void refreshSkillHUD();                                    // 蓝条与冷却遮罩重画
     void killMonster(Monster& m);                              // 击杀统一入口（进 Dead 态）
-    void damageMonster(Monster& m, int dmg);                   // 扣血统一入口（≤0 走击杀）
+    bool damageMonster(Monster& m, int dmg);  // 返回是否真正扣血；≤0 走击杀
 
     float _mana    = 100.0f;                    // 蓝量（自动回复，上限 100）
     float _cdRemaining[SKILL_COUNT] = {0.0f};   // 各技能剩余冷却
@@ -320,23 +404,7 @@ private:
     void initFxPool();
     void spawnFx(int kind, const ax::Vec2& pos, float radius, float duration);
 
-    // ---- 波次管理（数据驱动：JSON 只读配置 + 独立运行时状态）----
-    // 核心思想：配置（出什么怪）与逻辑（怎么刷）分离——改波次只动 Content/config/waves.json
-    struct SpawnGroupConfig
-    {
-        MonsterType type = MonsterType::Normal;
-        int count        = 0;          // 本组出多少只
-        float interval   = 1.0f;       // 组内出怪间隔（秒）
-        float delay      = 0.0f;       // 本组第一只的延迟（多组错峰用）
-        int lane         = -1;         // 固定车道；-1 = 随机
-        std::string from = "spawn";    // 出生方向：spawn=出怪线（默认）；left/right=侧翼突袭
-    };
-    struct WaveConfig
-    {
-        std::string name;
-        float restAfter = 3.0f;        // 清场后到下一波的休整（秒）
-        std::vector<SpawnGroupConfig> groups;
-    };
+    // ---- 五关战役（JSON 只读配置 + 独立运行时状态）----
     // 每组运行状态单独存：配置保持只读（同一波可以反复重打）
     struct SpawnGroupRuntime
     {
@@ -350,12 +418,19 @@ private:
         Resting,   // 本波已清场，休整倒计时
         AllClear,  // 全部波次打完
     };
-    bool loadWaves();                    // 读 config/waves.json（失败用内置兜底，游戏不瘫）
+    bool loadCampaign();                 // 读 config/waves.json 的五关结构（失败用内置兜底）
+    void activateLevel(size_t index, bool announceUnlocks);
+    void startLevel(size_t index);
+    const LevelConfig& currentLevel() const;
+    void showSkillUnlocks(const std::vector<SkillId>& skills);
     void beginWave(size_t index);        // 开始某一波（重置该波运行时状态）
     void updateWaves(float delta);       // 每帧驱动波次状态机
     ax::Vec2 groupSpawnPos(const std::string& from, int lane) const;  // 按出生方向算出生点
 
-    std::vector<WaveConfig> _waves;              // waves.json 的内存镜像（只读）
+    CampaignConfig _campaign;
+    CampaignConfig _coreBattle;
+    std::vector<WaveConfig> _waves;              // 当前关卡的波次镜像（只读）
+    size_t _levelIndex   = 0;
     std::vector<SpawnGroupRuntime> _groupRt;     // 当前波各组运行状态
     size_t _waveIndex    = 0;
     WaveState _waveState = WaveState::Idle;
