@@ -446,7 +446,8 @@ void GameData::loadCatalog()
         UpgradeDefinition{UpgradeId::ArrowDamage, "arrow_damage", "强弓", "每支箭造成更多伤害", Currency::Coins,
                           {8, 18, 34, 58, 90}, {1, 2, 3, 4, 5, 6}},
         UpgradeDefinition{UpgradeId::FireRate, "fire_rate", "疾射", "缩短两次射击的间隔", Currency::Coins,
-                          {10, 22, 40, 65, 100}, {0.18f, 0.165f, 0.15f, 0.137f, 0.125f, 0.115f}},
+                          {10, 22, 40, 65, 100},
+                          {1.0f, 0.9166667f, 0.8333333f, 0.7611111f, 0.6944444f, 0.6388889f}},
         UpgradeDefinition{UpgradeId::MultiShot, "multi_shot", "多重箭", "一次射出更多箭矢", Currency::Coins,
                           {45, 120}, {1, 2, 3}},
         UpgradeDefinition{UpgradeId::WallHealth, "wall_health", "坚固城墙", "提高每局城墙生命上限", Currency::Coins,
@@ -714,7 +715,7 @@ int GameData::arrowDamage() const
     return static_cast<int>(std::lround(upgradeValue(UpgradeId::ArrowDamage)));
 }
 
-float GameData::fireInterval() const
+float GameData::fireIntervalMultiplier() const
 {
     return upgradeValue(UpgradeId::FireRate);
 }

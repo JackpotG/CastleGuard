@@ -22,19 +22,38 @@ public:
     void setStartButtonText(const std::string& text) { _startButton->setTitleText(text); }
 
 private:
-    struct RowView
+    enum class NodeState
     {
-        bool isSkill = false;
-        int id       = 0;
-        ax::ui::Text* title      = nullptr;
-        ax::ui::Text* detail     = nullptr;
-        ax::ui::Button* button   = nullptr;
-        ax::DrawNode* buttonBg   = nullptr;
+        Completed,
+        Available,
+        Locked,
     };
 
-    void rebuildRows(float contentWidth);
+    struct TreeNodeView
+    {
+        int targetLevel = 0;
+        int id          = 0;
+        ax::DrawNode* graphic  = nullptr;
+        ax::ui::Text* title    = nullptr;
+        ax::ui::Text* status   = nullptr;
+        ax::ui::Button* target = nullptr;
+    };
+
+    struct UpgradeBranchView
+    {
+        UpgradeId id = UpgradeId::ArrowDamage;
+        ax::DrawNode* connector = nullptr;
+        ax::ui::Text* title     = nullptr;
+        ax::ui::Text* detail    = nullptr;
+        std::vector<TreeNodeView> nodes;
+    };
+
+    void rebuildTree(float contentWidth);
     void refresh();
-    void refreshRow(RowView& row);
+    void refreshUpgradeBranch(UpgradeBranchView& branch);
+    void refreshSkillNode(TreeNodeView& node);
+    void drawNode(TreeNodeView& node, NodeState state, bool affordable = true);
+    void selectUpgradeNode(UpgradeId id, int targetLevel);
     void purchaseUpgrade(UpgradeId id);
     void unlockSkill(SkillId id);
     void showResult(const PurchaseResult& result);
@@ -47,6 +66,9 @@ private:
     ax::ui::ScrollView* _scroll   = nullptr;
     ax::ui::Button* _startButton  = nullptr;
     ax::DrawNode* _startButtonBg  = nullptr;
-    std::vector<RowView> _rows;
+    ax::DrawNode* _skillConnector = nullptr;
+    ax::DrawNode* _skillRoot      = nullptr;
+    std::vector<UpgradeBranchView> _upgradeBranches;
+    std::vector<TreeNodeView> _skillNodes;
     std::function<void()> _startRunCallback;
 };

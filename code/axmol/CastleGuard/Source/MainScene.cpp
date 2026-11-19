@@ -91,7 +91,8 @@ constexpr int ARROW_POOL_SIZE = 256;         // 低箭速 + 多重箭连续射�
 float ARROW_SPEED     = 1000.0f;  // ① 箭矢初速（像素/秒）
 // 重力加速度（像素/秒²）。0 = 直线弹道；调成 600~900 就是抛物线
 float ARROW_GRAVITY   = 0.0f;     // ② 抛物线 vs 直线
-float FIRE_INTERVAL   = 0.18f;    // ④ 连点射速上限（调试基准；升级按比例缩短）
+float FAST_MODE_FIRE_INTERVAL = 0.18f;  // 玩法核心/肉鸽保留快速射击基准
+float CAMPAIGN_FIRE_INTERVAL  = 1.0f;   // 闯关模式基础攻速：1 秒一发
 constexpr float RAD2DEG         = 57.2957795f;  // 弧度→角度（180/π）
 constexpr float MULTI_SHOT_SPREAD = 0.10f;      // 多重箭相邻箭的夹角（弧度，约 5.7°）
 constexpr float ARROW_SPAWN_FORWARD_OFFSET = 24.0f;  // 箭节点原点在杆中部，前移后让箭尾贴住弓弦
@@ -697,7 +698,8 @@ void MainScene::initDebugUI()
         bg5->drawSolidCircle(Vec2(knobX, y), 5.5f, 0.0f, 10, w);
     }
     _debugTuneBtn->addChild(bg5);
-    addChild(_debugTuneBtn, 10);
+    // 与开发总入口一样高于模式主页/工坊，闯关调参不必先进入战斗。
+    addChild(_debugTuneBtn, 60);
 }
 
 // 调试按钮跟随布局定位：左上角留边区（避开右上角的微信胶囊菜单）。
@@ -818,7 +820,16 @@ void MainScene::drawTuningTab()
     ImGui::SeparatorText("射箭");
     // 允许归零：箭从弓上脱离后停在发射点，便于逐帧检查单箭/多重箭表现。
     ImGui::SliderFloat("箭矢速度", &ARROW_SPEED, 0.0f, 2000.0f, "%.0f 像素/秒");
-    ImGui::SliderFloat("射速上限", &FIRE_INTERVAL, 0.05f, 0.50f, "%.2f 秒/发");
+    if (_gameMode == GameMode::Campaign)
+    {
+        ImGui::SliderFloat("闯关基础射击间隔", &CAMPAIGN_FIRE_INTERVAL, 0.05f, 2.0f, "%.2f 秒/发");
+    }
+    else
+    {
+        ImGui::SliderFloat("快速模式基础射击间隔", &FAST_MODE_FIRE_INTERVAL, 0.05f, 2.0f,
+                           "%.2f 秒/发");
+    }
+    ImGui::Text("疾射升级后实际间隔: %.3f 秒/发", currentCombatStats().fireInterval);
     // 进阶参数：玩法实验性质，默认收起——抛物线弹道会显著改变瞄准手感，
     // 属于"丰富玩法"的候选（比如后续做成可解锁的箭塔改造）
     if (ImGui::CollapsingHeader("进阶参数（玩法实验）"))
@@ -1199,7 +1210,9 @@ PlayerCombatStats MainScene::currentCombatStats() const
     const auto& data = GameData::getInstance();
     PlayerCombatStats base;
     base.arrowDamage    = data.arrowDamage();
-    base.fireInterval   = FIRE_INTERVAL * (data.fireInterval() / 0.18f);
+    const float modeFireInterval = _gameMode == GameMode::Campaign ? CAMPAIGN_FIRE_INTERVAL
+                                                                   : FAST_MODE_FIRE_INTERVAL;
+    base.fireInterval   = modeFireInterval * data.fireIntervalMultiplier();
     base.multiShotCount = data.multiShotCount();
     return _gameMode == GameMode::Endless ? _runBuffs.resolve(base) : base;
 }
@@ -2765,7 +2778,7 @@ void MainScene::startCoreRun()
     refreshRunBuffHUD();
     AXLOGI("[DevelopmentMenu][Core] run started: waves={}, wallHP={}, arrowDamage={}, multiShot={}, "
            "fireInterval={:.3f}", _waves.size(), _wallHP, GameData::getInstance().arrowDamage(),
-           GameData::getInstance().multiShotCount(), GameData::getInstance().fireInterval());
+           GameData::getInstance().multiShotCount(), currentCombatStats().fireInterval);
 }
 
 void MainScene::startCampaignRun()
@@ -2820,7 +2833,7 @@ void MainScene::startLevel(size_t index)
     AXLOGI("[Campaign] run started: stage={}/{}, wallHP={}, arrowDamage={}, multiShot={}, "
            "fireInterval={:.3f}", _levelIndex + 1, _campaign.levels().size(), _wallHP,
            GameData::getInstance().arrowDamage(), GameData::getInstance().multiShotCount(),
-           GameData::getInstance().fireInterval());
+           currentCombatStats().fireInterval);
 }
 
 void MainScene::startEndlessRun()
@@ -2833,7 +2846,7 @@ void MainScene::startEndlessRun()
     refreshRunBuffHUD();
     AXLOGI("[GameModes][Endless] run started: wallHP={}, arrowDamage={}, multiShot={}, fireInterval={:.3f}",
            _wallHP, GameData::getInstance().arrowDamage(), GameData::getInstance().multiShotCount(),
-           GameData::getInstance().fireInterval());
+           currentCombatStats().fireInterval);
 }
 
 #if CG_DEBUG_TOOLS
@@ -4024,6 +4037,12 @@ void MainScene::onTouchesBegan(const std::vector<ax::Touch*>& touches, ax::Event
             showDevelopmentMenu();
             return;
         }
+        if (_debugTuneBtnRect.containsPoint(touch->getLocation()))
+        {
+            stopContinuousFire();
+            toggleTuningPanel();
+            return;
+        }
     }
 #endif
     if ((_upgradePanel && _upgradePanel->isVisible()) ||
@@ -4098,12 +4117,6 @@ void MainScene::onTouchesBegan(const std::vector<ax::Touch*>& touches, ax::Event
         {
             stopContinuousFire();
             gotoWave(1);  // ▶ 下一波
-            return;
-        }
-        if (_debugTuneBtnRect.containsPoint(t->getLocation()))
-        {
-            stopContinuousFire();
-            toggleTuningPanel();  // ⚙ 手感调优面板
             return;
         }
 #endif
@@ -4221,6 +4234,12 @@ void MainScene::onTouchesCancelled(const std::vector<ax::Touch*>& touches, ax::E
 void MainScene::onKeyPressed(ax::EventKeyboard::KeyCode code, ax::Event* event)
 {
 #if CG_DEBUG_TOOLS
+    // ImGui 属于开发层，即使闯关主页或工坊正在显示，也允许独立开关。
+    if (code == EventKeyboard::KeyCode::KEY_T)
+    {
+        toggleTuningPanel();
+        return;
+    }
     if ((_upgradePanel && _upgradePanel->isVisible()) ||
         (_choicePanel && _choicePanel->isVisible()) ||
         (_modeSelectPanel && _modeSelectPanel->isVisible()) ||
@@ -4250,10 +4269,6 @@ void MainScene::onKeyPressed(ax::EventKeyboard::KeyCode code, ax::Event* event)
     else if (code == EventKeyboard::KeyCode::KEY_E)
     {
         gotoWave(1);
-    }
-    else if (code == EventKeyboard::KeyCode::KEY_T)
-    {
-        toggleTuningPanel();
     }
     else if (code == EventKeyboard::KeyCode::KEY_U && !_settlementVisible)
     {

@@ -94,7 +94,7 @@ struct UpgradeDefinition
     std::string description;
     Currency currency = Currency::Coins;
     std::vector<int> costs;       // costs[level] 是从当前等级升一级的价格
-    std::vector<float> values;    // values[level] 是该等级实际带入战斗的数值
+    std::vector<float> values;    // values[level] 是等级效果；疾射使用相对基础间隔的倍率
 
     int maxLevel() const { return static_cast<int>(costs.size()); }
 };
@@ -212,7 +212,7 @@ public:
     PurchaseResult unlockSkill(SkillId id);
 
     int arrowDamage() const;
-    float fireInterval() const;
+    float fireIntervalMultiplier() const;
     int multiShotCount() const;
     int wallMaxHealth() const;
 
