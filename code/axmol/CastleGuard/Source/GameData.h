@@ -191,6 +191,7 @@ public:
     GameData& operator=(const GameData&) = delete;
 
     void startRun();
+    void abandonRun();
     bool recordKill();
     void checkpointRun();
     void rewindToCheckpoint();

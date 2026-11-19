@@ -25,6 +25,7 @@
 
 #include "MainScene.h"
 
+#include "CastleWorldLayout.h"
 #if CG_DEBUG_TOOLS
 #    include "DevelopmentMenuPanel.h"
 #endif
@@ -33,6 +34,7 @@
 #include "ModeSelectPanel.h"
 #include "ThreeChoicePanel.h"
 #include "UpgradePanel.h"
+#include "WallSupplyArt.h"
 
 #if CG_DEBUG_TOOLS
 #    include "ImGui/ImGuiPresenter.h"  // 引擎扩展：手感调优面板（正式包剔除）
@@ -75,8 +77,8 @@ namespace
 // ---- 两版共用 ----
 // 出怪线位置占可见区域的比例（对面窄边）
 constexpr float SPAWN_RATIO = 0.96f;
-// Oblique25D：城墙高度占比；车道数量（纵排，原作就是多车道出怪）
-constexpr float WALL_RATIO  = 0.12f;
+// Oblique25D：墙体基础高度；操作栏上方另保留可装武器的墙面。
+constexpr float WALL_RATIO  = castle_world_layout::WALL_RATIO;
 constexpr int LANE_COUNT    = 12;   // 加密车道：怪群感的第 1 步（配合出怪频率与抖动）
 // Oblique25D：地面纵深色带数量（远亮近暗，用纯色带先模拟 2.5D 纵深）
 constexpr int GROUND_BANDS = 3;
@@ -97,11 +99,6 @@ constexpr float RAD2DEG         = 57.2957795f;  // 弧度→角度（180/π）
 constexpr float MULTI_SHOT_SPREAD = 0.10f;      // 多重箭相邻箭的夹角（弧度，约 5.7°）
 constexpr float ARROW_SPAWN_FORWARD_OFFSET = 24.0f;  // 箭节点原点在杆中部，前移后让箭尾贴住弓弦
 constexpr float BOW_MULTI_ARROW_SPACING = 6.0f;      // 搭载箭横向间距，避免多支箭完全重叠
-
-// ---- 调试层 ----
-#if CG_DEBUG_TOOLS
-constexpr float DEBUG_BTN_SIZE  = 88.0f;    // 左上角"切换视角"按钮边长（设计像素）
-#endif
 
 // ---- 怪物系统 ----
 constexpr int   MONSTER_POOL_SIZE     = 48;     // 对象池容量：同时在屏怪物上限（怪群）
@@ -167,14 +164,69 @@ constexpr float STUN_SLOW          = 0.15f;   // 麻痹时移速比例：大幅�
 // 池容量与层级
 constexpr int   FIREBALL_POOL_SIZE = 4;
 constexpr int   FX_POOL_SIZE       = 12;
-constexpr float SKILL_BTN_SIZE     = 80.0f;
+constexpr float SKILL_BTN_SIZE     = 52.0f;
+constexpr float ARROW_VISUAL_SCALE = 1.25f;
 // ---- 经济 HUD / 结算层（纯表现尺寸，奖励数值归 GameData）----
 constexpr float SETTLEMENT_BUTTON_W = 230.0f;
 constexpr float SETTLEMENT_BUTTON_H = 72.0f;
 constexpr float SETTLEMENT_BUTTON_GAP = 24.0f;
-constexpr float WALL_HEALTH_BAR_W = 360.0f;
+constexpr float WALL_HEALTH_BAR_W = 180.0f;
 constexpr float BOSS_HEALTH_BAR_W = 480.0f;
 constexpr float COMBAT_HEALTH_BAR_H = 28.0f;
+constexpr float WALL_HEALTH_BAR_H = 16.0f;
+constexpr float MANA_BAR_H = WALL_HEALTH_BAR_H;
+constexpr float COMBAT_METER_GAP = 8.0f;
+constexpr float HEALTH_NUMBER_OPTICAL_Y = -3.0f;
+constexpr float CRATE_NUMBER_OPTICAL_Y = -6.0f;
+constexpr int COIN_PICKUP_POOL_SIZE = 64;
+constexpr float COIN_POPUP_TIME = 0.38f;
+constexpr float COIN_FLIGHT_TIME = 0.72f;
+float combatHudEdge(const Size& visibleSize)
+{
+    return std::min(24.0f, visibleSize.width * 0.045f);
+}
+
+float combatHudBandCenter(const Size& visibleSize, bool oblique)
+{
+    const float parapetBottom = oblique
+                                    ? castle_world_layout::obliqueWallTop(visibleSize) -
+                                          castle_world_layout::platformDepth(visibleSize) -
+                                          visibleSize.height * castle_world_layout::INNER_PARAPET_RATIO
+                                    : 76.0f;
+    return parapetBottom * 0.5f;
+}
+
+float combatMeterWidth(const Size& visibleSize)
+{
+    const float edge = combatHudEdge(visibleSize);
+    return std::min(WALL_HEALTH_BAR_W, (visibleSize.width - edge * 3.0f) * 0.5f);
+}
+
+float obliqueWallTop(const Vec2& origin, const Size& visibleSize)
+{
+    return origin.y + castle_world_layout::obliqueWallTop(visibleSize);
+}
+
+std::array<Rect, 2> obliqueSupplyRects(const Vec2& origin, const Size& visibleSize)
+{
+    const float supplyW = std::min(88.0f, visibleSize.width * 0.125f);
+    const float supplyH = std::min(34.0f, castle_world_layout::platformDepth(visibleSize) * 0.40f);
+    const float supplyY = obliqueWallTop(origin, visibleSize) -
+                          castle_world_layout::platformDepth(visibleSize) + 26.0f;
+    return {Rect(origin.x + visibleSize.width * 0.018f, supplyY, supplyW, supplyH),
+            Rect(origin.x + visibleSize.width * 0.982f - supplyW,
+                 supplyY, supplyW, supplyH)};
+}
+
+std::array<Rect, 2> sideSupplyRects(const Vec2& origin, const Size& visibleSize)
+{
+    const float supplyW = std::min(88.0f, visibleSize.width * 0.125f);
+    const float supplyH = 46.0f;
+    const float top = origin.y + visibleSize.height;
+    return {Rect(origin.x + 12.0f, top - supplyH - 8.0f, supplyW, supplyH),
+            Rect(origin.x + visibleSize.width - supplyW - 12.0f,
+                 top - supplyH - 8.0f, supplyW, supplyH)};
+}
 
 // 墙头主武器占位：弓身与箭挂点分层；挂点承载的就是之后飞行的真实对象池箭。
 // 局部 +Y 是发射方向；侧视战场旋转 90° 后即朝右。
@@ -227,17 +279,19 @@ bool MainScene::init()
         return false;
     }
 
-    /////////////////////////////
-    // 2. 调试层：常驻"切换视角"按钮（先建好，buildBattlefield 会负责定位）
-    // （12:04 模拟器黑屏曾误以为是它，实乃开发者工具实例损坏，已平反）
-#if CG_DEBUG_TOOLS
-    initDebugUI();
-#endif
     // 玩家钱包和成长存档在 GameData 构造时加载；新一局从当前城墙上限开始。
     _wallMaxHP = GameData::getInstance().wallMaxHealth();
     _wallHP    = _wallMaxHP;
+    _worldBackdrop = DrawNode::create();
+    addChild(_worldBackdrop, -1);
+    _worldRoot = Node::create();
+    addChild(_worldRoot, 0);
+    _battleRoot = Node::create();
+    _worldRoot->addChild(_battleRoot, 1);
     initEconomyUI();
+    initCoinPickupPool();
     initCombatHUD();
+    initBattleSettings();
     // 技能栏同理：必须先于 buildBattlefield 创建（布局重排在重建战场时统一做）
     initSkillBar();
 
@@ -259,16 +313,6 @@ bool MainScene::init()
     /////////////////////////////
     // 5. 波次管理：JSON 数据驱动（改波次配置不用碰代码）
     loadCampaign();
-    // HUD：顶部居中波次提示。位置由 buildBattlefield 负责（旋转/缩放时重排）
-    _waveLabel = Label::createWithSystemFont("", "Arial", 30);
-    _waveLabel->setTextColor(Color4B::WHITE);
-    addChild(_waveLabel, 5);
-    {
-        auto vs = _director->getVisibleSize();
-        auto o  = _director->getVisibleOrigin();
-        _waveLabel->setPosition(Vec2(o.x + vs.width * 0.5f, o.y + vs.height - 30.0f));
-    }
-
     /////////////////////////////
     // 5b. （技能栏已在第 2 步创建——buildBattlefield 会统一重排它的位置）
 
@@ -298,35 +342,46 @@ bool MainScene::init()
 }
 
 // ---------------------------------------------------------------------------
-// 按布局重建战场：所有战场节点挂在一个容器 Node 下，切换/旋转时整体销毁重画。
-// 这是一种很常用的"场景重组"手法——容器节点的孩子是相对容器定位的，
-// 这里容器放原点不动，孩子直接用世界坐标，简单直观。
+// 城内与战场上下相接；战斗坐标定义在 _battleRoot 内。
+// 镜头转场只平移 _worldRoot，不改波次、弹道和碰撞所用的战斗局部坐标。
+// 切换视角或旋转时只重建战场容器，城内与固定 HUD 分别保留。
 // ---------------------------------------------------------------------------
 void MainScene::buildBattlefield(BattleLayout layout)
 {
+    clearCoinPickups();
     // 已装填的真实箭属于旧弓的子节点；先取回场景池，再销毁旧战场。
     for (auto& a : _arrowPool)
     {
         parkArrow(a);
     }
-    _wallBowWeapon = nullptr;  // 旧弓属于旧 battlefield，移除容器前先清掉非拥有指针
+    if (_wallBowWeapon)
+        _wallBowWeapon->removeFromParent();
+    if (_wallBowStation)
+        _wallBowStation->removeFromParent();
+    _wallBowWeapon = nullptr;
+    _wallBowStation = nullptr;
     _wallBowVisual = nullptr;
     _wallBowArrowMount = nullptr;
+    _battleWall = nullptr;
     if (_battlefield)
     {
-        removeChild(_battlefield);
+        _battleRoot->removeChild(_battlefield);
         _battlefield = nullptr;
     }
     _battleLayout     = layout;
     _battlefield      = Node::create();
-    addChild(_battlefield, 0);
+    _battleRoot->addChild(_battlefield, 0);
 
     // 坐标系约定：原点在左下角，x 向右，y 向上（和浏览器 DOM 相反！）
     auto visibleSize  = _director->getVisibleSize();
     auto origin       = _director->getVisibleOrigin();
     _lastVisibleSize  = visibleSize;  // 记录本次布局尺寸，供旋转/缩放检测
+    _battleRoot->setPosition(Vec2::ZERO);
     const float right = origin.x + visibleSize.width;
     const float top   = origin.y + visibleSize.height;
+    _worldBackdrop->clear();
+    _worldBackdrop->drawSolidRect(origin, Vec2(right, top),
+                                 Color4F(0.40f, 0.51f, 0.38f, 1.0f));
 
     // 画虚线段的工具常量。注意：drawLine 只有 1 像素宽，手机高缩放比下会被
     // 抗锯齿"吞掉"（上次看不到出怪线的原因），虚线段一律用 drawSolidRect
@@ -407,7 +462,7 @@ void MainScene::buildBattlefield(BattleLayout layout)
     {
         // ==================== 伪 2.5D 斜俯视（原作构图，主线） ====================
         // 城墙在底（横条），地面在上，出怪线在顶缘；车道纵排，色带上浅下深
-        const float wallTop = origin.y + visibleSize.height * WALL_RATIO;
+        const float wallTop = obliqueWallTop(origin, visibleSize);
         const float spawnY  = origin.y + visibleSize.height * SPAWN_RATIO;
 
         // 地面：三条色带上浅下深模拟纵深（上远下近）
@@ -446,21 +501,74 @@ void MainScene::buildBattlefield(BattleLayout layout)
 
         // 城墙（底）：横条墙体 + 顶缘墙垛 + 中央主弓（箭矢从这里射出）
         auto wall = DrawNode::create();
-        wall->drawSolidRect(origin, Vec2(right, wallTop), Color4F(0.50f, 0.50f, 0.55f, 1.0f));
+        const float wallBase = origin.y + castle_world_layout::battleWallBase(visibleSize);
+        const float platformBase = wallTop - castle_world_layout::platformDepth(visibleSize);
+        wall->drawSolidRect(Vec2(origin.x, wallBase), Vec2(right, platformBase),
+                            Color4F(0.41f, 0.44f, 0.48f, 1.0f));
+        const float courseH = 48.0f;
+        for (float courseY = wallBase + courseH; courseY < platformBase; courseY += courseH)
+            wall->drawLine(Vec2(origin.x, courseY), Vec2(right, courseY),
+                           Color4F(0.29f, 0.34f, 0.37f, 0.45f), 2.0f);
+        for (int row = 0; wallBase + row * courseH < platformBase; ++row)
+        {
+            const float rowBottom = wallBase + row * courseH;
+            const float rowTop = std::min(rowBottom + courseH, platformBase);
+            for (float jointX = origin.x + (row % 2 == 0 ? 30.0f : 75.0f);
+                 jointX < right; jointX += 90.0f)
+                wall->drawLine(Vec2(jointX, rowBottom), Vec2(jointX, rowTop),
+                               Color4F(0.29f, 0.34f, 0.37f, 0.36f), 2.0f);
+        }
+        wall->drawSolidRect(Vec2(origin.x, platformBase), Vec2(right, wallTop),
+                            Color4F(0.50f, 0.50f, 0.55f, 1.0f));
+        wall->drawSolidRect(Vec2(origin.x, platformBase - 2.0f),
+                            Vec2(right, platformBase + 1.0f),
+                            Color4F(0.28f, 0.34f, 0.37f, 1.0f));
+        auto merlons = DrawNode::create();
         const float merlonW = 22.0f, merlonH = 14.0f, merlonGap = 14.0f;
         for (float x = origin.x; x + merlonW <= right; x += merlonW + merlonGap)
         {
-            wall->drawSolidRect(Vec2(x, wallTop), Vec2(x + merlonW, wallTop + merlonH),
-                                Color4F(0.62f, 0.62f, 0.67f, 1.0f));
+            merlons->drawSolidRect(Vec2(x, wallTop), Vec2(x + merlonW, wallTop + merlonH),
+                                   Color4F(0.62f, 0.62f, 0.67f, 1.0f));
         }
         const float centerX = (origin.x + right) * 0.5f;
         _battlefield->addChild(wall, 1);
+        _battlefield->addChild(merlons, 1);
+        _battleWall = wall;
+        wall->setVisible(_gameMode != GameMode::Campaign);
 
-        // 斜俯视主弓朝向上方战场，拉弦点就是弹体出生点。
-        _archerPos = Vec2(centerX, wallTop + 8.0f);
+        // 低矮石座落在墙顶平面上，与内侧墙垛留出间距。
+        const float mountY = platformBase + 54.0f;
+        const float baseY = platformBase + 44.0f;
+        _wallBowStation = DrawNode::create();
+        _wallBowStation->drawSolidRect(Vec2(centerX - 43.0f, baseY - 3.0f),
+                                      Vec2(centerX + 43.0f, baseY + 2.0f),
+                                      Color4F(0.29f, 0.32f, 0.34f, 0.55f));
+        _wallBowStation->drawSolidRect(Vec2(centerX - 40.0f, baseY),
+                                      Vec2(centerX + 40.0f, baseY + 14.0f),
+                                      Color4F(0.36f, 0.40f, 0.42f, 1.0f));
+        const Vec2 stoneTop[] = {
+            Vec2(centerX - 40.0f, baseY + 14.0f),
+            Vec2(centerX + 40.0f, baseY + 14.0f),
+            Vec2(centerX + 31.0f, baseY + 28.0f),
+            Vec2(centerX - 31.0f, baseY + 28.0f),
+        };
+        _wallBowStation->drawSolidPoly(stoneTop, 4, Color4F(0.63f, 0.65f, 0.64f, 1.0f));
+        _wallBowStation->drawLine(Vec2(centerX - 40.0f, baseY + 14.0f),
+                                  Vec2(centerX + 40.0f, baseY + 14.0f),
+                                  Color4F(0.74f, 0.75f, 0.72f, 1.0f), 2.0f);
+        _wallBowStation->drawLine(Vec2(centerX, baseY + 1.0f),
+                                  Vec2(centerX, baseY + 13.0f),
+                                  Color4F(0.29f, 0.33f, 0.35f, 1.0f), 2.0f);
+        _wallBowStation->drawSolidCircle(Vec2(centerX, baseY + 24.0f), 8.0f,
+                                         0.0f, 18, Color4F(0.66f, 0.50f, 0.26f, 1.0f));
+        _wallBowStation->drawSolidCircle(Vec2(centerX, baseY + 24.0f), 3.0f,
+                                         0.0f, 12, Color4F(0.27f, 0.29f, 0.28f, 1.0f));
+        _worldRoot->addChild(_wallBowStation, 2);
+        _archerPos = Vec2(centerX, mountY);
         _wallBowWeapon = createWallBow(0.0f, _wallBowVisual, _wallBowArrowMount);
         _wallBowWeapon->setPosition(_archerPos);
-        _battlefield->addChild(_wallBowWeapon, 2);
+        _wallBowWeapon->setScale(1.45f);
+        _worldRoot->addChild(_wallBowWeapon, 3);
 
         // 出怪线（顶）：横向红色虚线，贯穿全宽
         auto spawnLine = DrawNode::create();
@@ -475,18 +583,31 @@ void MainScene::buildBattlefield(BattleLayout layout)
     // 新战场初始即处于装填完成状态；箭数跟随当前多重箭属性。
     refreshWallBowLoadedArrows();
 
-#if CG_DEBUG_TOOLS
-    layoutDebugUI(origin, top);  // 调试按钮重排（正式包无此函数）
-#endif
     layoutSkillBar(origin, right);  // 技能栏重排（正式玩法 UI）
     layoutEconomyUI(origin, right, top);
     layoutCombatHUD(origin, visibleSize);
-    // 波次 HUD：顶部居中
-    if (_waveLabel)
+    layoutBattleSettings(origin, visibleSize);
+    if (_campaignMenuPanel && _gameMode == GameMode::Campaign &&
+        _gameState != GameState::menu1)
+        _campaignMenuPanel->setVisible(layout == BattleLayout::Oblique25D);
+    if (_campaignMenuPanel && _campaignMenuPanel->isVisible())
+        _campaignMenuPanel->setPosition(Vec2(0.0f, -ModeHomePanel::cityPanDistance(visibleSize)));
+    if (isCampaignCityMenuOpen())
     {
-        _waveLabel->setPosition(Vec2((origin.x + right) * 0.5f, top - 30.0f));
+        if (_campaignTransitioning)
+        {
+            _worldRoot->stopAllActions();
+            _campaignTransitioning = false;
+        }
+        const float pan = ModeHomePanel::cityPanDistance(visibleSize);
+        _battleRoot->setVisible(false);
+        _worldRoot->setPosition(Vec2(0.0f, pan));
     }
-
+    else
+    {
+        _battleRoot->setVisible(true);
+        _worldRoot->setPosition(Vec2::ZERO);
+    }
     // 战场重建回收了在场怪物（见函数开头）→ 重打当前波。
     // 配置是只读的，重置运行时状态即可；AllClear（全部打完）就不重开了
     if (!_settlementVisible && (!_choicePanel || !_choicePanel->isVisible()) &&
@@ -495,7 +616,7 @@ void MainScene::buildBattlefield(BattleLayout layout)
 #if CG_DEBUG_TOOLS
         && (!_developmentMenuPanel || !_developmentMenuPanel->isVisible())
 #endif
-        && (!_campaignMenuPanel || !_campaignMenuPanel->isVisible())
+        && !isCampaignCityMenuOpen()
         && (!_roguelikeMenuPanel || !_roguelikeMenuPanel->isVisible())
         && !_waves.empty() &&
         (_waveState == WaveState::Spawning || _waveState == WaveState::Resting))
@@ -513,13 +634,15 @@ void MainScene::buildBattlefield(BattleLayout layout)
 
 // ---------------------------------------------------------------------------
 // 共享战斗血条：只读取本局战斗状态，不持有生命规则。
-// 城墙条固定在技能栏上方；Boss 条固定在顶部，避免跟随大体型节点遮挡瞄准。
+// 缩小的城墙血条与蓝条在屏幕左下角；Boss 条留在战场上沿。
 // ---------------------------------------------------------------------------
 void MainScene::initCombatHUD()
 {
     _wallHealthBar = DrawNode::create();
     addChild(_wallHealthBar, 6);
-    _wallHealthLabel = Label::createWithSystemFont("", "Arial", 19);
+    _wallHealthLabel = Label::createWithSystemFont("", "Arial", 14);
+    _wallHealthLabel->setAlignment(TextHAlignment::CENTER, TextVAlignment::CENTER);
+    _wallHealthLabel->setOverflow(Label::Overflow::SHRINK);
     _wallHealthLabel->setTextColor(Color4B::WHITE);
     _wallHealthLabel->enableOutline(Color4B(0, 0, 0, 220), 2);
     addChild(_wallHealthLabel, 6);
@@ -540,14 +663,36 @@ void MainScene::initCombatHUD()
 void MainScene::layoutCombatHUD(const Vec2& origin, const Size& visibleSize)
 {
     const float centerX = origin.x + visibleSize.width * 0.5f;
-    const float wallW   = std::min(WALL_HEALTH_BAR_W, visibleSize.width * 0.50f);
+    const float edge = combatHudEdge(visibleSize);
+    const float wallW = combatMeterWidth(visibleSize);
     const float bossW   = std::min(BOSS_HEALTH_BAR_W, visibleSize.width * 0.68f);
-    const float wallY   = origin.y + SKILL_BTN_SIZE + 55.0f;
+    const float hudCenterY = origin.y + combatHudBandCenter(
+        visibleSize, _battleLayout == BattleLayout::Oblique25D);
+    const float wallY = hudCenterY + COMBAT_METER_GAP * 0.5f;
     const float bossY   = origin.y + visibleSize.height - 135.0f;
-    _wallHealthRect = Rect(centerX - wallW * 0.5f, wallY, wallW, COMBAT_HEALTH_BAR_H);
+    _wallHealthRect = Rect(origin.x + edge, wallY, wallW, WALL_HEALTH_BAR_H);
     _bossHealthRect = Rect(centerX - bossW * 0.5f, bossY, bossW, COMBAT_HEALTH_BAR_H);
-    _wallHealthLabel->setPosition(Vec2(centerX, wallY + COMBAT_HEALTH_BAR_H * 0.5f));
+    _wallHealthLabel->setDimensions(wallW, WALL_HEALTH_BAR_H);
+    _wallHealthLabel->setPosition(Vec2(_wallHealthRect.getMidX(),
+                                       wallY + WALL_HEALTH_BAR_H * 0.5f +
+                                           HEALTH_NUMBER_OPTICAL_Y));
     _bossHealthLabel->setPosition(Vec2(centerX, bossY + 38.0f));
+
+    const float controlDepth = _battleLayout == BattleLayout::Oblique25D
+                                   ? castle_world_layout::obliqueWallTop(visibleSize)
+                                   : 76.0f;
+    _wallMeterRect = Rect(origin.x, origin.y, visibleSize.width, controlDepth);
+    const auto supplies = _battleLayout == BattleLayout::Oblique25D
+                              ? obliqueSupplyRects(origin, visibleSize)
+                              : sideSupplyRects(origin, visibleSize);
+    _combatHeaderRect = supplies[0];
+    _combatCrystalRect = supplies[1];
+}
+
+bool MainScene::isCombatHudPoint(const Vec2& point) const
+{
+    return _combatHeaderRect.containsPoint(point) || _combatCrystalRect.containsPoint(point) ||
+           _wallHealthRect.containsPoint(point) || _manaBarRect.containsPoint(point);
 }
 
 void MainScene::refreshCombatHUD()
@@ -556,7 +701,9 @@ void MainScene::refreshCombatHUD()
     {
         return;
     }
-    const bool battleVisible = _gameState == GameState::update;
+    const bool battleVisible = _gameState == GameState::update || _settingsVisible;
+    _settingsButton->setVisible(_gameMode == GameMode::Campaign &&
+                                _gameState == GameState::update && !_settingsVisible);
     _wallHealthBar->setVisible(battleVisible);
     _wallHealthLabel->setVisible(battleVisible);
     if (battleVisible)
@@ -573,7 +720,7 @@ void MainScene::refreshCombatHUD()
         _wallHealthBar->drawSolidRect(min, max, Color4F(0.04f, 0.06f, 0.08f, 0.88f));
         _wallHealthBar->drawSolidRect(min, Vec2(min.x + _wallHealthRect.size.width * ratio, max.y), fill);
         _wallHealthBar->drawRect(min, max, Color4F(0.80f, 0.86f, 0.90f, 0.95f), 2.0f);
-        _wallHealthLabel->setString(StringUtils::format("城墙  %d / %d", _wallHP, _wallMaxHP));
+        _wallHealthLabel->setString(StringUtils::format("%d / %d", _wallHP, _wallMaxHP));
     }
 
     int bossCount = 0;
@@ -609,192 +756,167 @@ void MainScene::refreshCombatHUD()
     }
 }
 
-#if CG_DEBUG_TOOLS
-// ---------------------------------------------------------------------------
-// 调试层：左上角常驻"切换视角"按钮。
-// 微信模拟器里鼠标无法模拟双指、也没有键盘，调试入口必须是触屏可点的。
-// 按钮不挂在战场容器里（战场重建时不会被一起销毁），位置由 layoutDebugUI 更新。
-// ---------------------------------------------------------------------------
-void MainScene::initDebugUI()
+void MainScene::initBattleSettings()
 {
-    const float s = DEBUG_BTN_SIZE;
-
-    // 四宫格 = 返回开发总入口。zOrder 高于所有模态页，任何玩法状态下都可退出。
-    _debugModeMenuBtn = Node::create();
-    auto menuBg = DrawNode::create();
-    menuBg->drawSolidRect(Vec2::ZERO, Vec2(s, s), Color4F(0.07f, 0.14f, 0.18f, 0.88f));
-    menuBg->drawRect(Vec2::ZERO, Vec2(s, s), Color4F(0.35f, 0.90f, 0.82f, 1.0f), 2.5f);
-    const Color4F menuIcon(0.82f, 1.0f, 0.95f, 1.0f);
-    const float tile = s * 0.20f;
-    const float gap = s * 0.10f;
-    const float gridMin = (s - tile * 2.0f - gap) * 0.5f;
-    for (int row = 0; row < 2; ++row)
+    _settingsButton = Node::create();
+    auto* buttonArt = DrawNode::create();
+    buttonArt->drawSolidRect(Vec2::ZERO, Vec2(64.0f, 64.0f),
+                             Color4F(0.10f, 0.18f, 0.20f, 0.91f));
+    buttonArt->drawRect(Vec2::ZERO, Vec2(64.0f, 64.0f),
+                        Color4F(0.78f, 0.83f, 0.76f, 1.0f), 2.0f);
+    const Vec2 gearCenter(32.0f, 39.0f);
+    for (int i = 0; i < 8; ++i)
     {
-        for (int column = 0; column < 2; ++column)
-        {
-            const Vec2 min(gridMin + column * (tile + gap), gridMin + row * (tile + gap));
-            menuBg->drawSolidRect(min, min + Vec2(tile, tile), menuIcon);
-        }
+        const float angle = i * 0.785398f;
+        buttonArt->drawLine(gearCenter + Vec2(cosf(angle), sinf(angle)) * 12.0f,
+                            gearCenter + Vec2(cosf(angle), sinf(angle)) * 17.0f,
+                            Color4F::WHITE, 4.0f);
     }
-    _debugModeMenuBtn->addChild(menuBg);
-    addChild(_debugModeMenuBtn, 60);
+    buttonArt->drawCircle(gearCenter, 10.0f, 0.0f, 20, false,
+                          Color4F::WHITE);
+    buttonArt->drawSolidCircle(gearCenter, 3.0f, 0.0f, 12, Color4F::WHITE);
+    _settingsButton->addChild(buttonArt);
+    auto* buttonLabel = Label::createWithSystemFont("设置", "Arial", 17);
+    buttonLabel->setPosition(Vec2(32.0f, 12.0f));
+    _settingsButton->addChild(buttonLabel);
+    addChild(_settingsButton, 19);
 
-    _debugBtn     = Node::create();
+    _settingsPanel = Node::create();
+    _settingsArt = DrawNode::create();
+    _settingsPanel->addChild(_settingsArt);
+    auto addLabel = [this](const char* text, int size, const Color4B& color) {
+        auto* label = Label::createWithSystemFont(text, "Arial", size);
+        label->setTextColor(color);
+        _settingsPanel->addChild(label, 1);
+        return label;
+    };
+    _settingsTitle = addLabel("战斗设置", 34, Color4B::WHITE);
+    _settingsMusic = addLabel("音乐  待接入", 22,
+                              Color4B(155, 168, 169, 255));
+    _settingsEffects = addLabel("音效  待接入", 22,
+                                Color4B(155, 168, 169, 255));
+    _settingsContinue = addLabel("继续战斗", 27, Color4B::WHITE);
+    _settingsCity = addLabel("返回王城", 27, Color4B::WHITE);
+    _settingsRestart = addLabel("重开本关", 27, Color4B::WHITE);
+    _settingsPanel->setVisible(false);
+    addChild(_settingsPanel, 100);
+}
 
-    auto bg = DrawNode::create();
-    bg->drawSolidRect(Vec2::ZERO, Vec2(s, s), Color4F(0.0f, 0.0f, 0.0f, 0.45f));  // 半透明底
-    bg->drawRect(Vec2::ZERO, Vec2(s, s), Color4F(1.0f, 1.0f, 1.0f, 0.7f));        // 边框
-    // 图标：一右一左两个箭头（⇄），表示"切换"
-    const Color4F w(1.0f, 1.0f, 1.0f, 0.9f);
-    bg->drawSolidRect(Vec2(s * 0.20f, s * 0.60f), Vec2(s * 0.66f, s * 0.68f), w);
-    bg->drawSolidTriangle(Vec2(s * 0.66f, s * 0.76f), Vec2(s * 0.66f, s * 0.52f), Vec2(s * 0.84f, s * 0.64f), w, w);
-    bg->drawSolidRect(Vec2(s * 0.34f, s * 0.32f), Vec2(s * 0.80f, s * 0.40f), w);
-    bg->drawSolidTriangle(Vec2(s * 0.34f, s * 0.48f), Vec2(s * 0.34f, s * 0.24f), Vec2(s * 0.16f, s * 0.36f), w, w);
-    _debugBtn->addChild(bg);
+void MainScene::layoutBattleSettings(const Vec2& origin, const Size& visibleSize)
+{
+    const float right = origin.x + visibleSize.width;
+    const float top = origin.y + visibleSize.height;
+    const Vec2 buttonPos(right - 80.0f, top - 156.0f);
+    _settingsButton->setPosition(buttonPos);
+    _settingsButtonRect = Rect(buttonPos.x, buttonPos.y, 64.0f, 64.0f);
 
-    addChild(_debugBtn, 10);  // zOrder 10：调试层永远在最上面
-
-    // 重开按钮：切换视角按钮正下方，图标 ↻（圆弧+箭头）
-    _debugRestartBtn = Node::create();
-    auto bg2 = DrawNode::create();
-    bg2->drawSolidRect(Vec2::ZERO, Vec2(s, s), Color4F(0.0f, 0.0f, 0.0f, 0.45f));
-    bg2->drawRect(Vec2::ZERO, Vec2(s, s), Color4F(1.0f, 1.0f, 1.0f, 0.7f));
-    const Vec2 c(s * 0.5f, s * 0.5f);
-    bg2->drawCircle(c, s * 0.26f, 0.0f, 24, false, w, 5.0f);  // 圆弧
-    bg2->drawSolidTriangle(Vec2(s * 0.50f, s * 0.86f), Vec2(s * 0.70f, s * 0.70f),
-                           Vec2(s * 0.48f, s * 0.66f), w, w);  // 箭头
-    _debugRestartBtn->addChild(bg2);
-    addChild(_debugRestartBtn, 10);
-
-    // ◀ 上一波 / ▶ 下一波：第三排，左右并排
-    _debugPrevBtn = Node::create();
-    auto bg3 = DrawNode::create();
-    bg3->drawSolidRect(Vec2::ZERO, Vec2(s, s), Color4F(0.0f, 0.0f, 0.0f, 0.45f));
-    bg3->drawRect(Vec2::ZERO, Vec2(s, s), Color4F(1.0f, 1.0f, 1.0f, 0.7f));
-    bg3->drawSolidTriangle(Vec2(s * 0.70f, s * 0.72f), Vec2(s * 0.70f, s * 0.28f),
-                           Vec2(s * 0.30f, s * 0.50f), w, w);  // ◀
-    _debugPrevBtn->addChild(bg3);
-    addChild(_debugPrevBtn, 10);
-
-    _debugNextBtn = Node::create();
-    auto bg4 = DrawNode::create();
-    bg4->drawSolidRect(Vec2::ZERO, Vec2(s, s), Color4F(0.0f, 0.0f, 0.0f, 0.45f));
-    bg4->drawRect(Vec2::ZERO, Vec2(s, s), Color4F(1.0f, 1.0f, 1.0f, 0.7f));
-    bg4->drawSolidTriangle(Vec2(s * 0.30f, s * 0.72f), Vec2(s * 0.30f, s * 0.28f),
-                           Vec2(s * 0.70f, s * 0.50f), w, w);  // ▶
-    _debugNextBtn->addChild(bg4);
-    addChild(_debugNextBtn, 10);
-
-    // ⚙ 手感调优面板（ImGui）：第三排最右，图标是三条滑杆
-    _debugTuneBtn = Node::create();
-    auto bg5 = DrawNode::create();
-    bg5->drawSolidRect(Vec2::ZERO, Vec2(s, s), Color4F(0.0f, 0.0f, 0.0f, 0.45f));
-    bg5->drawRect(Vec2::ZERO, Vec2(s, s), Color4F(1.0f, 1.0f, 1.0f, 0.7f));
+    const float panelW = std::min(480.0f, visibleSize.width * 0.86f);
+    const float panelH = std::min(520.0f, visibleSize.height * 0.78f);
+    const Vec2 center(origin.x + visibleSize.width * 0.5f,
+                      origin.y + visibleSize.height * 0.5f);
+    const Vec2 panelMin(center.x - panelW * 0.5f, center.y - panelH * 0.5f);
+    const Vec2 panelMax(center.x + panelW * 0.5f, center.y + panelH * 0.5f);
+    _settingsArt->clear();
+    _settingsArt->drawSolidRect(origin, Vec2(right, top),
+                                Color4F(0.02f, 0.04f, 0.05f, 0.74f));
+    _settingsArt->drawSolidRect(panelMin, panelMax,
+                                Color4F(0.10f, 0.17f, 0.18f, 0.98f));
+    _settingsArt->drawRect(panelMin, panelMax,
+                           Color4F(0.70f, 0.78f, 0.70f, 1.0f), 3.0f);
+    _settingsTitle->setPosition(Vec2(center.x, panelMax.y - panelH * 0.10f));
+    _settingsMusic->setPosition(Vec2(center.x, panelMax.y - panelH * 0.25f));
+    _settingsEffects->setPosition(Vec2(center.x, panelMax.y - panelH * 0.36f));
+    const float buttonW = panelW * 0.76f;
+    const float buttonH = std::min(62.0f, panelH * 0.12f);
+    const float buttonY[] = {panelMin.y + panelH * 0.38f,
+                             panelMin.y + panelH * 0.22f,
+                             panelMin.y + panelH * 0.06f};
+    Rect* buttonRects[] = {&_settingsContinueRect, &_settingsCityRect, &_settingsRestartRect};
+    Label* labels[] = {_settingsContinue, _settingsCity, _settingsRestart};
+    const Color4F fills[] = {Color4F(0.20f, 0.44f, 0.38f, 1.0f),
+                             Color4F(0.27f, 0.37f, 0.41f, 1.0f),
+                             Color4F(0.44f, 0.29f, 0.27f, 1.0f)};
     for (int i = 0; i < 3; ++i)
     {
-        const float y = s * (0.30f + i * 0.20f);
-        bg5->drawSolidRect(Vec2(s * 0.22f, y - 2), Vec2(s * 0.78f, y + 2), w);  // 横轨
-        const float knobX = s * (i % 2 == 0 ? 0.36f : 0.58f);                   // 滑块错开
-        bg5->drawSolidCircle(Vec2(knobX, y), 5.5f, 0.0f, 10, w);
+        *buttonRects[i] = Rect(center.x - buttonW * 0.5f, buttonY[i], buttonW, buttonH);
+        const auto& rect = *buttonRects[i];
+        _settingsArt->drawSolidRect(rect.origin,
+                                    rect.origin + Vec2(rect.size.width, rect.size.height), fills[i]);
+        labels[i]->setPosition(Vec2(center.x, buttonY[i] + buttonH * 0.5f));
     }
-    _debugTuneBtn->addChild(bg5);
-    // 与开发总入口一样高于模式主页/工坊，闯关调参不必先进入战斗。
-    addChild(_debugTuneBtn, 60);
 }
 
-// 调试按钮跟随布局定位：左上角留边区（避开右上角的微信胶囊菜单）。
-// 三排：▦ 开发总入口 + ⇄ 切视角 / ↻ 重开 / ◀ ▶ ⚙（跳波 + 调参）
-void MainScene::layoutDebugUI(const Vec2& origin, float top)
+void MainScene::openBattleSettings()
 {
-    const float s = DEBUG_BTN_SIZE;
-    if (_debugModeMenuBtn)
-    {
-        const Vec2 p(origin.x + 16.0f, top - 16.0f - s);
-        _debugModeMenuBtn->setPosition(p);
-        _debugModeMenuBtnRect = Rect(p.x, p.y, s, s);
-    }
-    if (_debugBtn)
-    {
-        Vec2 p(origin.x + 16.0f + s + 12.0f, top - 16.0f - s);
-        _debugBtn->setPosition(p);
-        _debugBtnRect = Rect(p.x, p.y, s, s);
-    }
-    if (_debugRestartBtn)
-    {
-        Vec2 p(origin.x + 16.0f, top - 16.0f - s - 12.0f - s);
-        _debugRestartBtn->setPosition(p);
-        _debugRestartBtnRect = Rect(p.x, p.y, s, s);
-    }
-    const float y3 = top - 16.0f - (s + 12.0f) * 2 - s;  // 第三排
-    if (_debugPrevBtn && _debugNextBtn)
-    {
-        _debugPrevBtn->setPosition(Vec2(origin.x + 16.0f, y3));
-        _debugPrevBtnRect = Rect(origin.x + 16.0f, y3, s, s);
-        _debugNextBtn->setPosition(Vec2(origin.x + 16.0f + s + 12.0f, y3));
-        _debugNextBtnRect = Rect(origin.x + 16.0f + s + 12.0f, y3, s, s);
-    }
-    if (_debugTuneBtn)
-    {
-        const float x = origin.x + 16.0f + (s + 12.0f) * 2;
-        _debugTuneBtn->setPosition(Vec2(x, y3));
-        _debugTuneBtnRect = Rect(x, y3, s, s);
-    }
+    if (_gameMode != GameMode::Campaign || _gameState != GameState::update) return;
+    stopContinuousFire();
+    _aimDragging = false;
+    _aimingSkill = -1;
+    _aimIndicator->setVisible(false);
+    _settingsVisible = true;
+    _settingsPanel->setVisible(true);
+    _gameState = GameState::pause;
+    AXLOGI("[CampaignCity] battle settings opened");
 }
 
-// ---------------------------------------------------------------------------
-// 手感调优面板（ImGui 扩展）：滑杆实时改参数，不用改代码重编译。
-// 原理：ImGui 是"立即模式"GUI——每帧重新描述一遍界面（没有持久的控件对象），
-// 通过 addRenderLoop 注册一个每帧回调，我们在回调里调用 ImGui:: 系列函数画窗口。
-// 面板显隐 = 添加/移除这个渲染循环，隐藏时零开销。
-// ---------------------------------------------------------------------------
+void MainScene::closeBattleSettings()
+{
+    _settingsVisible = false;
+    _settingsPanel->setVisible(false);
+    _gameState = GameState::update;
+    AXLOGI("[CampaignCity] battle settings closed");
+}
+
+void MainScene::returnToCampaignCity()
+{
+    _settingsVisible = false;
+    _settingsPanel->setVisible(false);
+    GameData::getInstance().abandonRun();
+    refreshEconomyHUD();
+    showCampaignMenu(true);
+    AXLOGI("[CampaignCity] battle abandoned for city");
+}
+
+#if CG_DEBUG_TOOLS
+// ImGui 跟随场景生命周期常驻，正式构建由 CG_DEBUG_TOOLS 整块剔除。
 void MainScene::onEnter()
 {
     Scene::onEnter();
-    // 中文字体在 toggleTuningPanel 首次打开时加载（fonts/NotoSansSC-Regular.ttf）
+    syncSandboxDraft();
+    static bool s_fontLoaded = false;
+    if (!s_fontLoaded)
+    {
+        ImGuiPresenter::getInstance()->addFont("fonts/NotoSansSC-Regular.ttf", 20.0f);
+        s_fontLoaded = true;
+    }
+    ImGuiPresenter::getInstance()->addRenderLoop("#devtools",
+                                                 AX_CALLBACK_0(MainScene::onImGuiDraw, this), this);
 }
 
 void MainScene::onExit()
 {
-    if (_tuningVisible)  // 场景退出时归还渲染循环，防止悬垂回调
-    {
-        ImGuiPresenter::getInstance()->removeRenderLoop("#tune");
-        _tuningVisible = false;
-    }
+    ImGuiPresenter::getInstance()->removeRenderLoop("#devtools");
     Scene::onExit();
-}
-
-void MainScene::toggleTuningPanel()
-{
-    _tuningVisible = !_tuningVisible;
-    if (_tuningVisible)
-    {
-        syncSandboxDraft();
-        // 首次打开时加载中文字体（Noto Sans SC，OFL 协议可随意打包；
-        // ImGui 1.92 动态图集按需加载字形，不用操心字形范围）
-        static bool s_fontLoaded = false;
-        if (!s_fontLoaded)
-        {
-            ImGuiPresenter::getInstance()->addFont("fonts/NotoSansSC-Regular.ttf", 20.0f);
-            s_fontLoaded = true;
-        }
-        ImGuiPresenter::getInstance()->addRenderLoop("#tune", AX_CALLBACK_0(MainScene::onImGuiDraw, this),
-                                                     this);
-    }
-    else
-    {
-        ImGuiPresenter::getInstance()->removeRenderLoop("#tune");
-    }
 }
 
 void MainScene::onImGuiDraw()
 {
-    ImGui::SetNextWindowPos(ImVec2(130, 60), ImGuiCond_FirstUseEver);
-    // 不加 AlwaysAutoResize：ImGui 窗口默认可拖边缘/右下角调大小，给个初始尺寸即可
-    ImGui::SetNextWindowSize(ImVec2(520, 720), ImGuiCond_FirstUseEver);
+    const ImVec2 viewport = ImGui::GetIO().DisplaySize;
+    const ImVec2 initialSize(std::min(460.0f, viewport.x - 32.0f),
+                             std::min(350.0f, viewport.y - 32.0f));
+    ImGui::SetNextWindowPos(ImVec2(viewport.x - initialSize.x - 16.0f,
+                                   viewport.y - initialSize.y - 16.0f),
+                            ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(initialSize, ImGuiCond_FirstUseEver);
     ImGui::Begin("开发者工具");
     ImGui::Text("帧率: %.1f", 1.0f / ImGui::GetIO().DeltaTime);
     if (ImGui::BeginTabBar("开发者工具标签"))
     {
+        if (ImGui::BeginTabItem("开发模式控制"))
+        {
+            drawDevelopmentControlTab();
+            ImGui::EndTabItem();
+        }
         if (ImGui::BeginTabItem("实时调参"))
         {
             drawTuningTab();
@@ -813,6 +935,65 @@ void MainScene::onImGuiDraw()
         ImGui::EndTabBar();
     }
     ImGui::End();
+}
+
+void MainScene::drawDevelopmentControlTab()
+{
+    if (ImGui::Button("返回开发入口"))
+    {
+        AXLOGI("[DevelopmentControl] return to development menu");
+        showDevelopmentMenu();
+    }
+
+    ImGui::SeparatorText("战场视角");
+    const bool inBattle = _gameState == GameState::update || _gameState == GameState::pause;
+    ImGui::BeginDisabled(!inBattle);
+    if (ImGui::RadioButton("斜俯视", _battleLayout == BattleLayout::Oblique25D))
+    {
+        stopContinuousFire();
+        AXLOGI("[DevelopmentControl] layout=oblique");
+        buildBattlefield(BattleLayout::Oblique25D);
+    }
+    ImGui::SameLine();
+    if (ImGui::RadioButton("侧视", _battleLayout == BattleLayout::SideView))
+    {
+        stopContinuousFire();
+        AXLOGI("[DevelopmentControl] layout=side");
+        buildBattlefield(BattleLayout::SideView);
+    }
+
+    ImGui::SeparatorText("本局控制");
+    ImGui::EndDisabled();
+    ImGui::BeginDisabled(!inBattle && _gameState != GameState::end);
+    if (ImGui::Button("重开本局"))
+    {
+        stopContinuousFire();
+        AXLOGI("[DevelopmentControl] restart");
+        resetGame();
+    }
+    ImGui::BeginDisabled(!inBattle || _waves.empty());
+    if (ImGui::Button("上一波"))
+    {
+        stopContinuousFire();
+        AXLOGI("[DevelopmentControl] wave offset=-1");
+        gotoWave(-1);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("下一波"))
+    {
+        stopContinuousFire();
+        AXLOGI("[DevelopmentControl] wave offset=1");
+        gotoWave(1);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("跳到末波"))
+    {
+        stopContinuousFire();
+        AXLOGI("[DevelopmentControl] wave offset=last");
+        gotoWave(static_cast<int>(_waves.size()));
+    }
+    ImGui::EndDisabled();
+    ImGui::EndDisabled();
 }
 
 void MainScene::drawTuningTab()
@@ -1064,27 +1245,8 @@ void MainScene::drawSandboxTab()
         _mana = MANA_MAX;
         AXLOGI("[Sandbox] mana restored");
     }
-    if (ImGui::Button("上一波"))
-    {
-        gotoWave(-1);
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("下一波"))
-    {
-        gotoWave(1);
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("跳到末波"))
-    {
-        gotoWave(static_cast<int>(_waves.size()));
-    }
     ImGui::EndDisabled();
 
-    if (ImGui::Button("重开本局"))
-    {
-        resetGame();
-    }
-    ImGui::SameLine();
     if (ImGui::Button("预览升级页"))
     {
         sandboxOpenUpgradePreview();
@@ -1192,7 +1354,7 @@ void MainScene::initArrowPool()
         a.node->drawSolidTriangle(Vec2(8, 4.5f), Vec2(8, -4.5f), Vec2(18, 0),
                                   Color4F(0.92f, 0.90f, 0.85f, 1.0f), Color4F(0.92f, 0.90f, 0.85f, 1.0f));  // 箭头
         a.node->setVisible(false);
-        addChild(a.node, 3);  // zOrder 3：在战场（0/1）之上
+        _battleRoot->addChild(a.node, 3);  // zOrder 3：在战场（0/1）之上
         _arrowPool.push_back(a);
     }
     // init 顺序中弓先于对象池创建；池建好后立即把真实箭挂到已有弓上。
@@ -1242,7 +1404,7 @@ void MainScene::parkArrow(Arrow& arrow)
     {
         return;
     }
-    reparentArrowNode(arrow, this, 3);
+    reparentArrowNode(arrow, _battleRoot, 3);
     arrow.active = false;
     arrow.loaded = false;
     arrow.loadedShotIndex = -1;
@@ -1320,7 +1482,8 @@ void MainScene::refreshWallBowLoadedArrows()
                                 Vec2(-centeredShot * BOW_MULTI_ARROW_SPACING, 0.0f));
         // 对象池箭几何朝 +X；旋转到弓的局部 +Y，再叠加多重箭扇形偏角。
         arrow.node->setRotation(-90.0f - offset * RAD2DEG);
-        arrow.node->setScale(bowScale > 0.0f ? 1.0f / bowScale : 1.0f);
+        arrow.node->setScale(bowScale > 0.0f ? ARROW_VISUAL_SCALE / bowScale
+                                             : ARROW_VISUAL_SCALE);
         arrow.node->setVisible(true);
     }
     // 所有真实箭都挂好以后才一次显示，渲染侧不会看到装填中的半成品。
@@ -1409,8 +1572,8 @@ void MainScene::fireArrow(const ax::Vec2& target)
         const float angle  = baseAngle + offset;
         const Vec2 shotDir(cosf(angle), sinf(angle));
         const Vec2 worldPosition = slot->node->convertToWorldSpace(Vec2::ZERO);
-        reparentArrowNode(*slot, this, 3);
-        slot->node->setPosition(convertToNodeSpace(worldPosition));
+        reparentArrowNode(*slot, _battleRoot, 3);
+        slot->node->setPosition(_battleRoot->convertToNodeSpace(worldPosition));
         const float criticalRoll = static_cast<float>(rand()) / static_cast<float>(RAND_MAX);
         slot->critical = criticalRoll < stats.criticalChance;
         slot->active   = true;
@@ -1422,7 +1585,8 @@ void MainScene::fireArrow(const ax::Vec2& target)
         slot->knockbackDistance = stats.knockbackDistance;
         slot->velocity = shotDir * ARROW_SPEED;
         slot->node->setRotation(-angle * RAD2DEG);
-        slot->node->setScale(slot->critical ? 1.35f : 1.0f);
+        slot->node->setScale(slot->critical ? ARROW_VISUAL_SCALE * 1.35f
+                                            : ARROW_VISUAL_SCALE);
         slot->node->setVisible(true);
         ++fired;
     }
@@ -1473,7 +1637,14 @@ void MainScene::killMonster(Monster& m)
         return;
     }
     m.state = MonsterState::Dead;
-    GameData::getInstance().recordKill();
+    auto& data = GameData::getInstance();
+    const int coinsBefore = data.economy().runCoins();
+    if (data.recordKill())
+    {
+        const int earned = data.economy().runCoins() - coinsBefore;
+        if (earned > 0)
+            spawnCoinPickup(m.node->getPosition() + Vec2(0.0f, m.bodyR + 14.0f), earned);
+    }
     refreshEconomyHUD();
     // 分裂怪：死亡时在原地裂出两只小快怪。注意这对不同伤害的克制关系——
     // 单点箭：杀一只变两只（分裂怪的血条优势）；AOE 技能：子体出生在
@@ -1642,7 +1813,7 @@ ax::Vec2 MainScene::laneWallPos(int lane) const
     if (_battleLayout == BattleLayout::Oblique25D)
     {
         float laneW = vs.width / LANE_COUNT;
-        return Vec2(o.x + laneW * (lane + 0.5f), o.y + vs.height * WALL_RATIO);
+        return Vec2(o.x + laneW * (lane + 0.5f), obliqueWallTop(o, vs));
     }
     // SideView：房子右缘（檐口探出 42px，加一点余量）
     return Vec2(o.x + vs.width * SIDE_HOUSE_X_RATIO + 46.0f, o.y + vs.height * SIDE_GROUND_RATIO);
@@ -1658,7 +1829,7 @@ ax::Vec2 MainScene::pickFlyerWaypoint() const
     const float r2 = static_cast<float>(rand()) / RAND_MAX;
     if (_battleLayout == BattleLayout::Oblique25D)
     {
-        const float y0 = o.y + vs.height * (WALL_RATIO + 0.10f);    // 不贴城墙
+        const float y0 = obliqueWallTop(o, vs) + vs.height * 0.10f;  // 不贴城墙
         const float y1 = o.y + vs.height * (SPAWN_RATIO - 0.06f);   // 不出出怪线
         return Vec2(o.x + 50.0f + r1 * (vs.width - 100.0f), y0 + r2 * (y1 - y0));
     }
@@ -1680,7 +1851,7 @@ void MainScene::initMonsterPool()
         Monster m;
         m.node = DrawNode::create();  // 空壳：外观推迟到出生时按类型画（槽位与外观分离）
         m.node->setVisible(false);
-        addChild(m.node, 2);  // zOrder 2：战场之上、箭矢（3）之下
+        _battleRoot->addChild(m.node, 2);  // zOrder 2：战场之上、箭矢（3）之下
         // 冰冻标记：蓝色圆环，画在怪身体上方，slowTimer>0 时才可见
         // （DrawNode 画完颜色就固定了，没法整体变色，减速外观用叠加节点实现）
         m.slowMark = DrawNode::create();
@@ -1818,7 +1989,7 @@ ax::Vec2 MainScene::groupSpawnPos(const std::string& from, int lane) const
     {
         auto vs = _director->getVisibleSize();
         auto o  = _director->getVisibleOrigin();
-        const float wallTop = o.y + vs.height * WALL_RATIO;
+        const float wallTop = obliqueWallTop(o, vs);
         const float spawnY  = o.y + vs.height * SPAWN_RATIO;
         const float r1      = static_cast<float>(rand()) / RAND_MAX;
         // 战场中段高度随机一点，避免侧翼怪排队从同一个高度进来
@@ -1898,7 +2069,12 @@ void MainScene::setupMonster(Monster& m, MonsterType type, const Vec2& spawnPos,
     m.windupMark->setScale(markerScale);
     // 开火距离与攻击间隔：近战贴墙啃；远程/治疗/召唤按战场纵深比例停在各自的
     // 功能位（比例而非写死像素，横竖屏都成立）；飞行怪/Boss 进场后开始游荡
-    const float fieldDepth = _director->getVisibleSize().height * (SPAWN_RATIO - WALL_RATIO);
+    const auto visibleSize = _director->getVisibleSize();
+    const auto origin = _director->getVisibleOrigin();
+    const float fieldDepth = _battleLayout == BattleLayout::Oblique25D
+                                 ? origin.y + visibleSize.height * SPAWN_RATIO -
+                                       obliqueWallTop(origin, visibleSize)
+                                 : visibleSize.height * (SPAWN_RATIO - WALL_RATIO);
     if (parameters.stopRatioMax > 0.0f)
     {
         const float t = static_cast<float>(rand()) / RAND_MAX;
@@ -2098,21 +2274,6 @@ void MainScene::beginWave(size_t index)
         _groupRt[i].timer = -w.groups[i].delay;
     }
     _waveState = WaveState::Spawning;
-    if (_waveLabel)
-    {
-        if (_gameMode == GameMode::Endless)
-        {
-            _waveLabel->setString(w.name);
-        }
-        else if (_gameMode == GameMode::Core)
-        {
-            _waveLabel->setString("核心验证 · " + w.name);
-        }
-        else
-        {
-            _waveLabel->setString(currentLevel().name + " · " + w.name);
-        }
-    }
     if (_gameMode == GameMode::Endless)
     {
         AXLOGI("[GameModes][Endless] wave started: wave={}, completed={}", _endlessWaveNumber,
@@ -2189,25 +2350,6 @@ void MainScene::updateWaves(float delta)
 
     case WaveState::Resting:
         _restTimer -= delta;
-        if (_waveLabel)
-        {
-            if (_gameMode == GameMode::Endless)
-            {
-                _waveLabel->setString(StringUtils::format("无尽第 %d 波完成", _endlessWaveNumber));
-            }
-            else if (_gameMode == GameMode::Core)
-            {
-                _waveLabel->setString(StringUtils::format("核心验证 · 下一波来袭 %d",
-                                                           static_cast<int>(_restTimer) + 1));
-            }
-            else
-            {
-                _waveLabel->setString(StringUtils::format("第 %d/%d 关 · 下一波来袭 %d",
-                                                           static_cast<int>(_levelIndex) + 1,
-                                                           static_cast<int>(_campaign.levels().size()),
-                                                           static_cast<int>(_restTimer) + 1));
-            }
-        }
         if (_restTimer <= 0.0f)
         {
             if (_waveIndex + 1 < _waves.size())
@@ -2235,16 +2377,10 @@ void MainScene::updateWaves(float delta)
                 }
                 if (_gameMode == GameMode::Core)
                 {
-                    if (_waveLabel) _waveLabel->setString("核心玩法验证完成！");
                     AXLOGI("[DevelopmentMenu][Core] all waves cleared: waves={}, kills={}",
                            _waves.size(), GameData::getInstance().economy().runKills());
                     showSettlement(true);
                     break;
-                }
-                if (_waveLabel)
-                {
-                    _waveLabel->setString(StringUtils::format("第 %d 关守住了！",
-                                                               static_cast<int>(_levelIndex) + 1));
                 }
                 AXLOGI("[Campaign] level cleared: stage={}/{}, kills={}", _levelIndex + 1,
                        _campaign.levels().size(), GameData::getInstance().economy().runKills());
@@ -2548,6 +2684,7 @@ void MainScene::updateMonsters(float delta)
 void MainScene::clearField()
 {
     stopContinuousFire();
+    clearCoinPickups();
     for (auto& a : _arrowPool)
     {
         parkArrow(a);
@@ -2597,8 +2734,46 @@ void MainScene::showEntryMenu()
 #if CG_DEBUG_TOOLS
     showDevelopmentMenu();
 #else
-    showModeSelect();
+    showCampaignMenu();
 #endif
+}
+
+bool MainScene::isCampaignCityMenuOpen() const
+{
+    return _gameMode == GameMode::Campaign && _gameState == GameState::menu1 &&
+           _campaignMenuPanel && _campaignMenuPanel->isVisible();
+}
+
+void MainScene::hideCampaignMenu(bool keepCityVisible)
+{
+    if (_campaignTransitioning)
+    {
+        _worldRoot->stopAllActions();
+    }
+    _campaignTransitioning = false;
+    _battleRoot->setVisible(true);
+    if (keepCityVisible)
+    {
+        if (!_campaignMenuPanel->isVisible())
+            _campaignMenuPanel->open(static_cast<int>(_campaign.levels().size()));
+        _campaignMenuPanel->setPosition(
+            Vec2(0.0f, -ModeHomePanel::cityPanDistance(_director->getVisibleSize())));
+    }
+    else
+    {
+        _campaignMenuPanel->setVisible(false);
+        _campaignMenuPanel->setPosition(Vec2::ZERO);
+    }
+    if (_battleWall)
+        _battleWall->setVisible(!keepCityVisible);
+    _worldRoot->setPosition(Vec2::ZERO);
+}
+
+void MainScene::setCombatControlsVisible(bool visible)
+{
+    for (auto* button : _skillBtns)
+        button->setVisible(visible);
+    _manaBar->setVisible(visible);
 }
 
 void MainScene::showModeSelect()
@@ -2609,7 +2784,7 @@ void MainScene::showModeSelect()
     _settlementLayer->setVisible(false);
     _upgradePanel->setVisible(false);
     _choicePanel->setVisible(false);
-    _campaignMenuPanel->setVisible(false);
+    hideCampaignMenu();
     _roguelikeMenuPanel->setVisible(false);
     _modeSelectPanel->setVisible(true);
 #if CG_DEBUG_TOOLS
@@ -2617,30 +2792,62 @@ void MainScene::showModeSelect()
 #endif
     _runBuffLabel->setVisible(false);
     _gameState = GameState::menu1;
-    if (_waveLabel) _waveLabel->setString("");
+    setCombatControlsVisible(false);
     AXLOGI("[GameModes] selection opened");
 }
 
-void MainScene::showCampaignMenu()
+void MainScene::showCampaignMenu(bool animateReturn)
 {
+    const bool returningFromBattle = animateReturn ||
+        (_settlementVisible && _gameMode == GameMode::Campaign);
     stopContinuousFire();
+    _settingsVisible = false;
+    _settingsPanel->setVisible(false);
     clearField();
     _gameMode = GameMode::Campaign;
     _settlementVisible = false;
     _settlementLayer->setVisible(false);
     _upgradePanel->setVisible(false);
     _choicePanel->setVisible(false);
-    _campaignMenuPanel->setVisible(false);
+    hideCampaignMenu();
     _roguelikeMenuPanel->setVisible(false);
     _modeSelectPanel->setVisible(false);
 #if CG_DEBUG_TOOLS
     _developmentMenuPanel->setVisible(false);
 #endif
     _campaignMenuPanel->open(static_cast<int>(_campaign.levels().size()));
+    if (_battleWall)
+        _battleWall->setVisible(false);
+    if (_wallBowWeapon)
+        _wallBowWeapon->setRotation(0.0f);
+    _fireCooldown = 0.0f;
+    refreshWallBowLoadedArrows();
     _runBuffLabel->setVisible(false);
     _gameState = GameState::menu1;
-    if (_waveLabel) _waveLabel->setString("");
-    AXLOGI("[ModeNavigation] home opened: mode=campaign");
+    setCombatControlsVisible(false);
+    if (_battleLayout != BattleLayout::Oblique25D)
+        buildBattlefield(BattleLayout::Oblique25D);
+    refreshEconomyHUD();
+    const float pan = ModeHomePanel::cityPanDistance(_director->getVisibleSize());
+    _campaignMenuPanel->setPosition(Vec2(0.0f, -pan));
+    if (returningFromBattle)
+    {
+        _campaignTransitioning = true;
+        _worldRoot->setPosition(Vec2::ZERO);
+        _battleRoot->setVisible(true);
+        _worldRoot->runAction(Sequence::create(
+            EaseSineInOut::create(MoveTo::create(1.10f, Vec2(0.0f, pan))),
+            CallFunc::create([this]() {
+                _campaignTransitioning = false;
+                _battleRoot->setVisible(false);
+            }), nullptr));
+    }
+    else
+    {
+        _battleRoot->setVisible(false);
+        _worldRoot->setPosition(Vec2(0.0f, pan));
+    }
+    AXLOGI("[CampaignCity] home opened: returnFromBattle={}", returningFromBattle);
 }
 
 void MainScene::showRoguelikeMenu()
@@ -2652,7 +2859,7 @@ void MainScene::showRoguelikeMenu()
     _settlementLayer->setVisible(false);
     _upgradePanel->setVisible(false);
     _choicePanel->setVisible(false);
-    _campaignMenuPanel->setVisible(false);
+    hideCampaignMenu();
     _roguelikeMenuPanel->setVisible(false);
     _modeSelectPanel->setVisible(false);
 #if CG_DEBUG_TOOLS
@@ -2661,7 +2868,8 @@ void MainScene::showRoguelikeMenu()
     _roguelikeMenuPanel->open(static_cast<int>(_campaign.levels().size()));
     _runBuffLabel->setVisible(false);
     _gameState = GameState::menu1;
-    if (_waveLabel) _waveLabel->setString("");
+    setCombatControlsVisible(false);
+    refreshEconomyHUD();
     AXLOGI("[ModeNavigation] home opened: mode=roguelike");
 }
 
@@ -2685,18 +2893,21 @@ void MainScene::showCurrentModeMenu()
 void MainScene::showDevelopmentMenu()
 {
     stopContinuousFire();
+    _settingsVisible = false;
+    _settingsPanel->setVisible(false);
     clearField();
     _settlementVisible = false;
     _settlementLayer->setVisible(false);
     _upgradePanel->setVisible(false);
     _choicePanel->setVisible(false);
-    _campaignMenuPanel->setVisible(false);
+    hideCampaignMenu();
     _roguelikeMenuPanel->setVisible(false);
     _modeSelectPanel->setVisible(false);
     _developmentMenuPanel->setVisible(true);
     _runBuffLabel->setVisible(false);
     _gameState = GameState::menu1;
-    if (_waveLabel) _waveLabel->setString("");
+    setCombatControlsVisible(false);
+    refreshEconomyHUD();
     AXLOGI("[DevelopmentMenu] opened");
 }
 
@@ -2749,7 +2960,11 @@ void MainScene::selectMode(GameMode mode)
 
 void MainScene::beginCampaignBattle()
 {
-    AXLOGI("[ModeNavigation] battle requested: mode=campaign");
+    if (_campaignTransitioning) return;
+    if (_battleLayout != BattleLayout::Oblique25D)
+        buildBattlefield(BattleLayout::Oblique25D);
+    AXLOGI("[CampaignCity] wall selected: stage={}",
+           GameData::getInstance().nextStage(static_cast<int>(_campaign.levels().size())));
     _runBuffs.reset();
     refreshRunBuffHUD();
     const int pendingStage = GameData::getInstance().pendingCampaignRewardStage();
@@ -2758,7 +2973,14 @@ void MainScene::beginCampaignBattle()
         offerCampaignReward(pendingStage, true);
         return;
     }
-    startCampaignRun();
+    _campaignTransitioning = true;
+    _battleRoot->setVisible(true);
+    _worldRoot->runAction(Sequence::create(
+        EaseSineInOut::create(MoveTo::create(1.10f, Vec2::ZERO)),
+        CallFunc::create([this]() {
+            _campaignTransitioning = false;
+            startCampaignRun();
+        }), nullptr));
 }
 
 void MainScene::startCoreRun()
@@ -2790,6 +3012,8 @@ void MainScene::startCampaignRun()
 void MainScene::resetBattleForRun()
 {
     stopContinuousFire();
+    _settingsVisible = false;
+    _settingsPanel->setVisible(false);
     clearField();
     _wallMaxHP = GameData::getInstance().wallMaxHealth();
     _wallHP    = _wallMaxHP;
@@ -2807,7 +3031,8 @@ void MainScene::resetBattleForRun()
     _settlementLayer->setVisible(false);
     _upgradePanel->setVisible(false);
     _choicePanel->setVisible(false);
-    _campaignMenuPanel->setVisible(false);
+    hideCampaignMenu(_gameMode == GameMode::Campaign &&
+                     _battleLayout == BattleLayout::Oblique25D);
     _roguelikeMenuPanel->setVisible(false);
     _modeSelectPanel->setVisible(false);
 #if CG_DEBUG_TOOLS
@@ -2816,12 +3041,9 @@ void MainScene::resetBattleForRun()
     _skillHint->setVisible(false);
     _lastCampaignRewardName.clear();
     _gameState = GameState::update;
+    setCombatControlsVisible(true);
     GameData::getInstance().startRun();
     refreshEconomyHUD();
-    if (_waveLabel)
-    {
-        _waveLabel->setString("");
-    }
 }
 
 void MainScene::startLevel(size_t index)
@@ -2830,7 +3052,7 @@ void MainScene::startLevel(size_t index)
     activateLevel(index, true);
     _waveState = WaveState::Idle;  // 下一帧 updateWaves 自动 beginWave(0)
     refreshRunBuffHUD();
-    AXLOGI("[Campaign] run started: stage={}/{}, wallHP={}, arrowDamage={}, multiShot={}, "
+    AXLOGI("[CampaignCity][Campaign] run started: stage={}/{}, wallHP={}, arrowDamage={}, multiShot={}, "
            "fireInterval={:.3f}", _levelIndex + 1, _campaign.levels().size(), _wallHP,
            GameData::getInstance().arrowDamage(), GameData::getInstance().multiShotCount(),
            currentCombatStats().fireInterval);
@@ -2894,11 +3116,7 @@ void MainScene::damageWall(int dmg)
     AXLOGD("城墙血量：{}，击杀：{}", _wallHP, GameData::getInstance().economy().runKills());
     if (_wallHP == 0)
     {
-        // 城破后波次状态机冻结（updateWaves 守卫），给个肉眼可见的提示
-        if (_waveLabel)
-        {
-            _waveLabel->setString("城墙告破！点 ↻ 重开");
-        }
+        // 城破后波次状态机冻结（updateWaves 守卫），随后显示结算。
         AXLOGI("[Campaign] wall destroyed: entering defeat settlement");
         showSettlement(false);
     }
@@ -2918,7 +3136,7 @@ void MainScene::initEnemyBoltPool()
         b.node->drawSolidCircle(Vec2::ZERO, 6.0f, 0.0f, 12, Color4F(0.75f, 0.35f, 0.90f, 1.0f));
         b.node->drawSolidCircle(Vec2::ZERO, 3.0f, 0.0f, 10, Color4F(1.0f, 1.0f, 1.0f, 0.9f));
         b.node->setVisible(false);
-        addChild(b.node, 2);  // 与怪物同层
+        _battleRoot->addChild(b.node, 2);  // 与怪物同层
         _boltPool.push_back(b);
     }
 }
@@ -2973,15 +3191,24 @@ void MainScene::updateEnemyBolts(float delta)
 // ---------------------------------------------------------------------------
 void MainScene::initEconomyUI()
 {
-    _coinLabel = Label::createWithSystemFont("", "Arial", 26);
-    _coinLabel->setAnchorPoint(Vec2(1.0f, 1.0f));
-    _coinLabel->setTextColor(Color4B(255, 220, 95, 255));
-    addChild(_coinLabel, 5);
+    _walletArt = DrawNode::create();
+    _worldRoot->addChild(_walletArt, 2);
 
-    _crystalLabel = Label::createWithSystemFont("", "Arial", 26);
-    _crystalLabel->setAnchorPoint(Vec2(1.0f, 1.0f));
+    _coinLabel = Label::createWithSystemFont("", "Arial", 14);
+    _coinLabel->setAnchorPoint(Vec2(0.5f, 0.5f));
+    _coinLabel->setAlignment(TextHAlignment::CENTER, TextVAlignment::CENTER);
+    _coinLabel->setOverflow(Label::Overflow::SHRINK);
+    _coinLabel->setTextColor(Color4B(255, 220, 95, 255));
+    _coinLabel->enableOutline(Color4B(12, 26, 29, 220), 1);
+    _worldRoot->addChild(_coinLabel, 3);
+
+    _crystalLabel = Label::createWithSystemFont("", "Arial", 14);
+    _crystalLabel->setAnchorPoint(Vec2(0.5f, 0.5f));
+    _crystalLabel->setAlignment(TextHAlignment::CENTER, TextVAlignment::CENTER);
+    _crystalLabel->setOverflow(Label::Overflow::SHRINK);
     _crystalLabel->setTextColor(Color4B(110, 225, 255, 255));
-    addChild(_crystalLabel, 5);
+    _crystalLabel->enableOutline(Color4B(12, 26, 29, 220), 1);
+    _worldRoot->addChild(_crystalLabel, 3);
 
     _settlementLayer = Node::create();
     _settlementLayer->setVisible(false);
@@ -3052,7 +3279,7 @@ void MainScene::initEconomyUI()
             chooseRunBuff(_runBuffs.choices()[index]);
         }
     });
-    addChild(_choicePanel, 40);
+    addChild(_choicePanel, 50);
 
     _modeSelectPanel = ModeSelectPanel::create();
     _modeSelectPanel->setChoiceCallback(
@@ -3061,14 +3288,18 @@ void MainScene::initEconomyUI()
 
     _campaignMenuPanel = ModeHomePanel::create(ModeHomeKind::Campaign);
     _campaignMenuPanel->setStartCallback([this]() { beginCampaignBattle(); });
-    _campaignMenuPanel->setWorkshopCallback([this]() {
-        _campaignMenuPanel->setVisible(false);
+    _campaignMenuPanel->setFacilityCallback([this](CityFacility facility) {
+        if (_campaignTransitioning) return;
+        hideCampaignMenu();
         _upgradePanel->setStartButtonText("返回闯关主页");
         _upgradePanel->setStartRunCallback([this]() { showCampaignMenu(); });
-        _upgradePanel->open();
-        AXLOGI("[ModeNavigation] campaign workshop opened");
+        const auto section = facility == CityFacility::Academy ? UpgradePanel::Section::Research
+                             : facility == CityFacility::Wallworks ? UpgradePanel::Section::Defense
+                                                                     : UpgradePanel::Section::Weapons;
+        _upgradePanel->openAt(section);
+        AXLOGI("[CampaignCity] facility opened: kind={}", static_cast<int>(facility));
     });
-    addChild(_campaignMenuPanel, 43);
+    _worldRoot->addChild(_campaignMenuPanel, 0);
 
     _roguelikeMenuPanel = ModeHomePanel::create(ModeHomeKind::Roguelike);
     _roguelikeMenuPanel->setStartCallback([this]() {
@@ -3094,11 +3325,7 @@ void MainScene::initEconomyUI()
 
 void MainScene::layoutEconomyUI(const Vec2& origin, float right, float top)
 {
-    if (_coinLabel)
-    {
-        _coinLabel->setPosition(Vec2(right - 18.0f, top - 18.0f));
-        _crystalLabel->setPosition(Vec2(right - 18.0f, top - 54.0f));
-    }
+    refreshEconomyHUD();
     if (!_settlementLayer)
     {
         return;
@@ -3152,6 +3379,116 @@ void MainScene::layoutEconomyUI(const Vec2& origin, float right, float top)
     _settlementModeRect = Rect(modePos.x, modePos.y, SETTLEMENT_BUTTON_W, SETTLEMENT_BUTTON_H);
 }
 
+void MainScene::initCoinPickupPool()
+{
+    _coinPickups.reserve(COIN_PICKUP_POOL_SIZE);
+    for (int i = 0; i < COIN_PICKUP_POOL_SIZE; ++i)
+    {
+        CoinPickup pickup;
+        pickup.popup = Label::createWithSystemFont("", "Arial", 22);
+        pickup.popup->setTextColor(Color4B(255, 222, 105, 255));
+        pickup.popup->enableOutline(Color4B(36, 25, 13, 230), 2);
+        pickup.popup->setVisible(false);
+        _battleRoot->addChild(pickup.popup, 5);
+
+        pickup.coin = DrawNode::create();
+        pickup.coin->drawSolidCircle(Vec2::ZERO, 7.0f, 0.0f, 16,
+                                    Color4F(0.95f, 0.65f, 0.12f, 1.0f));
+        pickup.coin->drawCircle(Vec2::ZERO, 5.0f, 0.0f, 16, false,
+                                Color4F(1.0f, 0.88f, 0.35f, 1.0f), 1.5f);
+        pickup.coin->setVisible(false);
+        _battleRoot->addChild(pickup.coin, 5);
+        _coinPickups.push_back(pickup);
+    }
+}
+
+void MainScene::spawnCoinPickup(const Vec2& position, int amount)
+{
+    for (auto& pickup : _coinPickups)
+    {
+        if (pickup.phase != CoinPickup::Phase::Idle)
+            continue;
+        pickup.start = position;
+        pickup.flightStart = position + Vec2(0.0f, 32.0f);
+        pickup.elapsed = 0.0f;
+        pickup.amount = amount;
+        pickup.phase = CoinPickup::Phase::Popup;
+        pickup.popup->setString(StringUtils::format("金币 +%d", amount));
+        pickup.popup->setPosition(position);
+        pickup.popup->setOpacity(255);
+        pickup.popup->setScale(0.85f);
+        pickup.popup->setVisible(true);
+        pickup.coin->setVisible(false);
+        _pendingCoinArrivals += amount;
+        return;
+    }
+    // 池满时奖励仍已记入 GameData，本次直接由宝箱显示。
+}
+
+void MainScene::updateCoinPickups(float delta)
+{
+    const auto visibleSize = _director->getVisibleSize();
+    const auto origin = _director->getVisibleOrigin();
+    const auto supplies = _battleLayout == BattleLayout::Oblique25D
+                              ? obliqueSupplyRects(origin, visibleSize)
+                              : sideSupplyRects(origin, visibleSize);
+    const Vec2 target(supplies[0].getMidX(),
+                      supplies[0].getMinY() + supplies[0].size.height * 0.58f);
+    for (auto& pickup : _coinPickups)
+    {
+        if (pickup.phase == CoinPickup::Phase::Idle)
+            continue;
+        pickup.elapsed += delta;
+        if (pickup.phase == CoinPickup::Phase::Popup)
+        {
+            const float t = std::min(1.0f, pickup.elapsed / COIN_POPUP_TIME);
+            const float ease = 1.0f - (1.0f - t) * (1.0f - t);
+            pickup.popup->setPosition(pickup.start + Vec2(0.0f, 32.0f * ease));
+            pickup.popup->setScale(0.85f + 0.15f * ease);
+            if (t >= 1.0f)
+            {
+                pickup.popup->setVisible(false);
+                pickup.coin->setPosition(pickup.flightStart);
+                pickup.coin->setScale(1.0f);
+                pickup.coin->setVisible(true);
+                pickup.elapsed = 0.0f;
+                pickup.phase = CoinPickup::Phase::Flying;
+            }
+            continue;
+        }
+        const float t = std::min(1.0f, pickup.elapsed / COIN_FLIGHT_TIME);
+        const Vec2 control((pickup.flightStart.x + target.x) * 0.5f,
+                           std::max(pickup.flightStart.y, target.y) + 70.0f);
+        const float remaining = 1.0f - t;
+        pickup.coin->setPosition(pickup.flightStart * (remaining * remaining) +
+                                 control * (2.0f * remaining * t) + target * (t * t));
+        pickup.coin->setScale(1.0f - t * 0.35f);
+        if (t >= 1.0f)
+        {
+            pickup.coin->setVisible(false);
+            pickup.phase = CoinPickup::Phase::Idle;
+            _pendingCoinArrivals -= pickup.amount;
+            pickup.amount = 0;
+            refreshEconomyHUD();
+        }
+    }
+}
+
+void MainScene::clearCoinPickups()
+{
+    const bool hadPendingCoins = _pendingCoinArrivals > 0;
+    for (auto& pickup : _coinPickups)
+    {
+        pickup.phase = CoinPickup::Phase::Idle;
+        pickup.amount = 0;
+        pickup.popup->setVisible(false);
+        pickup.coin->setVisible(false);
+    }
+    _pendingCoinArrivals = 0;
+    if (hadPendingCoins)
+        refreshEconomyHUD();
+}
+
 void MainScene::refreshEconomyHUD()
 {
     if (!_coinLabel)
@@ -3159,15 +3496,26 @@ void MainScene::refreshEconomyHUD()
         return;
     }
     const auto& economy = GameData::getInstance().economy();
-    if (economy.runActive() && economy.runCoins() > 0)
-    {
-        _coinLabel->setString(StringUtils::format("金币  %d  (+%d)", economy.totalCoins(), economy.runCoins()));
-    }
-    else
-    {
-        _coinLabel->setString(StringUtils::format("金币  %d", economy.totalCoins()));
-    }
-    _crystalLabel->setString(StringUtils::format("水晶  %d", economy.totalCrystals()));
+    const long long visibleCoins = static_cast<long long>(economy.totalCoins()) +
+                                   (economy.runActive() ? economy.runCoins() : 0) -
+                                   _pendingCoinArrivals;
+    _coinLabel->setString(StringUtils::format("%lld", std::max(0LL, visibleCoins)));
+    _crystalLabel->setString(StringUtils::format("%d", economy.totalCrystals()));
+
+    const auto visibleSize = _director->getVisibleSize();
+    const auto origin = _director->getVisibleOrigin();
+    const auto supplies = _battleLayout == BattleLayout::Oblique25D
+                              ? obliqueSupplyRects(origin, visibleSize)
+                              : sideSupplyRects(origin, visibleSize);
+    _walletArt->clear();
+    wall_supply_art::drawOpenCrate(_walletArt, supplies[0], wall_supply_art::Kind::Coins);
+    wall_supply_art::drawOpenCrate(_walletArt, supplies[1], wall_supply_art::Kind::Crystals);
+    _coinLabel->setDimensions(supplies[0].size.width - 14.0f, 17.0f);
+    _crystalLabel->setDimensions(supplies[1].size.width - 14.0f, 17.0f);
+    _coinLabel->setPosition(Vec2(supplies[0].getMidX(),
+                                 supplies[0].getMinY() + 9.0f + CRATE_NUMBER_OPTICAL_Y));
+    _crystalLabel->setPosition(Vec2(supplies[1].getMidX(),
+                                    supplies[1].getMinY() + 9.0f + CRATE_NUMBER_OPTICAL_Y));
 }
 
 void MainScene::refreshRunBuffHUD()
@@ -3308,7 +3656,7 @@ void MainScene::chooseCampaignReward(CampaignRewardId id)
     else if (_resumeCampaignAfterReward)
     {
         _resumeCampaignAfterReward = false;
-        startCampaignRun();
+        beginCampaignBattle();
     }
 }
 
@@ -3318,6 +3666,7 @@ void MainScene::showSettlement(bool victory)
     {
         return;
     }
+    clearCoinPickups();
     const int stage      = static_cast<int>(_levelIndex) + 1;
     const int stageCount = static_cast<int>(_campaign.levels().size());
     SettlementSummary result;
@@ -3423,19 +3772,31 @@ void MainScene::presentSettlement(const SettlementSummary& result, bool victory)
 // 冷却管"节奏"，蓝量管"取舍"，两个旋钮策划可以分别调。
 // ---------------------------------------------------------------------------
 
-// 技能按钮 + 蓝条 + 提示文本。技能 UI 是正式玩法，不进 CG_DEBUG_TOOLS。
+// 技能阵纹 + 蓝条 + 提示文本。技能 UI 是正式玩法，不进 CG_DEBUG_TOOLS。
 void MainScene::initSkillBar()
 {
-    const float s                   = SKILL_BTN_SIZE;
-    const char* names[SKILL_COUNT]  = {"火球", "冰冻", "箭雨", "闪电"};
+    const float s = SKILL_BTN_SIZE;
+    const Color4F runeColors[] = {
+        Color4F(0.93f, 0.47f, 0.22f, 1.0f), Color4F(0.42f, 0.78f, 0.95f, 1.0f),
+        Color4F(0.86f, 0.73f, 0.35f, 1.0f), Color4F(0.92f, 0.84f, 0.32f, 1.0f),
+    };
     for (int i = 0; i < SKILL_COUNT; ++i)
     {
         auto btn = Node::create();
         auto bg  = DrawNode::create();
-        bg->drawSolidRect(Vec2::ZERO, Vec2(s, s), Color4F(0.10f, 0.10f, 0.14f, 0.75f));  // 底
-        bg->drawRect(Vec2::ZERO, Vec2(s, s), Color4F(1.0f, 1.0f, 1.0f, 0.8f), 2.0f);     // 框
-        // 图标（画在按钮上部，下部留给名称）
-        const Vec2 c(s * 0.5f, s * 0.62f);
+        const Vec2 c(s * 0.5f, s * 0.5f);
+        const Color4F rune = runeColors[i];
+        bg->drawSolidCircle(c, s * 0.45f, 0.0f, 28,
+                             Color4F(0.13f, 0.19f, 0.21f, 0.86f));
+        bg->drawCircle(c, s * 0.44f, 0.0f, 28, false, rune, 2.5f);
+        bg->drawCircle(c, s * 0.33f, 0.0f, 28, false,
+                       Color4F(rune.r, rune.g, rune.b, 0.45f), 1.0f);
+        for (int mark = 0; mark < 8; ++mark)
+        {
+            const float angle = mark * 0.785398f;
+            const Vec2 dir(cosf(angle), sinf(angle));
+            bg->drawLine(c + dir * (s * 0.36f), c + dir * (s * 0.42f), rune, 2.0f);
+        }
         switch (i)
         {
         case 0:  // 火球：橙红实心圆 + 三簇火苗
@@ -3484,24 +3845,18 @@ void MainScene::initSkillBar()
         }
         btn->addChild(bg, 0);
 
-        // 冷却遮罩：黑色半透明从底部向上盖，高度 = 剩余冷却比例（每帧重画）
+        // 阵纹的锁定和冷却状态每帧重画。
         auto shade = DrawNode::create();
         btn->addChild(shade, 1);
         _skillCdShade[i] = shade;
 
         // 冷却剩余秒数（居中，冷却时才显示）
-        auto cdLabel = Label::createWithSystemFont("", "Arial", 32);
+        auto cdLabel = Label::createWithSystemFont("", "Arial", 22);
         cdLabel->setPosition(Vec2(s * 0.5f, s * 0.5f));
         btn->addChild(cdLabel, 2);
         _skillCdLabel[i] = cdLabel;
 
-        // 技能名（按钮内底部）
-        auto name = Label::createWithSystemFont(names[i], "Arial", 20);
-        name->setPosition(Vec2(s * 0.5f, 14.0f));
-        btn->addChild(name, 2);
-        _skillNameLabel[i] = name;
-
-        addChild(btn, 5);  // zOrder 5：HUD 层
+        addChild(btn, 6);
         _skillBtns[i] = btn;
     }
 
@@ -3518,30 +3873,39 @@ void MainScene::initSkillBar()
     // 瞄准范围指示圈：瞄准时跟随手指（拖动）/鼠标（悬停），抬起或点击战场时释放
     _aimIndicator = DrawNode::create();
     _aimIndicator->setVisible(false);
-    addChild(_aimIndicator, 4);  // 特效层级
+    _battleRoot->addChild(_aimIndicator, 4);  // 战场瞄准指示随世界移动
 }
 
-// 技能栏跟随布局：底部居中横排，蓝条在按钮正上方
+// 技能阵纹、蓝条与血条都固定在屏幕层，不随城内和战场的镜头移动。
 void MainScene::layoutSkillBar(const Vec2& origin, float right)
 {
     const float s        = SKILL_BTN_SIZE;
-    const float gap      = 16.0f;
+    const float gap      = 8.0f;
     const float totalW   = SKILL_COUNT * s + (SKILL_COUNT - 1) * gap;
     const float centerX  = (origin.x + right) * 0.5f;
-    const float btnY     = origin.y + 20.0f;
+    const Size visibleSize(right - origin.x, _director->getVisibleSize().height);
+    const float hudCenterY = origin.y + combatHudBandCenter(
+        visibleSize, _battleLayout == BattleLayout::Oblique25D);
+    const float btnY = hudCenterY - s * 0.5f;
+    const float startX = right - combatHudEdge(visibleSize) - totalW;
     for (int i = 0; i < SKILL_COUNT; ++i)
     {
         if (!_skillBtns[i])
         {
             continue;
         }
-        const float x = centerX - totalW * 0.5f + i * (s + gap);
+        const float x = startX + i * (s + gap);
         _skillBtns[i]->setPosition(Vec2(x, btnY));
-        _skillBtnRects[i] = Rect(x, btnY, s, s);
+        _skillBtnRects[i] = Rect(x - 4.0f, btnY - 4.0f, s + 8.0f, s + 8.0f);
     }
     if (_manaBar)
     {
-        _manaBar->setPosition(Vec2(centerX - totalW * 0.5f, btnY + s + 8.0f));
+        const float meterW = combatMeterWidth(visibleSize);
+        const float edge = combatHudEdge(visibleSize);
+        _manaBarRect = Rect(origin.x + edge,
+                            hudCenterY - COMBAT_METER_GAP * 0.5f - MANA_BAR_H,
+                            meterW, MANA_BAR_H);
+        _manaBar->setPosition(_manaBarRect.origin);
     }
     if (_skillHint)
     {
@@ -3772,7 +4136,7 @@ void MainScene::initFireballPool()
         f.node->drawSolidCircle(Vec2::ZERO, 11.0f, 0.0f, 14, Color4F(0.95f, 0.40f, 0.08f, 1.0f));
         f.node->drawSolidCircle(Vec2::ZERO, 5.0f, 0.0f, 10, Color4F(1.0f, 0.88f, 0.40f, 1.0f));
         f.node->setVisible(false);
-        addChild(f.node, 4);  // 特效层级
+        _battleRoot->addChild(f.node, 4);  // 特效层级
         _fireballPool.push_back(f);
     }
 }
@@ -3781,7 +4145,7 @@ void MainScene::initFxPool()
 {
     // 特效专用层：集中管理"活几秒就消失"的图形，层级在箭矢（3）之上、HUD（5）之下
     _effectLayer = Node::create();
-    addChild(_effectLayer, 4);
+    _battleRoot->addChild(_effectLayer, 4);
 
     _fxPool.reserve(FX_POOL_SIZE);
     for (int i = 0; i < FX_POOL_SIZE; ++i)
@@ -3986,12 +4350,13 @@ void MainScene::refreshSkillHUD()
 {
     if (_manaBar)
     {
-        const float totalW = SKILL_COUNT * SKILL_BTN_SIZE + (SKILL_COUNT - 1) * 16.0f;
+        const float barW = _manaBarRect.size.width;
         _manaBar->clear();
-        _manaBar->drawSolidRect(Vec2::ZERO, Vec2(totalW, 14.0f), Color4F(0.08f, 0.08f, 0.12f, 0.8f));
-        _manaBar->drawSolidRect(Vec2(2, 2), Vec2(2.0f + (totalW - 4.0f) * (_mana / MANA_MAX), 12.0f),
+        const float barH = _manaBarRect.size.height;
+        _manaBar->drawSolidRect(Vec2::ZERO, Vec2(barW, barH), Color4F(0.08f, 0.08f, 0.12f, 0.8f));
+        _manaBar->drawSolidRect(Vec2(2, 2), Vec2(2.0f + (barW - 4.0f) * (_mana / MANA_MAX), barH - 2.0f),
                                 Color4F(0.25f, 0.55f, 1.0f, 0.95f));
-        _manaBar->drawRect(Vec2::ZERO, Vec2(totalW, 14.0f), Color4F(1, 1, 1, 0.6f));
+        _manaBar->drawRect(Vec2::ZERO, Vec2(barW, barH), Color4F(1, 1, 1, 0.6f));
     }
     for (int i = 0; i < SKILL_COUNT; ++i)
     {
@@ -4003,22 +4368,44 @@ void MainScene::refreshSkillHUD()
         const bool unlocked = isSkillAvailable(static_cast<SkillId>(i));
         if (!unlocked)
         {
-            _skillCdShade[i]->drawSolidRect(Vec2::ZERO, Vec2(SKILL_BTN_SIZE, SKILL_BTN_SIZE),
-                                            Color4F(0.0f, 0.0f, 0.0f, 0.72f));
-            _skillCdLabel[i]->setString("锁");
-            _skillNameLabel[i]->setTextColor(Color4B(145, 150, 165, 255));
+            const Vec2 c(SKILL_BTN_SIZE * 0.5f, SKILL_BTN_SIZE * 0.5f);
+            _skillCdShade[i]->drawSolidCircle(c, SKILL_BTN_SIZE * 0.44f, 0.0f, 28,
+                                               Color4F(0.0f, 0.0f, 0.0f, 0.30f));
+            const Color4F lock(0.82f, 0.86f, 0.83f, 1.0f);
+            const Vec2 badge = c + Vec2(16.0f, -15.0f);
+            _skillCdShade[i]->drawSolidCircle(badge, 10.0f, 0.0f, 20,
+                                               Color4F(0.13f, 0.19f, 0.21f, 0.95f));
+            _skillCdShade[i]->drawLine(badge + Vec2(-4.0f, 0.0f),
+                                        badge + Vec2(-4.0f, 5.0f), lock, 2.0f);
+            _skillCdShade[i]->drawLine(badge + Vec2(-4.0f, 5.0f),
+                                        badge + Vec2(4.0f, 5.0f), lock, 2.0f);
+            _skillCdShade[i]->drawLine(badge + Vec2(4.0f, 5.0f),
+                                        badge + Vec2(4.0f, 0.0f), lock, 2.0f);
+            _skillCdShade[i]->drawSolidRect(badge + Vec2(-6.0f, -7.0f),
+                                             badge + Vec2(6.0f, 0.0f), lock);
+            _skillCdShade[i]->drawSolidCircle(badge + Vec2(0.0f, -4.0f), 1.0f, 0.0f, 8,
+                                               Color4F(0.17f, 0.22f, 0.23f, 1.0f));
+            _skillCdLabel[i]->setString("");
         }
         else if (_cdRemaining[i] > 0.0f)
         {
-            const float h = SKILL_BTN_SIZE * (_cdRemaining[i] / SKILL_CD[i]);
-            _skillCdShade[i]->drawSolidRect(Vec2::ZERO, Vec2(SKILL_BTN_SIZE, h),
-                                            Color4F(0.0f, 0.0f, 0.0f, 0.65f));
+            const Vec2 c(SKILL_BTN_SIZE * 0.5f, SKILL_BTN_SIZE * 0.5f);
+            _skillCdShade[i]->drawSolidCircle(c, SKILL_BTN_SIZE * 0.44f, 0.0f, 28,
+                                               Color4F(0.0f, 0.0f, 0.0f, 0.60f));
+            const int marks = static_cast<int>(24.0f * _cdRemaining[i] / SKILL_CD[i]);
+            for (int mark = 0; mark < marks; ++mark)
+            {
+                const float angle = 1.570796f - mark * 0.261799f;
+                const Vec2 dir(cosf(angle), sinf(angle));
+                _skillCdShade[i]->drawLine(c + dir * (SKILL_BTN_SIZE * 0.39f),
+                                            c + dir * (SKILL_BTN_SIZE * 0.46f),
+                                            Color4F(0.88f, 0.90f, 0.85f, 0.95f), 2.0f);
+            }
             _skillCdLabel[i]->setString(StringUtils::format("%d", static_cast<int>(_cdRemaining[i]) + 1));
         }
         else
         {
             _skillCdLabel[i]->setString("");
-            _skillNameLabel[i]->setTextColor(Color4B::WHITE);
         }
         // 瞄准中的按钮放大一点 = 选中态（零贴图的按钮高亮方案）
         _skillBtns[i]->setScale(i == _aimingSkill ? 1.15f : 1.0f);
@@ -4027,37 +4414,66 @@ void MainScene::refreshSkillHUD()
 
 void MainScene::onTouchesBegan(const std::vector<ax::Touch*>& touches, ax::Event* event)
 {
-#if CG_DEBUG_TOOLS
-    for (auto&& touch : touches)
+    if (_settingsVisible)
     {
-        if (_debugModeMenuBtnRect.containsPoint(touch->getLocation()))
+        for (auto* touch : touches)
         {
-            stopContinuousFire();
-            AXLOGI("[ModeNavigation] development menu requested");
-            showDevelopmentMenu();
-            return;
+            const Vec2 point = touch->getLocation();
+            if (_settingsContinueRect.containsPoint(point))
+            {
+                closeBattleSettings();
+                break;
+            }
+            if (_settingsCityRect.containsPoint(point))
+            {
+                returnToCampaignCity();
+                break;
+            }
+            if (_settingsRestartRect.containsPoint(point))
+            {
+                _settingsVisible = false;
+                _settingsPanel->setVisible(false);
+                startCampaignRun();
+                AXLOGI("[CampaignCity] stage restarted from battle settings");
+                break;
+            }
         }
-        if (_debugTuneBtnRect.containsPoint(touch->getLocation()))
+        return;
+    }
+    if (_gameMode == GameMode::Campaign && _gameState == GameState::update)
+    {
+        for (auto* touch : touches)
         {
-            stopContinuousFire();
-            toggleTuningPanel();
-            return;
+            if (_settingsButtonRect.containsPoint(touch->getLocation()))
+            {
+                openBattleSettings();
+                return;
+            }
         }
     }
-#endif
+    if (isCampaignCityMenuOpen())
+    {
+        if (!_campaignTransitioning)
+        {
+            for (auto* touch : touches)
+            {
+                if (_campaignMenuPanel->handleCityTouch(touch->getLocation())) break;
+            }
+        }
+        return;
+    }
     if ((_upgradePanel && _upgradePanel->isVisible()) ||
         (_choicePanel && _choicePanel->isVisible()) ||
         (_modeSelectPanel && _modeSelectPanel->isVisible())
 #if CG_DEBUG_TOOLS
         || (_developmentMenuPanel && _developmentMenuPanel->isVisible())
 #endif
-        || (_campaignMenuPanel && _campaignMenuPanel->isVisible())
         || (_roguelikeMenuPanel && _roguelikeMenuPanel->isVisible())
     )
     {
         return;  // 模态面板由 UI 系统处理，触摸不能穿透到战场
     }
-    // 结算与升级页都是模态界面，不能穿透到射箭/技能/调试按钮。
+    // 结算与升级页都是模态界面，不能穿透到射箭/技能。
     if (_settlementVisible)
     {
         if (_upgradePanel->isVisible())
@@ -4088,38 +4504,9 @@ void MainScene::onTouchesBegan(const std::vector<ax::Touch*>& touches, ax::Event
         }
         return;
     }
-    // 输入优先级：调试按钮 > 双指手势 > 射箭。
-    // 命中测试：Rect::containsPoint 判断触点是否在按钮热区内——
-    // 这就是最朴素的"UI 按钮"实现（一个矩形 + 点包含判定）
+    // 技能热区优先于战场手势和射箭。
     for (auto&& t : touches)
     {
-#if CG_DEBUG_TOOLS
-        if (_debugBtnRect.containsPoint(t->getLocation()))
-        {
-            stopContinuousFire();
-            buildBattlefield(_battleLayout == BattleLayout::Oblique25D ? BattleLayout::SideView
-                                                                       : BattleLayout::Oblique25D);
-            return;
-        }
-        if (_debugRestartBtnRect.containsPoint(t->getLocation()))
-        {
-            stopContinuousFire();
-            resetGame();  // ↻ 重开：清场满血回第 1 波
-            return;
-        }
-        if (_debugPrevBtnRect.containsPoint(t->getLocation()))
-        {
-            stopContinuousFire();
-            gotoWave(-1);  // ◀ 上一波
-            return;
-        }
-        if (_debugNextBtnRect.containsPoint(t->getLocation()))
-        {
-            stopContinuousFire();
-            gotoWave(1);  // ▶ 下一波
-            return;
-        }
-#endif
         // 技能按钮（正式玩法 UI）：按下只进/退瞄准模式，不显示范围圈
         for (int i = 0; i < SKILL_COUNT; ++i)
         {
@@ -4129,6 +4516,12 @@ void MainScene::onTouchesBegan(const std::vector<ax::Touch*>& touches, ax::Event
                 tryAimSkill(i);
                 return;
             }
+        }
+        if (_gameState == GameState::update &&
+            (_wallMeterRect.containsPoint(t->getLocation()) ||
+             isCombatHudPoint(t->getLocation())))
+        {
+            return;
         }
         // 瞄准模式下在战场【按下】：范围圈出现并开始跟随（拖动调整，抬起释放）
         if (_aimingSkill >= 0)
@@ -4140,7 +4533,7 @@ void MainScene::onTouchesBegan(const std::vector<ax::Touch*>& touches, ax::Event
     }
 
 #if CG_DEBUG_TOOLS
-    // 双指点击 = 切换视角版本（真机手势；模拟器请用左上角调试按钮）
+    // 双指点击 = 切换视角版本；模拟器也可用常驻 ImGui 的“开发模式控制”。
     // EventListenerTouchAllAtOnce 的 touches 数组长度 = 当前按下的手指数
     if (touches.size() >= 2)
     {
@@ -4161,13 +4554,13 @@ void MainScene::onTouchesBegan(const std::vector<ax::Touch*>& touches, ax::Event
 
 void MainScene::onTouchesMoved(const std::vector<ax::Touch*>& touches, ax::Event* event)
 {
-    if (_settlementVisible || (_upgradePanel && _upgradePanel->isVisible()) ||
+    if (_settingsVisible || _settlementVisible || (_upgradePanel && _upgradePanel->isVisible()) ||
         (_choicePanel && _choicePanel->isVisible()) ||
         (_modeSelectPanel && _modeSelectPanel->isVisible())
 #if CG_DEBUG_TOOLS
         || (_developmentMenuPanel && _developmentMenuPanel->isVisible())
 #endif
-        || (_campaignMenuPanel && _campaignMenuPanel->isVisible())
+        || isCampaignCityMenuOpen()
         || (_roguelikeMenuPanel && _roguelikeMenuPanel->isVisible())
     )
     {
@@ -4176,7 +4569,9 @@ void MainScene::onTouchesMoved(const std::vector<ax::Touch*>& touches, ax::Event
     // 技能瞄准拖动：范围指示圈跟随手指（只有"战场上按下后"才进入这个状态）
     if (_aimingSkill >= 0 && _aimDragging && !touches.empty())
     {
-        updateAimIndicator(touches[0]->getLocation());
+        const Vec2 point = touches[0]->getLocation();
+        if (!_wallMeterRect.containsPoint(point) && !isCombatHudPoint(point))
+            updateAimIndicator(point);
         return;
     }
     if (_continuousFireActive)
@@ -4185,6 +4580,12 @@ void MainScene::onTouchesMoved(const std::vector<ax::Touch*>& touches, ax::Event
         {
             if (t->getID() == _continuousFireTouchId)
             {
+                if (_wallMeterRect.containsPoint(t->getLocation()) ||
+                    isCombatHudPoint(t->getLocation()))
+                {
+                    stopContinuousFire(t->getID());
+                    break;
+                }
                 _continuousFireTarget = t->getLocation();
                 break;
             }
@@ -4198,13 +4599,13 @@ void MainScene::onTouchesEnded(const std::vector<ax::Touch*>& touches, ax::Event
     {
         stopContinuousFire(t->getID());
     }
-    if (_settlementVisible || (_upgradePanel && _upgradePanel->isVisible()) ||
+    if (_settingsVisible || _settlementVisible || (_upgradePanel && _upgradePanel->isVisible()) ||
         (_choicePanel && _choicePanel->isVisible()) ||
         (_modeSelectPanel && _modeSelectPanel->isVisible())
 #if CG_DEBUG_TOOLS
         || (_developmentMenuPanel && _developmentMenuPanel->isVisible())
 #endif
-        || (_campaignMenuPanel && _campaignMenuPanel->isVisible())
+        || isCampaignCityMenuOpen()
         || (_roguelikeMenuPanel && _roguelikeMenuPanel->isVisible())
     )
     {
@@ -4214,7 +4615,13 @@ void MainScene::onTouchesEnded(const std::vector<ax::Touch*>& touches, ax::Event
     if (_aimingSkill >= 0 && _aimDragging && !touches.empty())
     {
         _aimDragging = false;
-        castSkill(touches[0]->getLocation());
+        const Vec2 point = touches[0]->getLocation();
+        if (_wallMeterRect.containsPoint(point) || isCombatHudPoint(point))
+        {
+            _aimIndicator->setVisible(false);
+            return;
+        }
+        castSkill(point);
     }
 }
 
@@ -4233,23 +4640,18 @@ void MainScene::onTouchesCancelled(const std::vector<ax::Touch*>& touches, ax::E
 
 void MainScene::onKeyPressed(ax::EventKeyboard::KeyCode code, ax::Event* event)
 {
+    if (_settingsVisible) return;
 #if CG_DEBUG_TOOLS
-    // ImGui 属于开发层，即使闯关主页或工坊正在显示，也允许独立开关。
-    if (code == EventKeyboard::KeyCode::KEY_T)
-    {
-        toggleTuningPanel();
-        return;
-    }
     if ((_upgradePanel && _upgradePanel->isVisible()) ||
         (_choicePanel && _choicePanel->isVisible()) ||
         (_modeSelectPanel && _modeSelectPanel->isVisible()) ||
         (_developmentMenuPanel && _developmentMenuPanel->isVisible()) ||
-        (_campaignMenuPanel && _campaignMenuPanel->isVisible()) ||
+        isCampaignCityMenuOpen() ||
         (_roguelikeMenuPanel && _roguelikeMenuPanel->isVisible()))
     {
         return;
     }
-    // 桌面调试键：1/2 切视角、R 重开、Q/E 跳波、T 开发者工具、U 预览升级页。
+    // 桌面调试键：1/2 切视角、R 重开、Q/E 跳波、U 预览升级页。
     if (code == EventKeyboard::KeyCode::KEY_1 && _battleLayout != BattleLayout::SideView)
     {
         buildBattlefield(BattleLayout::SideView);
@@ -4329,6 +4731,7 @@ void MainScene::update(float delta)
         updateArrows(delta);
         updateEnemyBolts(delta);
         updateSkills(delta);  // M1：回蓝/冷却/火球弹道/箭雨/特效
+        updateCoinPickups(delta);
         break;
     }
 
@@ -4340,6 +4743,7 @@ void MainScene::update(float delta)
         {
             buildBattlefield(_battleLayout);
         }
+        updateCoinPickups(delta);
         break;
     }
     case GameState::menu1:

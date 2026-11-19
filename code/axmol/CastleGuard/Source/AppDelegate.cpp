@@ -72,8 +72,8 @@ bool AppDelegate::applicationDidFinishLaunching()
         director->setRenderView(renderView);
     }
 
-    // turn on display FPS
-    director->setStatsDisplay(true);
+    // ImGui already shows FPS in development builds; the engine overlay covers the bottom-left HUD.
+    director->setStatsDisplay(false);
 
     // set FPS. the default value is 1.0/60 if you don't call this
     director->setAnimationInterval(1.0f / 60);

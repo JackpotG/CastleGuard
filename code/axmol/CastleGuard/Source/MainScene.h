@@ -37,6 +37,7 @@ class ModeSelectPanel;
 class ModeHomePanel;
 class DevelopmentMenuPanel;
 enum class DevelopmentMenuEntry;
+enum class CityFacility;
 
 // 调试内容开关（CMake 选项 -DCG_DEBUG_TOOLS=ON/OFF 注入）：
 // 1 = 开发版（调试按钮、ImGui 开发者工具、桌面调试键都可用）；
@@ -128,32 +129,18 @@ private:
     void parkArrow(Arrow& arrow);      // 回到场景对象池并隐藏，避免随旧弓一起销毁
     std::vector<Arrow> _arrowPool;
     ax::Vec2 _archerPos = ax::Vec2::ZERO;      // 箭手发射点（随布局重建更新）
-    ax::Node* _wallBowWeapon = nullptr;         // 挂在 _battlefield 下，重建战场时重新创建
+    ax::DrawNode* _wallBowStation = nullptr;    // 俯视城墙上的固定底座，随共享世界转场
+    ax::Node* _wallBowWeapon = nullptr;         // 俯视时挂在 _worldRoot，侧视时挂在 _battlefield
     ax::Node* _wallBowVisual = nullptr;         // 只承载弓身动画，不影响父节点的瞄准旋转
     ax::Node* _wallBowArrowMount = nullptr;     // 真实对象池箭的弓上挂点
 
     // ---- 调试层（CG_DEBUG_TOOLS=0 时整块不编译，正式包零残留） ----
 #if CG_DEBUG_TOOLS
-    // 常驻调试按钮（模拟器里没有键盘也无法双指，用它切换视角）
-    void initDebugUI();
-    void layoutDebugUI(const ax::Vec2& origin, float top);  // 随布局重建重排按钮
-    ax::Node* _debugBtn = nullptr;
-    ax::Rect _debugBtnRect;  // 按钮热区（世界坐标，随布局重建更新）
-    ax::Node* _debugRestartBtn = nullptr;  // 重开按钮（清场满血回第 1 波）
-    ax::Rect _debugRestartBtnRect;
-    ax::Node* _debugPrevBtn = nullptr;     // ◀ 上一波
-    ax::Rect _debugPrevBtnRect;
-    ax::Node* _debugNextBtn = nullptr;     // ▶ 下一波
-    ax::Rect _debugNextBtnRect;
-    ax::Node* _debugTuneBtn = nullptr;     // ⚙ 手感调优面板（ImGui）
-    ax::Rect _debugTuneBtnRect;
-    ax::Node* _debugModeMenuBtn = nullptr; // 开发总入口（四宫格）
-    ax::Rect _debugModeMenuBtnRect;
     void gotoWave(int offset);             // 调试跳波：offset = ±1（清场但不动血量）
 
-    // ---- 手感调优面板（ImGui 扩展） ----
-    void toggleTuningPanel();              // 显示/隐藏面板（添加/移除渲染循环）
-    void onImGuiDraw();                    // ImGui 每帧回调：实时调参与沙盒工具
+    // ---- 常驻开发面板（ImGui 扩展） ----
+    void onImGuiDraw();
+    void drawDevelopmentControlTab();
     void drawTuningTab();
     void drawMonsterTuningTab();
     void drawSandboxTab();
@@ -161,7 +148,6 @@ private:
     void sandboxKillAllMonsters();
     void sandboxOpenUpgradePreview();
     void sandboxGotoLevel(int offset);
-    bool _tuningVisible = false;
     bool _sandboxInvincibleWall  = false;
     bool _sandboxInfiniteMana    = false;
     bool _sandboxNoSkillCooldown = false;
@@ -245,9 +231,32 @@ private:
     void initCombatHUD();
     void layoutCombatHUD(const ax::Vec2& origin, const ax::Size& visibleSize);
     void refreshCombatHUD();
+    bool isCombatHudPoint(const ax::Vec2& point) const;
+    void initBattleSettings();
+    void layoutBattleSettings(const ax::Vec2& origin, const ax::Size& visibleSize);
+    void openBattleSettings();
+    void closeBattleSettings();
+    void returnToCampaignCity();
+    ax::Node* _settingsButton = nullptr;
+    ax::Node* _settingsPanel = nullptr;
+    ax::DrawNode* _settingsArt = nullptr;
+    ax::Label* _settingsTitle = nullptr;
+    ax::Label* _settingsMusic = nullptr;
+    ax::Label* _settingsEffects = nullptr;
+    ax::Label* _settingsContinue = nullptr;
+    ax::Label* _settingsCity = nullptr;
+    ax::Label* _settingsRestart = nullptr;
+    ax::Rect _settingsButtonRect;
+    ax::Rect _settingsContinueRect;
+    ax::Rect _settingsCityRect;
+    ax::Rect _settingsRestartRect;
+    bool _settingsVisible = false;
     ax::DrawNode* _wallHealthBar = nullptr;
     ax::Label* _wallHealthLabel = nullptr;
     ax::Rect _wallHealthRect;
+    ax::Rect _combatHeaderRect;
+    ax::Rect _combatCrystalRect;
+    ax::Rect _wallMeterRect;
     ax::DrawNode* _bossHealthBar = nullptr;
     ax::Label* _bossHealthLabel = nullptr;
     ax::Rect _bossHealthRect;
@@ -257,6 +266,10 @@ private:
     void initEconomyUI();
     void layoutEconomyUI(const ax::Vec2& origin, float right, float top);
     void refreshEconomyHUD();
+    void initCoinPickupPool();
+    void spawnCoinPickup(const ax::Vec2& position, int amount);
+    void updateCoinPickups(float delta);
+    void clearCoinPickups();
     void showSettlement(bool victory);
     void presentSettlement(const SettlementSummary& result, bool victory);
     void offerRunBuff();
@@ -267,7 +280,10 @@ private:
     PlayerCombatStats currentCombatStats() const;
     void showEntryMenu();
     void showModeSelect();
-    void showCampaignMenu();
+    void showCampaignMenu(bool animateReturn = false);
+    void hideCampaignMenu(bool keepCityVisible = false);
+    bool isCampaignCityMenuOpen() const;
+    void setCombatControlsVisible(bool visible);
     void showRoguelikeMenu();
     void showCurrentModeMenu();
     void selectMode(GameMode mode);
@@ -278,8 +294,22 @@ private:
     void resetBattleForRun();
     void prepareEndlessWave(int waveNumber);
     void advanceEndlessWave();
+    ax::DrawNode* _walletArt            = nullptr;
     ax::Label* _coinLabel               = nullptr;
     ax::Label* _crystalLabel            = nullptr;
+    struct CoinPickup
+    {
+        enum class Phase { Idle, Popup, Flying };
+        ax::Label* popup = nullptr;
+        ax::DrawNode* coin = nullptr;
+        ax::Vec2 start;
+        ax::Vec2 flightStart;
+        float elapsed = 0.0f;
+        int amount = 0;
+        Phase phase = Phase::Idle;
+    };
+    std::vector<CoinPickup> _coinPickups;
+    int _pendingCoinArrivals = 0;
     ax::Node* _settlementLayer          = nullptr;
     ax::DrawNode* _settlementBackdrop   = nullptr;
     ax::DrawNode* _settlementPanel      = nullptr;
@@ -299,6 +329,8 @@ private:
     ThreeChoicePanel* _choicePanel      = nullptr;
     ModeSelectPanel* _modeSelectPanel   = nullptr;
     ModeHomePanel* _campaignMenuPanel   = nullptr;
+    ax::DrawNode* _battleWall           = nullptr;
+    bool _campaignTransitioning         = false;
     ModeHomePanel* _roguelikeMenuPanel  = nullptr;
 #if CG_DEBUG_TOOLS
     void showDevelopmentMenu();
@@ -362,11 +394,11 @@ private:
     ax::DrawNode* _aimIndicator = nullptr;      // 范围指示圈（瞄准时跟随手指/鼠标）
     void updateAimIndicator(const ax::Vec2& pos);  // 重画指示圈并移到指定位置
     ax::Node* _skillBtns[SKILL_COUNT]     = {nullptr};
-    ax::Rect _skillBtnRects[SKILL_COUNT];       // 按钮热区（世界坐标）
+    ax::Rect _skillBtnRects[SKILL_COUNT];       // 按钮热区（战斗时的屏幕坐标）
     ax::DrawNode* _skillCdShade[SKILL_COUNT] = {nullptr};  // 冷却遮罩（高度=剩余比例）
     ax::Label* _skillCdLabel[SKILL_COUNT]  = {nullptr};    // 冷却剩余秒数
-    ax::Label* _skillNameLabel[SKILL_COUNT] = {nullptr};   // 按钮上的技能名
     ax::DrawNode* _manaBar = nullptr;           // 蓝条（每帧重画，只有两条矩形很便宜）
+    ax::Rect _manaBarRect;
     ax::Label* _skillHint  = nullptr;           // 瞄准/提示文本
     float _skillHintTimer  = 0.0f;              // 提示自动隐藏计时（0=常驻的瞄准提示）
 
@@ -435,12 +467,14 @@ private:
     size_t _waveIndex    = 0;
     WaveState _waveState = WaveState::Idle;
     float _restTimer     = 0.0f;
-    ax::Label* _waveLabel = nullptr;             // HUD：顶部居中波次提示
 
     GameState _gameState                            = GameState::init;
     ax::EventListenerTouchAllAtOnce* _touchListener = nullptr;
     ax::EventListenerKeyboard* _keyboardListener    = nullptr;
     int _sceneID                                    = 0;
+    ax::Node* _worldRoot                            = nullptr;  // 城内与战场共享的连续世界
+    ax::Node* _battleRoot                           = nullptr;  // 战斗局部坐标，从城墙处展开俯视地面
+    ax::DrawNode* _worldBackdrop                    = nullptr;
     ax::Node* _battlefield                          = nullptr;
     BattleLayout _battleLayout                      = BattleLayout::Oblique25D;
     // 记录上次布局时的可见尺寸，尺寸变化（旋转/窗口缩放）时自动重排战场

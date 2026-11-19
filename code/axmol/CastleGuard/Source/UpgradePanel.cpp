@@ -139,10 +139,30 @@ void UpgradePanel::layout(const Vec2& origin, const Size& visibleSize)
 
 void UpgradePanel::open()
 {
+    _title->setString("城堡工坊");
     _feedback->setString("");
     refresh();
     setVisible(true);
     _scroll->jumpToTop();
+}
+
+void UpgradePanel::openAt(Section section)
+{
+    open();
+    switch (section)
+    {
+    case Section::Weapons:
+        _title->setString("军械所 · 弓术");
+        break;
+    case Section::Research:
+        _title->setString("研究院 · 科技");
+        _scroll->jumpToBottom();
+        break;
+    case Section::Defense:
+        _title->setString("城防营 · 城墙");
+        _scroll->jumpToPercentVertical(65.0f);
+        break;
+    }
 }
 
 void UpgradePanel::rebuildTree(float contentWidth)

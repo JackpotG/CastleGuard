@@ -791,6 +791,12 @@ void GameData::startRun()
            _economy.totalCrystals());
 }
 
+void GameData::abandonRun()
+{
+    _economy.discardRun(false);
+    AXLOGI("[CampaignCity][Economy] run abandoned");
+}
+
 bool GameData::recordKill()
 {
     return _economy.recordKill();

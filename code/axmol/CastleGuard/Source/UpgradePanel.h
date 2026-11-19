@@ -15,9 +15,17 @@ class UpgradePanel : public ax::Node
 public:
     CREATE_FUNC(UpgradePanel);
 
+    enum class Section
+    {
+        Weapons,
+        Research,
+        Defense,
+    };
+
     bool init() override;
     void layout(const ax::Vec2& origin, const ax::Size& visibleSize);
     void open();
+    void openAt(Section section);
     void setStartRunCallback(std::function<void()> callback) { _startRunCallback = std::move(callback); }
     void setStartButtonText(const std::string& text) { _startButton->setTitleText(text); }
 
