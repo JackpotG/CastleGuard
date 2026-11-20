@@ -170,9 +170,9 @@ constexpr int   FX_POOL_SIZE       = 12;
 constexpr float SKILL_BTN_SIZE     = 52.0f;
 constexpr float ARROW_VISUAL_SCALE = 1.25f;
 // ---- 经济 HUD / 结算层（纯表现尺寸，奖励数值归 GameData）----
-constexpr float SETTLEMENT_BUTTON_W = 230.0f;
-constexpr float SETTLEMENT_BUTTON_H = 72.0f;
-constexpr float SETTLEMENT_BUTTON_GAP = 24.0f;
+constexpr float SETTLEMENT_BUTTON_W = 170.0f;
+constexpr float SETTLEMENT_BUTTON_H = 68.0f;
+constexpr float SETTLEMENT_BUTTON_GAP = 18.0f;
 constexpr float WALL_HEALTH_BAR_W = 180.0f;
 constexpr float BOSS_HEALTH_BAR_W = 480.0f;
 constexpr float COMBAT_HEALTH_BAR_H = 28.0f;
@@ -745,15 +745,15 @@ void MainScene::refreshCombatHUD()
     }
 
     int bossCount = 0;
-    int bossHP = 0;
-    int bossMaxHP = 0;
+    float bossHP = 0.0f;
+    float bossMaxHP = 0.0f;
     for (const auto& monster : _monsterPool)
     {
         if (monster.active && monster.state != MonsterState::Dead &&
             monster.type == MonsterType::Boss)
         {
             ++bossCount;
-            bossHP += std::max(0, monster.hp);
+            bossHP += std::max(0.0f, monster.hp);
             bossMaxHP += monster.maxHp;
         }
     }
@@ -772,8 +772,8 @@ void MainScene::refreshCombatHUD()
             Color4F(0.78f, 0.16f, 0.26f, 0.98f));
         _bossHealthBar->drawRect(min, max, Color4F(1.0f, 0.72f, 0.76f, 0.96f), 2.5f);
         _bossHealthLabel->setString(
-            bossCount > 1 ? StringUtils::format("BOSS x%d  %d / %d", bossCount, bossHP, bossMaxHP)
-                          : StringUtils::format("BOSS  %d / %d", bossHP, bossMaxHP));
+            bossCount > 1 ? StringUtils::format("BOSS x%d  %.0f / %.0f", bossCount, bossHP, bossMaxHP)
+                          : StringUtils::format("BOSS  %.0f / %.0f", bossHP, bossMaxHP));
     }
 }
 
@@ -1091,7 +1091,8 @@ void MainScene::drawMonsterTuningTab()
     const auto type = static_cast<MonsterType>(_monsterTuningType);
     auto value      = _monsterBalance.parameters(type);
     bool changed    = false;
-    changed |= ImGui::SliderInt("生命上限", &value.maxHp, 1, 100);
+    changed |= ImGui::SliderFloat("生命上限", &value.maxHp, 1.0f, 100.0f, "%.1f");
+    changed |= ImGui::SliderInt("金币掉落", &value.coinDrop, 1, 20);
     changed |= ImGui::SliderFloat("速度倍率", &value.speedMultiplier, 0.1f, 4.0f, "%.2f 倍");
     changed |= ImGui::SliderFloat("体型倍率", &value.bodyScale, 0.4f, 3.0f, "%.2f 倍");
     changed |= ImGui::SliderFloat("击退承受系数", &value.knockbackFactor, 0.0f, 2.0f, "%.2f 倍");
@@ -1119,10 +1120,11 @@ void MainScene::drawMonsterTuningTab()
     {
         const auto loggedType  = static_cast<MonsterType>(_monsterTuningDirtyType);
         const auto& loggedData = _monsterBalance.parameters(loggedType);
-        AXLOGI("[MonsterTuning] updated: type={}, baseSpeed={}, baseBodyRadius={}, hp={}, speedMul={}, "
+        AXLOGI("[CampaignBalance][MonsterTuning] updated: type={}, baseSpeed={}, baseBodyRadius={}, hp={}, coins={}, speedMul={}, "
                "bodyScale={}, knockbackFactor={}, power={}, interval={}, stop=[{},{}]",
                monsterNames[_monsterTuningDirtyType], _monsterBalance.baseSpeed(),
-               _monsterBalance.baseBodyRadius(), loggedData.maxHp, loggedData.speedMultiplier,
+               _monsterBalance.baseBodyRadius(), loggedData.maxHp, loggedData.coinDrop,
+               loggedData.speedMultiplier,
                loggedData.bodyScale, loggedData.knockbackFactor, loggedData.actionPower,
                loggedData.actionInterval,
                loggedData.stopRatioMin, loggedData.stopRatioMax);
@@ -1225,8 +1227,7 @@ void MainScene::drawSandboxTab()
     }
     else
     {
-        ImGui::Text("当前关卡: %d / %d", static_cast<int>(_levelIndex) + 1,
-                    static_cast<int>(_campaign.levels().size()));
+        ImGui::Text("当前关卡: %d", static_cast<int>(_levelIndex) + 1);
     }
     ImGui::BeginDisabled(_gameMode != GameMode::Campaign);
     if (ImGui::Button("上一关"))
@@ -1292,8 +1293,10 @@ void MainScene::drawSandboxTab()
     ImGui::InputInt("金币", &_sandboxDraft.coins, 100, 1000);
     ImGui::InputInt("水晶", &_sandboxDraft.crystals, 10, 100);
     ImGui::InputInt("已通关关数", &_sandboxDraft.highestClearedStage, 1, 1);
-    ImGui::InputInt("已领养成奖励关数", &_sandboxDraft.highestRewardedStage, 1, 1);
-    ImGui::TextDisabled("关卡进度在重开或开始下一局时生效。正式战役共 5 关。");
+    ImGui::InputInt("已领奖关数", &_sandboxDraft.highestRewardedStage, 1, 1);
+    ImGui::InputInt("城墙补给库存", &_sandboxDraft.wallKitStock, 1, 5);
+    ImGui::InputInt("法力符文库存", &_sandboxDraft.manaCharmStock, 1, 5);
+    ImGui::TextDisabled("关卡进度在重开或开始下一局时生效。");
 
     const char* upgradeNames[] = {"强弓等级", "疾射等级", "多重箭等级", "城墙等级"};
     for (size_t i = 0; i < _sandboxDraft.upgradeLevels.size(); ++i)
@@ -1350,7 +1353,7 @@ void MainScene::drawSandboxTab()
 
     if (ImGui::BeginPopupModal("确认恢复初始存档", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
     {
-        ImGui::Text("金币、水晶、关卡进度和全部升级会恢复初始值。\n本局临时击杀收益不受影响。");
+        ImGui::Text("金币、水晶、关卡进度、补给和全部升级会恢复初始值。\n本局临时击杀收益不受影响。");
         if (ImGui::Button("确认恢复"))
         {
             data.debugResetPlayerData();
@@ -1674,7 +1677,7 @@ void MainScene::killMonster(Monster& m)
     m.state = MonsterState::Dead;
     auto& data = GameData::getInstance();
     const int coinsBefore = data.economy().runCoins();
-    if (data.recordKill())
+    if (data.recordKill(m.coinDrop))
     {
         const int earned = data.economy().runCoins() - coinsBefore;
         if (earned > 0)
@@ -2075,7 +2078,7 @@ void MainScene::setupMonster(Monster& m, MonsterType type, const Vec2& spawnPos,
     m.knockbackDirection = Vec2::ZERO;
     m.knockbackRemaining = 0.0f;
     m.windupTimer   = 0.0f;   // 攻击前摇复位（飞行怪/Boss）
-    m.hp            = 1;
+    m.hp            = 1.0f;
     m.shieldCharges = 0;      // 一次性护盾复位（护符怪在类型表里给 1 层）
     m.ghostHidden   = false;  // 幽灵状态复位
     m.ghostTimer    = GHOST_SHOW_TIME;
@@ -2085,8 +2088,10 @@ void MainScene::setupMonster(Monster& m, MonsterType type, const Vec2& spawnPos,
     const float r2 = static_cast<float>(rand()) / RAND_MAX;  // 个体速度随机源
     const float breathPhaseSeed = static_cast<float>(rand()) / static_cast<float>(RAND_MAX);
     const float breathSpeedSeed = static_cast<float>(rand()) / static_cast<float>(RAND_MAX);
-    m.hp          = parameters.maxHp;
-    m.maxHp       = parameters.maxHp;
+    m.hp          = _monsterBalance.healthAtStage(type, _gameMode == GameMode::Campaign
+                                                           ? static_cast<int>(_levelIndex) + 1 : 1);
+    m.maxHp       = m.hp;
+    m.coinDrop    = parameters.coinDrop;
     m.actionPower = parameters.actionPower;
     m.speed       = _monsterBalance.baseSpeed() * parameters.speedMultiplier * (0.85f + r2 * 0.3f);
     m.bodyR       = _monsterBalance.baseBodyRadius() * parameters.bodyScale;
@@ -2140,7 +2145,7 @@ void MainScene::setupMonster(Monster& m, MonsterType type, const Vec2& spawnPos,
     }
 }
 
-void MainScene::spawnMonster(MonsterType type, int lane, const std::string& from)
+void MainScene::spawnMonster(MonsterType type, int lane, const std::string& from, bool aligned)
 {
     Monster* m = allocMonster();
     if (!m)
@@ -2154,7 +2159,7 @@ void MainScene::spawnMonster(MonsterType type, int lane, const std::string& from
     // 不会在半途被拉回车道中心线；侧翼滑入的不抖，保持轨迹干净
     const float r1 = static_cast<float>(rand()) / RAND_MAX;  // 0~1
     Vec2 jitter;
-    if (from == "spawn")
+    if (from == "spawn" && !aligned)
     {
         if (_battleLayout == BattleLayout::Oblique25D)
         {
@@ -2232,8 +2237,8 @@ void MainScene::activateLevel(size_t index, bool announceUnlocks)
     {
         showSkillUnlocks(unlocked);
     }
-    AXLOGI("[Campaign] level activated: stage={}/{}, name={}, waves={}", _levelIndex + 1,
-           _campaign.levels().size(), currentLevel().name, _waves.size());
+    AXLOGI("[Campaign] level activated: stage={}, name={}, waves={}", _levelIndex + 1,
+           currentLevel().name, _waves.size());
 }
 
 void MainScene::prepareEndlessWave(int waveNumber)
@@ -2307,6 +2312,9 @@ void MainScene::beginWave(size_t index)
     for (size_t i = 0; i < w.groups.size(); ++i)
     {
         _groupRt[i].timer = -w.groups[i].delay;
+        if (w.groups[i].pattern == SpawnPattern::Column)
+            _groupRt[i].chosenLane = w.groups[i].lane >= 0 ? w.groups[i].lane % laneCount()
+                                                                : rand() % laneCount();
     }
     _waveState = WaveState::Spawning;
     if (_gameMode == GameMode::Endless)
@@ -2316,8 +2324,8 @@ void MainScene::beginWave(size_t index)
     }
     else if (_gameMode == GameMode::Campaign)
     {
-        AXLOGI("[Campaign] wave started: stage={}/{}, wave={}/{}, name={}", _levelIndex + 1,
-               _campaign.levels().size(), index + 1, _waves.size(), w.name);
+        AXLOGI("[Campaign] wave started: stage={}, wave={}/{}, name={}", _levelIndex + 1,
+               index + 1, _waves.size(), w.name);
     }
     else
     {
@@ -2353,9 +2361,22 @@ void MainScene::updateWaves(float delta)
             rt.timer += delta;
             if (rt.timer >= 0.0f)
             {
-                rt.timer -= cfg.interval;  // 到 0 出第一只，之后每 interval 一只
-                spawnMonster(cfg.type, cfg.lane, cfg.from);
-                ++rt.spawned;
+                rt.timer -= cfg.interval;
+                if (cfg.pattern == SpawnPattern::Row)
+                {
+                    const int batch = std::min(laneCount(), cfg.count - rt.spawned);
+                    const int first = cfg.lane >= 0 ? cfg.lane : (laneCount() - batch) / 2;
+                    for (int n = 0; n < batch; ++n)
+                        spawnMonster(cfg.type, first + n, cfg.from, true);
+                    rt.spawned += batch;
+                }
+                else
+                {
+                    const int lane = cfg.pattern == SpawnPattern::Column ? rt.chosenLane : cfg.lane;
+                    spawnMonster(cfg.type, lane, cfg.from,
+                                 cfg.pattern == SpawnPattern::Column);
+                    ++rt.spawned;
+                }
             }
             if (rt.spawned < cfg.count)
             {
@@ -2417,8 +2438,8 @@ void MainScene::updateWaves(float delta)
                     showSettlement(true);
                     break;
                 }
-                AXLOGI("[Campaign] level cleared: stage={}/{}, kills={}", _levelIndex + 1,
-                       _campaign.levels().size(), GameData::getInstance().economy().runKills());
+                AXLOGI("[Campaign] level cleared: stage={}, kills={}", _levelIndex + 1,
+                       GameData::getInstance().economy().runKills());
                 showSettlement(true);
             }
         }
@@ -3050,9 +3071,12 @@ void MainScene::resetBattleForRun()
     _settingsVisible = false;
     _settingsPanel->setVisible(false);
     clearField();
-    _wallMaxHP = GameData::getInstance().wallMaxHealth();
+    const CampaignBattleSupplies supplies = _gameMode == GameMode::Campaign
+        ? GameData::getInstance().consumeCampaignSupplies() : CampaignBattleSupplies{};
+    _wallMaxHP = GameData::getInstance().wallMaxHealth() + (supplies.wallKit ? 20 : 0);
     _wallHP    = _wallMaxHP;
     _mana      = MANA_MAX;  // 技能系统：蓝量冷却一并复位
+    _campaignManaRegenBonus = supplies.manaCharm ? 2.0f : 0.0f;
     for (int i = 0; i < SKILL_COUNT; ++i)
     {
         _cdRemaining[i] = 0.0f;
@@ -3087,8 +3111,8 @@ void MainScene::startLevel(size_t index)
     activateLevel(index, true);
     _waveState = WaveState::Idle;  // 下一帧 updateWaves 自动 beginWave(0)
     refreshRunBuffHUD();
-    AXLOGI("[CampaignCity][Campaign] run started: stage={}/{}, wallHP={}, arrowDamage={}, multiShot={}, "
-           "fireInterval={:.3f}", _levelIndex + 1, _campaign.levels().size(), _wallHP,
+    AXLOGI("[CampaignCity][Campaign] run started: stage={}, wallHP={}, arrowDamage={}, multiShot={}, "
+           "fireInterval={:.3f}", _levelIndex + 1, _wallHP,
            GameData::getInstance().arrowDamage(), GameData::getInstance().multiShotCount(),
            currentCombatStats().fireInterval);
 }
@@ -3131,7 +3155,7 @@ void MainScene::sandboxGotoLevel(int offset)
     const int next = std::clamp(static_cast<int>(_levelIndex) + offset, 0,
                                 static_cast<int>(_campaign.levels().size()) - 1);
     startLevel(static_cast<size_t>(next));
-    AXLOGI("[Campaign] sandbox level jump: stage={}/{}", next + 1, _campaign.levels().size());
+    AXLOGI("[Campaign] sandbox level jump: stage={}", next + 1);
 }
 #endif  // CG_DEBUG_TOOLS
 
@@ -3253,6 +3277,14 @@ void MainScene::initEconomyUI()
     _settlementLayer->addChild(_settlementBackdrop, 0);
     _settlementPanel = DrawNode::create();
     _settlementLayer->addChild(_settlementPanel, 1);
+    _settlementArt = DrawNode::create();
+    _settlementLayer->addChild(_settlementArt, 2);
+    for (auto& value : _settlementValues)
+    {
+        value = Label::createWithSystemFont("", "Arial", 31);
+        value->setTextColor(Color4B(244, 245, 224, 255));
+        _settlementLayer->addChild(value, 3);
+    }
 
     _settlementTitle = Label::createWithSystemFont("", "Arial", 48);
     _settlementLayer->addChild(_settlementTitle, 2);
@@ -3269,23 +3301,48 @@ void MainScene::initEconomyUI()
                              Color4F(0.18f, 0.58f, 0.36f, 1.0f));
     restartBg->drawRect(Vec2::ZERO, Vec2(SETTLEMENT_BUTTON_W, SETTLEMENT_BUTTON_H),
                         Color4F(0.75f, 1.0f, 0.84f, 1.0f), 3.0f);
+    restartBg->drawCircle(Vec2(30.0f, 34.0f), 14.0f, 0.0f, 22, false,
+                          Color4F(0.91f, 1.0f, 0.91f, 1.0f), 3.0f);
+    restartBg->drawSolidTriangle(Vec2(14.0f, 44.0f), Vec2(29.0f, 42.0f),
+                                  Vec2(20.0f, 31.0f), Color4F::WHITE, Color4F::WHITE);
     _settlementRestartBtn->addChild(restartBg);
     _settlementRestartLabel = Label::createWithSystemFont("再来一局", "Arial", 30);
-    _settlementRestartLabel->setPosition(Vec2(SETTLEMENT_BUTTON_W * 0.5f, SETTLEMENT_BUTTON_H * 0.5f));
+    _settlementRestartLabel->setPosition(Vec2(108.0f, SETTLEMENT_BUTTON_H * 0.5f));
     _settlementRestartBtn->addChild(_settlementRestartLabel, 1);
     _settlementLayer->addChild(_settlementRestartBtn, 2);
 
-    _settlementUpgradeBtn = Node::create();
-    auto upgradeBg = DrawNode::create();
-    upgradeBg->drawSolidRect(Vec2::ZERO, Vec2(SETTLEMENT_BUTTON_W, SETTLEMENT_BUTTON_H),
-                             Color4F(0.20f, 0.42f, 0.68f, 1.0f));
-    upgradeBg->drawRect(Vec2::ZERO, Vec2(SETTLEMENT_BUTTON_W, SETTLEMENT_BUTTON_H),
-                        Color4F(0.76f, 0.90f, 1.0f, 1.0f), 3.0f);
-    _settlementUpgradeBtn->addChild(upgradeBg);
-    auto upgradeLabel = Label::createWithSystemFont("升级", "Arial", 30);
-    upgradeLabel->setPosition(Vec2(SETTLEMENT_BUTTON_W * 0.5f, SETTLEMENT_BUTTON_H * 0.5f));
-    _settlementUpgradeBtn->addChild(upgradeLabel, 1);
-    _settlementLayer->addChild(_settlementUpgradeBtn, 2);
+    _settlementClaimBtn = Node::create();
+    auto claimBg = DrawNode::create();
+    claimBg->drawSolidRect(Vec2::ZERO, Vec2(SETTLEMENT_BUTTON_W, SETTLEMENT_BUTTON_H),
+                           Color4F(0.54f, 0.39f, 0.17f, 1.0f));
+    claimBg->drawRect(Vec2::ZERO, Vec2(SETTLEMENT_BUTTON_W, SETTLEMENT_BUTTON_H),
+                      Color4F(1.0f, 0.84f, 0.42f, 1.0f), 3.0f);
+    claimBg->drawSolidRect(Vec2(18.0f, 23.0f), Vec2(47.0f, 39.0f),
+                           Color4F(0.30f, 0.22f, 0.13f, 1.0f));
+    claimBg->drawLine(Vec2(18.0f, 39.0f), Vec2(47.0f, 39.0f),
+                      Color4F(1.0f, 0.84f, 0.42f, 1.0f), 3.0f);
+    claimBg->drawSolidCircle(Vec2(32.0f, 45.0f), 7.0f, 0.0f, 14,
+                             Color4F(1.0f, 0.80f, 0.26f, 1.0f));
+    _settlementClaimBtn->addChild(claimBg);
+    auto claimLabel = Label::createWithSystemFont("领取", "Arial", 29);
+    claimLabel->setPosition(Vec2(108.0f, SETTLEMENT_BUTTON_H * 0.5f));
+    _settlementClaimBtn->addChild(claimLabel, 1);
+    _settlementLayer->addChild(_settlementClaimBtn, 2);
+
+    _settlementNextBtn = Node::create();
+    auto nextBg = DrawNode::create();
+    nextBg->drawSolidRect(Vec2::ZERO, Vec2(SETTLEMENT_BUTTON_W, SETTLEMENT_BUTTON_H),
+                          Color4F(0.18f, 0.48f, 0.55f, 1.0f));
+    nextBg->drawRect(Vec2::ZERO, Vec2(SETTLEMENT_BUTTON_W, SETTLEMENT_BUTTON_H),
+                     Color4F(0.64f, 0.91f, 0.94f, 1.0f), 3.0f);
+    nextBg->drawLine(Vec2(18.0f, 34.0f), Vec2(48.0f, 34.0f), Color4F::WHITE, 4.0f);
+    nextBg->drawSolidTriangle(Vec2(49.0f, 34.0f), Vec2(34.0f, 45.0f),
+                               Vec2(34.0f, 23.0f), Color4F::WHITE, Color4F::WHITE);
+    _settlementNextBtn->addChild(nextBg);
+    _settlementNextLabel = Label::createWithSystemFont("下一关", "Arial", 26);
+    _settlementNextLabel->setPosition(Vec2(108.0f, SETTLEMENT_BUTTON_H * 0.5f));
+    _settlementNextBtn->addChild(_settlementNextLabel, 1);
+    _settlementLayer->addChild(_settlementNextBtn, 2);
 
     _settlementModeBtn = Node::create();
     auto modeBg = DrawNode::create();
@@ -3293,9 +3350,14 @@ void MainScene::initEconomyUI()
                           Color4F(0.40f, 0.30f, 0.58f, 1.0f));
     modeBg->drawRect(Vec2::ZERO, Vec2(SETTLEMENT_BUTTON_W, SETTLEMENT_BUTTON_H),
                      Color4F(0.88f, 0.82f, 1.0f, 1.0f), 3.0f);
+    modeBg->drawSolidTriangle(Vec2(15.0f, 36.0f), Vec2(50.0f, 36.0f),
+                              Vec2(32.0f, 50.0f), Color4F::WHITE, Color4F::WHITE);
+    modeBg->drawSolidRect(Vec2(20.0f, 19.0f), Vec2(44.0f, 36.0f), Color4F::WHITE);
+    modeBg->drawSolidRect(Vec2(29.0f, 19.0f), Vec2(36.0f, 32.0f),
+                           Color4F(0.40f, 0.30f, 0.58f, 1.0f));
     _settlementModeBtn->addChild(modeBg);
-    _settlementHomeLabel = Label::createWithSystemFont("返回主页", "Arial", 28);
-    _settlementHomeLabel->setPosition(Vec2(SETTLEMENT_BUTTON_W * 0.5f, SETTLEMENT_BUTTON_H * 0.5f));
+    _settlementHomeLabel = Label::createWithSystemFont("王城", "Arial", 28);
+    _settlementHomeLabel->setPosition(Vec2(108.0f, SETTLEMENT_BUTTON_H * 0.5f));
     _settlementModeBtn->addChild(_settlementHomeLabel, 1);
     _settlementLayer->addChild(_settlementModeBtn, 2);
 
@@ -3376,8 +3438,11 @@ void MainScene::layoutEconomyUI(const Vec2& origin, float right, float top)
     _developmentMenuPanel->layout(origin, visibleSize);
 #endif
     _runBuffLabel->setPosition(Vec2(origin.x + visibleSize.width * 0.5f, top - 64.0f));
-    const float panelW     = std::min(560.0f, visibleSize.width * 0.86f);
-    const float panelH     = std::min(520.0f, visibleSize.height * 0.76f);
+    const bool campaign = _gameMode == GameMode::Campaign;
+    const float panelW = std::min(campaign ? 600.0f : 560.0f,
+                                  visibleSize.width * 0.90f);
+    const float panelH = std::min(campaign ? 550.0f : 520.0f,
+                                  visibleSize.height * 0.76f);
     const Vec2 center((origin.x + right) * 0.5f, origin.y + visibleSize.height * 0.5f);
     const Vec2 panelMin(center.x - panelW * 0.5f, center.y - panelH * 0.5f);
     const Vec2 panelMax(center.x + panelW * 0.5f, center.y + panelH * 0.5f);
@@ -3388,30 +3453,86 @@ void MainScene::layoutEconomyUI(const Vec2& origin, float right, float top)
     _settlementPanel->drawSolidRect(panelMin, panelMax, Color4F(0.10f, 0.12f, 0.17f, 0.98f));
     _settlementPanel->drawRect(panelMin, panelMax, Color4F(0.68f, 0.74f, 0.84f, 1.0f), 3.0f);
 
-    _settlementTitle->setPosition(Vec2(center.x, center.y + panelH * 0.31f));
+    _settlementTitle->setPosition(Vec2(center.x, center.y + panelH * 0.34f));
+    _settlementRewards->setVisible(!campaign);
     _settlementRewards->setPosition(Vec2(center.x, center.y + panelH * 0.10f));
-    _settlementTotals->setPosition(Vec2(center.x, center.y - panelH * 0.10f));
+    _settlementTotals->setPosition(Vec2(center.x, center.y - panelH * 0.18f));
+    _settlementArt->clear();
+    _settlementArt->setVisible(campaign);
+    for (auto* value : _settlementValues) value->setVisible(campaign);
 
-    const float buttonsW = SETTLEMENT_BUTTON_W * 2.0f + SETTLEMENT_BUTTON_GAP;
-    Vec2 upgradePos(center.x - buttonsW * 0.5f, panelMin.y + 28.0f);
-    Vec2 restartPos(upgradePos.x + SETTLEMENT_BUTTON_W + SETTLEMENT_BUTTON_GAP, upgradePos.y);
-    Vec2 modePos(center.x - SETTLEMENT_BUTTON_W * 0.5f,
-                 upgradePos.y + SETTLEMENT_BUTTON_H + 20.0f);
-    if (_gameMode == GameMode::Endless)
+    Vec2 claimPos(center.x - SETTLEMENT_BUTTON_W * 0.5f, panelMin.y + 33.0f);
+    Vec2 modePos(center.x - SETTLEMENT_BUTTON_W * 0.5f, panelMin.y + 33.0f);
+    Vec2 restartPos = modePos;
+    Vec2 nextPos = modePos;
+    if (campaign)
     {
-        modePos = Vec2(center.x - buttonsW * 0.5f, panelMin.y + 28.0f);
-        restartPos = Vec2(modePos.x + SETTLEMENT_BUTTON_W + SETTLEMENT_BUTTON_GAP, modePos.y);
+        const Color4F seal = _settlementVictory ? Color4F(0.36f, 0.75f, 0.51f, 1.0f)
+                                                : Color4F(0.86f, 0.40f, 0.34f, 1.0f);
+        const Vec2 sealCenter(center.x, center.y + panelH * 0.20f);
+        _settlementArt->drawCircle(sealCenter, 39.0f, 0.0f, 32, false, seal, 5.0f);
+        if (_settlementVictory)
+        {
+            _settlementArt->drawLine(sealCenter + Vec2(-20.0f, 0.0f),
+                                      sealCenter + Vec2(-5.0f, -15.0f), seal, 7.0f);
+            _settlementArt->drawLine(sealCenter + Vec2(-5.0f, -15.0f),
+                                      sealCenter + Vec2(23.0f, 18.0f), seal, 7.0f);
+        }
+        else
+        {
+            _settlementArt->drawLine(sealCenter + Vec2(-17.0f, -17.0f),
+                                      sealCenter + Vec2(17.0f, 17.0f), seal, 6.0f);
+            _settlementArt->drawLine(sealCenter + Vec2(-17.0f, 17.0f),
+                                      sealCenter + Vec2(17.0f, -17.0f), seal, 6.0f);
+        }
+        const float iconY = center.y + panelH * 0.015f;
+        const float spacing = std::min(165.0f, panelW * 0.28f);
+        const Vec2 targets[] = {Vec2(center.x - spacing, iconY),
+                                Vec2(center.x, iconY), Vec2(center.x + spacing, iconY)};
+        _settlementArt->drawCircle(targets[0], 22.0f, 0.0f, 24, false,
+                                   Color4F(0.84f, 0.51f, 0.45f, 1.0f), 3.0f);
+        _settlementArt->drawCircle(targets[0], 8.0f, 0.0f, 20, false,
+                                   Color4F(0.84f, 0.51f, 0.45f, 1.0f), 3.0f);
+        _settlementArt->drawSolidCircle(targets[1], 23.0f, 0.0f, 24,
+                                        Color4F(0.95f, 0.69f, 0.17f, 1.0f));
+        _settlementArt->drawCircle(targets[1], 16.0f, 0.0f, 24, false,
+                                   Color4F(1.0f, 0.87f, 0.39f, 1.0f), 3.0f);
+        const Vec2 gem[] = {targets[2] + Vec2(0.0f, 27.0f),
+                            targets[2] + Vec2(21.0f, 4.0f),
+                            targets[2] + Vec2(12.0f, -22.0f),
+                            targets[2] + Vec2(-12.0f, -22.0f),
+                            targets[2] + Vec2(-21.0f, 4.0f)};
+        _settlementArt->drawSolidPoly(gem, 5, Color4F(0.39f, 0.82f, 0.94f, 1.0f));
+        for (size_t i = 0; i < _settlementValues.size(); ++i)
+            _settlementValues[i]->setPosition(targets[i] + Vec2(0.0f, -56.0f));
+
+        const float rowW = SETTLEMENT_BUTTON_W * 3.0f + SETTLEMENT_BUTTON_GAP * 2.0f;
+        modePos = Vec2(center.x - rowW * 0.5f, panelMin.y + 33.0f);
+        restartPos = modePos + Vec2(SETTLEMENT_BUTTON_W + SETTLEMENT_BUTTON_GAP, 0.0f);
+        nextPos = restartPos + Vec2(SETTLEMENT_BUTTON_W + SETTLEMENT_BUTTON_GAP, 0.0f);
+        if (!_settlementVictory || _levelIndex + 1 >= _campaign.levels().size())
+        {
+            const float pairW = SETTLEMENT_BUTTON_W * 2.0f + SETTLEMENT_BUTTON_GAP;
+            modePos = Vec2(center.x - pairW * 0.5f, panelMin.y + 33.0f);
+            restartPos = modePos + Vec2(SETTLEMENT_BUTTON_W + SETTLEMENT_BUTTON_GAP, 0.0f);
+        }
     }
-    else if (_gameMode == GameMode::Core)
+    else
     {
-        restartPos = Vec2(center.x - SETTLEMENT_BUTTON_W * 0.5f, panelMin.y + 28.0f);
+        const float rowW = SETTLEMENT_BUTTON_W * 2.0f + SETTLEMENT_BUTTON_GAP;
+        modePos = Vec2(center.x - rowW * 0.5f, panelMin.y + 28.0f);
+        restartPos = modePos + Vec2(SETTLEMENT_BUTTON_W + SETTLEMENT_BUTTON_GAP, 0.0f);
+        if (_gameMode == GameMode::Core)
+            restartPos = Vec2(center.x - SETTLEMENT_BUTTON_W * 0.5f, panelMin.y + 28.0f);
     }
-    _settlementUpgradeBtn->setPosition(upgradePos);
+    _settlementClaimBtn->setPosition(claimPos);
     _settlementRestartBtn->setPosition(restartPos);
     _settlementModeBtn->setPosition(modePos);
-    _settlementUpgradeRect = Rect(upgradePos.x, upgradePos.y, SETTLEMENT_BUTTON_W, SETTLEMENT_BUTTON_H);
+    _settlementNextBtn->setPosition(nextPos);
+    _settlementClaimRect = Rect(claimPos.x, claimPos.y, SETTLEMENT_BUTTON_W, SETTLEMENT_BUTTON_H);
     _settlementRestartRect = Rect(restartPos.x, restartPos.y, SETTLEMENT_BUTTON_W, SETTLEMENT_BUTTON_H);
     _settlementModeRect = Rect(modePos.x, modePos.y, SETTLEMENT_BUTTON_W, SETTLEMENT_BUTTON_H);
+    _settlementNextRect = Rect(nextPos.x, nextPos.y, SETTLEMENT_BUTTON_W, SETTLEMENT_BUTTON_H);
 }
 
 void MainScene::initCoinPickupPool()
@@ -3657,16 +3778,19 @@ void MainScene::offerCampaignReward(int stage, bool resumeRunAfterChoice)
     {
         const auto id          = _campaignRewards.choices()[i];
         const auto& definition = CampaignRewardModel::definition(id);
-        const bool resource    = definition.upgradeIndex < 0;
+        constexpr ChoiceIcon icons[] = {ChoiceIcon::Coins, ChoiceIcon::Crystals,
+                                        ChoiceIcon::Supplies, ChoiceIcon::WallKit,
+                                        ChoiceIcon::ManaCharm};
         cards[i] = ThreeChoiceCard{
             definition.name,
             CampaignRewardModel::description(id, stage),
-            resource ? "立即入账并保存" : "永久养成 · 无需消耗货币",
-            resource ? Color4B(91, 192, 225, 255) : Color4B(235, 178, 61, 255),
+            "",
+            definition.tactical ? Color4B(113, 214, 179, 255)
+                                : Color4B(235, 190, 88, 255),
+            icons[static_cast<size_t>(id)],
         };
     }
-    _choicePanel->open(StringUtils::format("第 %d 关养成奖励", stage),
-                       "首次通关奖励 · 选择后永久保存", cards);
+    _choicePanel->open("选择战利品", "", cards, true);
     AXLOGI("[GameModes][CampaignReward] offer opened: stage={}, resume={}", stage,
            resumeRunAfterChoice);
 }
@@ -3736,7 +3860,7 @@ void MainScene::showSettlement(bool victory)
     {
         _pendingSettlement    = result;
         _hasPendingSettlement = true;
-        offerCampaignReward(stage, false);
+        presentSettlement(result, true);
         return;
     }
     presentSettlement(result, victory);
@@ -3753,19 +3877,12 @@ void MainScene::presentSettlement(const SettlementSummary& result, bool victory)
     _skillHint->setVisible(false);
 
     const auto& data = GameData::getInstance();
-    const int stage      = static_cast<int>(_levelIndex) + 1;
-    const int stageCount = static_cast<int>(_campaign.levels().size());
-    const int clearedStages = std::min(data.highestClearedStage(), stageCount);
-    const bool campaignClear = _gameMode == GameMode::Campaign && victory && clearedStages >= stageCount;
+    _settlementVictory = victory;
     _settlementTitle->setString(
         _gameMode == GameMode::Core ? (victory ? "核心玩法验证完成" : "核心玩法验证失败")
         : _gameMode == GameMode::Endless ? "无尽守城结束"
-        : campaignClear ? "五关全通！"
-                        : StringUtils::format("第 %d 关%s", stage, victory ? "通过" : "失败"));
+        : victory ? "守城成功" : "城墙失守");
     _settlementTitle->setTextColor(victory ? Color4B(120, 245, 160, 255) : Color4B(255, 125, 105, 255));
-    const std::string rewardSuffix = _lastCampaignRewardName.empty()
-                                         ? ""
-                                         : "    养成：" + _lastCampaignRewardName;
     if (_gameMode == GameMode::Core)
     {
         _settlementRewards->setString(
@@ -3785,23 +3902,25 @@ void MainScene::presentSettlement(const SettlementSummary& result, bool victory)
     }
     else
     {
-        _settlementRewards->setString(
-            StringUtils::format("本局击杀  %d\n金币 +%d    水晶 +%d%s", result.kills,
-                                result.coinsEarned, result.crystalsEarned, rewardSuffix.c_str()));
-        _settlementTotals->setString(
-            StringUtils::format("持有：金币 %d    水晶 %d    进度 %d/%d",
-                                data.economy().totalCoins(), data.economy().totalCrystals(),
-                                clearedStages, stageCount));
+        _settlementRewards->setString("");
+        _settlementValues[0]->setString(StringUtils::format("%d", result.kills));
+        _settlementValues[1]->setString(StringUtils::format("+%d", result.coinsEarned));
+        _settlementValues[2]->setString(StringUtils::format("+%d", result.crystalsEarned));
+        _settlementTotals->setString(_lastCampaignRewardName.empty()
+                                         ? "" : "已领取  " + _lastCampaignRewardName);
     }
     const std::string nextText = _gameMode == GameMode::Core ? "再次验证"
                                      : _gameMode == GameMode::Endless ? "再守一次"
-                                     : victory ? (campaignClear ? "重玩终章" : "下一关")
-                                               : "重试本关";
+                                     : "重试";
     _settlementRestartLabel->setString(nextText);
-    _settlementUpgradeBtn->setVisible(_gameMode == GameMode::Campaign);
-    _settlementModeBtn->setVisible(_gameMode != GameMode::Core);
-    _settlementHomeLabel->setString(_gameMode == GameMode::Endless ? "返回肉鸽主页"
-                                                                    : "返回闯关主页");
+    const bool campaign = _gameMode == GameMode::Campaign;
+    _settlementClaimBtn->setVisible(campaign && _hasPendingSettlement);
+    _settlementModeBtn->setVisible(_gameMode != GameMode::Core &&
+                                    (!campaign || !_hasPendingSettlement));
+    _settlementRestartBtn->setVisible(!campaign || !_hasPendingSettlement);
+    _settlementNextBtn->setVisible(campaign && victory && !_hasPendingSettlement &&
+                                    _levelIndex + 1 < _campaign.levels().size());
+    _settlementHomeLabel->setString(campaign ? "王城" : "主页");
     _upgradePanel->setStartRunCallback([this]() { resetGame(); });
     _upgradePanel->setStartButtonText(nextText);
     _settlementLayer->setVisible(true);
@@ -4236,7 +4355,7 @@ void MainScene::updateSkills(float delta)
     else
 #endif
     {
-        _mana = std::min(MANA_MAX, _mana + MANA_REGEN * delta);
+        _mana = std::min(MANA_MAX, _mana + (MANA_REGEN + _campaignManaRegenBonus) * delta);
     }
     for (int i = 0; i < SKILL_COUNT; ++i)
     {
@@ -4527,16 +4646,24 @@ void MainScene::onTouchesBegan(const std::vector<ax::Touch*>& touches, ax::Event
         }
         for (auto&& t : touches)
         {
-            if (_settlementUpgradeBtn->isVisible() &&
-                _settlementUpgradeRect.containsPoint(t->getLocation()))
+            if (_settlementClaimBtn->isVisible() &&
+                _settlementClaimRect.containsPoint(t->getLocation()))
             {
                 _settlementLayer->setVisible(false);
-                _upgradePanel->open();
+                offerCampaignReward(static_cast<int>(_levelIndex) + 1, false);
                 break;
             }
-            if (_settlementRestartRect.containsPoint(t->getLocation()))
+            if (_settlementNextBtn->isVisible() &&
+                _settlementNextRect.containsPoint(t->getLocation()))
             {
-                resetGame();
+                startLevel(_levelIndex + 1);
+                break;
+            }
+            if (_settlementRestartBtn->isVisible() &&
+                _settlementRestartRect.containsPoint(t->getLocation()))
+            {
+                if (_gameMode == GameMode::Campaign) startLevel(_levelIndex);
+                else resetGame();
                 break;
             }
             if (_settlementModeBtn->isVisible() &&

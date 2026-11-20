@@ -15,12 +15,14 @@
 
 namespace
 {
-constexpr int SAVE_VERSION = 4;
+constexpr int SAVE_VERSION = 5;
 constexpr const char* KEY_SAVE_VERSION = "cg.save.version";
 constexpr const char* KEY_COINS        = "cg.save.coins";
 constexpr const char* KEY_CRYSTALS     = "cg.save.crystals";
 constexpr const char* KEY_HIGHEST_CLEARED_STAGE = "cg.save.campaign.highestClearedStage";
 constexpr const char* KEY_HIGHEST_REWARDED_STAGE = "cg.save.campaign.highestRewardedStage";
+constexpr const char* KEY_WALL_KIT_STOCK = "cg.save.campaign.wallKitStock";
+constexpr const char* KEY_MANA_CHARM_STOCK = "cg.save.campaign.manaCharmStock";
 constexpr const char* CATALOG_PATH     = "config/upgrades.json";
 
 constexpr std::array<const char*, static_cast<size_t>(UpgradeId::Count)> UPGRADE_KEYS = {
@@ -150,14 +152,14 @@ void EconomyModel::startRun()
     _runActive       = true;
 }
 
-bool EconomyModel::recordKill()
+bool EconomyModel::recordKill(int coins)
 {
     if (!_runActive)
     {
         return false;
     }
     _runKills = addClamped(_runKills, 1);
-    _runCoins = addClamped(_runCoins, COINS_PER_KILL);
+    _runCoins = addClamped(_runCoins, std::max(0, coins));
     return true;
 }
 
@@ -554,6 +556,8 @@ void GameData::load()
     const int highestRewarded = version >= 4 ? readStoredInt(KEY_HIGHEST_REWARDED_STAGE, 0)
                                              : highestCleared;
     _campaign = CampaignProgressionModel(highestCleared, highestRewarded);
+    _wallKitStock = version >= 5 ? std::max(0, readStoredInt(KEY_WALL_KIT_STOCK, 0)) : 0;
+    _manaCharmStock = version >= 5 ? std::max(0, readStoredInt(KEY_MANA_CHARM_STOCK, 0)) : 0;
     _progression = ProgressionModel();
     for (const auto& definition : _upgrades)
     {
@@ -580,6 +584,8 @@ void GameData::save() const
     writeStoredInt(KEY_CRYSTALS, _economy.totalCrystals());
     writeStoredInt(KEY_HIGHEST_CLEARED_STAGE, _campaign.highestClearedStage());
     writeStoredInt(KEY_HIGHEST_REWARDED_STAGE, _campaign.highestRewardedStage());
+    writeStoredInt(KEY_WALL_KIT_STOCK, _wallKitStock);
+    writeStoredInt(KEY_MANA_CHARM_STOCK, _manaCharmStock);
     for (const auto& definition : _upgrades)
     {
         const std::string key = upgradeStorageKey(definition.key.c_str());
@@ -647,17 +653,12 @@ CampaignRewardContext GameData::campaignRewardContext(int stage) const
 {
     CampaignRewardContext context;
     context.stage = std::max(1, stage);
-    for (size_t i = 0; i < context.canUpgrade.size(); ++i)
-    {
-        const auto id         = static_cast<UpgradeId>(i);
-        context.canUpgrade[i] = upgradeLevel(id) < upgradeDefinition(id).maxLevel();
-    }
     return context;
 }
 
 bool GameData::claimCampaignReward(int stage, CampaignRewardId id)
 {
-    if (stage != _campaign.pendingRewardStage())
+    if (id >= CampaignRewardId::Count || stage != _campaign.pendingRewardStage())
     {
         AXLOGW("[GameModes][CampaignReward] claim rejected: stage={}, pending={}", stage,
                _campaign.pendingRewardStage());
@@ -665,27 +666,33 @@ bool GameData::claimCampaignReward(int stage, CampaignRewardId id)
     }
 
     const auto grant = CampaignRewardModel::grant(id, stage);
-    if (grant.upgradeIndex >= 0)
-    {
-        const auto upgrade = static_cast<UpgradeId>(grant.upgradeIndex);
-        if (upgrade >= UpgradeId::Count || !_progression.grantUpgradeLevel(upgradeDefinition(upgrade)))
-        {
-            AXLOGW("[GameModes][CampaignReward] upgrade claim rejected: stage={}, reward={}", stage,
-                   CampaignRewardModel::definition(id).key);
-            return false;
-        }
-    }
     _economy.grantCoins(grant.coins);
     _economy.grantCrystals(grant.crystals);
+    _wallKitStock = addClamped(_wallKitStock, grant.wallKits);
+    _manaCharmStock = addClamped(_manaCharmStock, grant.manaCharms);
     if (!_campaign.claimRewardStage(stage))
     {
         return false;
     }
     save();
-    AXLOGI("[GameModes][CampaignReward] claimed: stage={}, reward={}, coins={}, crystals={}, upgradeIndex={}",
+    AXLOGI("[CampaignBalance][Reward] claimed: stage={}, reward={}, coins={}, crystals={}, wallKits={}, manaCharms={}",
            stage, CampaignRewardModel::definition(id).key, grant.coins, grant.crystals,
-           grant.upgradeIndex);
+           grant.wallKits, grant.manaCharms);
     return true;
+}
+
+CampaignBattleSupplies GameData::consumeCampaignSupplies()
+{
+    CampaignBattleSupplies result{_wallKitStock > 0, _manaCharmStock > 0};
+    if (result.wallKit) --_wallKitStock;
+    if (result.manaCharm) --_manaCharmStock;
+    if (result.wallKit || result.manaCharm)
+    {
+        save();
+        AXLOGI("[CampaignBalance][Supply] consumed: wallKit={}, manaCharm={}, stock={}/{}",
+               result.wallKit, result.manaCharm, _wallKitStock, _manaCharmStock);
+    }
+    return result;
 }
 
 std::vector<SkillId> GameData::beginStage(int stage)
@@ -738,6 +745,8 @@ DebugPlayerData GameData::debugPlayerData() const
     result.crystals            = _economy.totalCrystals();
     result.highestClearedStage = _campaign.highestClearedStage();
     result.highestRewardedStage = _campaign.highestRewardedStage();
+    result.wallKitStock = _wallKitStock;
+    result.manaCharmStock = _manaCharmStock;
     for (size_t i = 0; i < result.upgradeLevels.size(); ++i)
     {
         result.upgradeLevels[i] = _progression.upgradeLevel(static_cast<UpgradeId>(i));
@@ -754,6 +763,8 @@ void GameData::debugApplyPlayerData(const DebugPlayerData& data)
     _economy.debugSetBalances(data.coins, data.crystals);
     _campaign.setHighestClearedStage(data.highestClearedStage);
     _campaign.setHighestRewardedStage(data.highestRewardedStage);
+    _wallKitStock = std::max(0, data.wallKitStock);
+    _manaCharmStock = std::max(0, data.manaCharmStock);
     for (size_t i = 0; i < data.upgradeLevels.size(); ++i)
     {
         const auto id         = static_cast<UpgradeId>(i);
@@ -802,9 +813,9 @@ void GameData::abandonRun()
     }
 }
 
-bool GameData::recordKill()
+bool GameData::recordKill(int coins)
 {
-    return _economy.recordKill();
+    return _economy.recordKill(coins);
 }
 
 void GameData::checkpointRun()
@@ -825,8 +836,8 @@ SettlementSummary GameData::settleRun(bool victory, int stage, int stageCount, i
         const bool advanced  = victory && _campaign.completeStage(stage, stageCount);
         result.stageAdvanced = advanced;
         save();
-        AXLOGI("[Campaign][Economy] run settled: stage={}/{}, victory={}, advanced={}, kills={}, "
-               "coinsEarned={}, crystalsEarned={}", stage, stageCount, victory, advanced, result.kills,
+        AXLOGI("[Campaign][Economy] run settled: stage={}, victory={}, advanced={}, kills={}, "
+               "coinsEarned={}, crystalsEarned={}", stage, victory, advanced, result.kills,
                result.coinsEarned, result.crystalsEarned);
     }
     return result;

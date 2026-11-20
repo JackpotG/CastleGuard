@@ -16,6 +16,7 @@ TEST_SUITE("MonsterBalance")
         {
             const auto& value = balance.parameters(static_cast<MonsterType>(i));
             CHECK_GE(value.maxHp, 1);
+            CHECK_GE(value.coinDrop, 1);
             CHECK_GT(value.speedMultiplier, 0.0f);
             CHECK_GT(value.bodyScale, 0.0f);
             CHECK_GE(value.actionPower, 0);
@@ -25,6 +26,14 @@ TEST_SUITE("MonsterBalance")
         }
 
         CHECK_EQ(balance.parameters(MonsterType::Boss).maxHp, 30);
+        CHECK_EQ(balance.parameters(MonsterType::Normal).maxHp, doctest::Approx(2.0f));
+        CHECK_LT(balance.parameters(MonsterType::Normal).coinDrop,
+                 balance.parameters(MonsterType::Shield).coinDrop);
+        CHECK_LT(balance.parameters(MonsterType::Shield).coinDrop,
+                 balance.parameters(MonsterType::Boss).coinDrop);
+        CHECK_EQ(balance.healthAtStage(MonsterType::Normal, 1), doctest::Approx(2.0f));
+        CHECK_EQ(balance.healthAtStage(MonsterType::Normal, 2), doctest::Approx(2.4f));
+        CHECK_EQ(balance.healthAtStage(MonsterType::Normal, 5), doctest::Approx(3.6f));
         CHECK_EQ(balance.parameters(MonsterType::Boss).knockbackFactor, doctest::Approx(0.20f));
         CHECK_EQ(balance.resolveKnockbackDistance(MonsterType::Boss, 40.0f),
                  doctest::Approx(8.0f));
@@ -36,7 +45,7 @@ TEST_SUITE("MonsterBalance")
     TEST_CASE("debug edits are validated and can be reset")
     {
         MonsterBalance balance;
-        MonsterParameters invalid{-10, -2.0f, 20.0f, -3, 0.0f, 0.80f, 0.20f, -5.0f};
+        MonsterParameters invalid{-10, -2.0f, 20.0f, -3, 0.0f, 0.80f, 0.20f, -5.0f, -4};
 
         balance.setBaseSpeed(900.0f);
         balance.setBaseBodyRadius(100.0f);
@@ -45,6 +54,7 @@ TEST_SUITE("MonsterBalance")
         CHECK_EQ(balance.baseSpeed(), doctest::Approx(500.0f));
         CHECK_EQ(balance.baseBodyRadius(), doctest::Approx(48.0f));
         CHECK_EQ(sanitized.maxHp, 1);
+        CHECK_EQ(sanitized.coinDrop, 1);
         CHECK_EQ(sanitized.speedMultiplier, doctest::Approx(0.1f));
         CHECK_EQ(sanitized.bodyScale, doctest::Approx(5.0f));
         CHECK_EQ(sanitized.actionPower, 0);

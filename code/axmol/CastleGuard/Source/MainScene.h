@@ -187,7 +187,8 @@ private:
         ax::Vec2 wanderTarget;          // 游荡航点（飞行怪专用：攻击期间持续飞往的下一个点）
         float wanderPhase    = 0.0f;    // 游荡摆动相位（正弦摆动的累加器，让轨迹带弧度）
         float windupTimer    = 0.0f;    // 攻击前摇剩余时间（飞行怪/Boss：>0 时悬停蓄力不能动）
-        int  maxHp           = 1;       // 血量上限（狂暴怪按 hp/maxHp 算加速；治疗回血不超过它）
+        float maxHp         = 1.0f;    // 血量上限（关卡倍率可产生小数）
+        int coinDrop        = 1;       // 出生时固化的金币掉落
         int  shieldCharges   = 0;       // 一次性全能护盾层数（护符怪：挡任何伤害一次）
         float ghostTimer     = 0.0f;    // 幽灵怪隐身周期计时
         bool  ghostHidden    = false;   // 幽灵怪当前是否隐身（隐身时箭打不中，AOE 照吃）
@@ -205,7 +206,7 @@ private:
         float stunTimer      = 0.0f;    // 麻痹剩余时间（>0 时不能移动不能攻击，闪电技能）
         ax::Vec2 knockbackDirection;    // 指向远离城墙的单位向量
         float knockbackRemaining = 0.0f;  // 尚未平滑结算的击退距离
-        int  hp              = 1;       // 血量（当前全是 1 血；M1 护盾怪起开始 >1）
+        float hp            = 1.0f;    // 当前血量；整点箭伤仍能命中小数血量
         ax::DrawNode* slowMark = nullptr;  // 冰冻标记（蓝环，挂在怪节点上，减速时可见）
         ax::DrawNode* stunMark = nullptr;  // 麻痹标记（黄电纹，麻痹时可见）
         ax::DrawNode* windupMark = nullptr;  // 蓄力标记（橙环，飞行怪攻击前摇时可见）
@@ -213,7 +214,7 @@ private:
     };
     void initMonsterPool();
     // 按波次配置放一只怪（lane=-1 随机车道；from=出生方向）
-    void spawnMonster(MonsterType type, int lane, const std::string& from);
+    void spawnMonster(MonsterType type, int lane, const std::string& from, bool aligned = false);
     // 战中生怪入口：分裂怪的子体、召唤怪的召唤物都走这（在指定位置直接激活）
     void spawnMinion(MonsterType type, const ax::Vec2& pos);
     Monster* allocMonster();  // 从池里找一个空槽，找不到返回 nullptr
@@ -320,17 +321,23 @@ private:
     ax::Node* _settlementLayer          = nullptr;
     ax::DrawNode* _settlementBackdrop   = nullptr;
     ax::DrawNode* _settlementPanel      = nullptr;
+    ax::DrawNode* _settlementArt        = nullptr;
+    std::array<ax::Label*, 3> _settlementValues{};
     ax::Node* _settlementRestartBtn     = nullptr;
     ax::Label* _settlementRestartLabel  = nullptr;
-    ax::Node* _settlementUpgradeBtn     = nullptr;
+    ax::Node* _settlementClaimBtn       = nullptr;
+    ax::Node* _settlementNextBtn        = nullptr;
+    ax::Label* _settlementNextLabel     = nullptr;
     ax::Node* _settlementModeBtn        = nullptr;
     ax::Label* _settlementHomeLabel     = nullptr;
     ax::Label* _settlementTitle         = nullptr;
     ax::Label* _settlementRewards       = nullptr;
     ax::Label* _settlementTotals        = nullptr;
     ax::Rect _settlementRestartRect;
-    ax::Rect _settlementUpgradeRect;
+    ax::Rect _settlementClaimRect;
     ax::Rect _settlementModeRect;
+    ax::Rect _settlementNextRect;
+    bool _settlementVictory             = false;
     bool _settlementVisible             = false;
     UpgradePanel* _upgradePanel         = nullptr;
     ThreeChoicePanel* _choicePanel      = nullptr;
@@ -395,6 +402,7 @@ private:
     bool damageMonster(Monster& m, int dmg);  // 返回是否真正扣血；≤0 走击杀
 
     float _mana    = 100.0f;                    // 蓝量（自动回复，上限 100）
+    float _campaignManaRegenBonus = 0.0f;      // 本局战备符文效果，下局开始时重置
     float _cdRemaining[SKILL_COUNT] = {0.0f};   // 各技能剩余冷却
     int _aimingSkill = -1;                      // 瞄准中的技能序号；-1 = 未瞄准
     bool _aimDragging = false;                  // 按住按钮拖动中（抬起=释放）
@@ -449,6 +457,7 @@ private:
     {
         int spawned  = 0;
         float timer  = 0.0f;           // 从 -delay 起步，到 0 出第一只，之后每 interval 一只
+        int chosenLane = -1;           // 纵列在本波内固定同一条车道
     };
     enum class WaveState
     {

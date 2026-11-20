@@ -21,6 +21,13 @@ enum class MonsterType
     Count,
 };
 
+enum class SpawnPattern
+{
+    Scatter,
+    Row,
+    Column,
+};
+
 struct SpawnGroupConfig
 {
     MonsterType type = MonsterType::Normal;
@@ -29,6 +36,7 @@ struct SpawnGroupConfig
     float delay      = 0.0f;
     int lane         = -1;
     std::string from = "spawn";
+    SpawnPattern pattern = SpawnPattern::Scatter;
 };
 
 struct WaveConfig

@@ -37,9 +37,9 @@ bool DevelopmentMenuPanel::init()
     const char* titles[3] = {"玩法核心", "闯关模式", "肉鸽模式"};
     const char* statuses[3] = {"稳定基线", "V1 可玩", "V1 实验"};
     const char* descriptions[3] = {
-        "射箭、技能、怪物与完整波次巡检\n练习局不写入永久收益或关卡进度",
-        "永久养成 + 五关战役\n首次通关获得随机养成奖励",
-        "当前：无尽波次 + 局内随机增益\n规划：武器掉落、解锁与局外养成",
+        "射箭、技能与完整波次验证",
+        "王城养成、持续闯关与首通战利品",
+        "无尽波次与局内随机增益",
     };
     const char* buttons[3] = {"进入验证", "开始闯关", "开始肉鸽"};
     const Color4F colors[3] = {

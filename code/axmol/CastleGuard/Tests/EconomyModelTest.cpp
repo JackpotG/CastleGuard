@@ -40,6 +40,21 @@ TEST_SUITE("EconomyModel")
         CHECK_EQ(result.totalCrystals, 0);
     }
 
+    TEST_CASE("kill rewards use each monster's coin tier and keep it after retreat")
+    {
+        EconomyModel economy(5, 0);
+        economy.startRun();
+        CHECK(economy.recordKill(1));
+        CHECK(economy.recordKill(4));
+        CHECK(economy.recordKill(15));
+        CHECK_EQ(economy.runKills(), 3);
+        CHECK_EQ(economy.runCoins(), 20);
+
+        const auto result = economy.settle(false);
+        CHECK_EQ(result.coinsEarned, 20);
+        CHECK_EQ(result.totalCoins, 25);
+    }
+
     TEST_CASE("each level can provide its configured crystal reward")
     {
         EconomyModel economy;

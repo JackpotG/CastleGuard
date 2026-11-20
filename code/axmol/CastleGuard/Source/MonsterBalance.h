@@ -7,7 +7,7 @@
 
 struct MonsterParameters
 {
-    int maxHp                = 1;
+    float maxHp              = 1.0f;
     float speedMultiplier    = 1.0f;
     float bodyScale          = 1.0f;
     int actionPower          = 5;
@@ -15,6 +15,7 @@ struct MonsterParameters
     float stopRatioMin       = 0.0f;
     float stopRatioMax       = 0.0f;
     float knockbackFactor    = 1.0f;
+    int coinDrop             = 1;
 };
 
 // 怪物战斗数值的唯一来源。正式玩法读取默认值，开发者工具只通过公开接口改当前进程值。
@@ -32,6 +33,7 @@ public:
 
     const MonsterParameters& parameters(MonsterType type) const;
     void setParameters(MonsterType type, const MonsterParameters& value);
+    float healthAtStage(MonsterType type, int stage) const;
     float resolveKnockbackDistance(MonsterType type, float sourceDistance) const;
 
     void reset(MonsterType type);

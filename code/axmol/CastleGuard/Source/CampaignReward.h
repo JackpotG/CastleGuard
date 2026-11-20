@@ -10,10 +10,8 @@ enum class CampaignRewardId
     CoinCache = 0,
     CrystalCache,
     SupplyCrate,
-    ArrowTraining,
-    RapidTraining,
-    MultiShotTraining,
-    WallTraining,
+    WallKit,
+    ManaCharm,
     Count,
 };
 
@@ -22,23 +20,23 @@ struct CampaignRewardDefinition
     CampaignRewardId id = CampaignRewardId::CoinCache;
     const char* key      = "";
     const char* name     = "";
-    int upgradeIndex    = -1;
+    bool tactical       = false;
 };
 
 struct CampaignRewardContext
 {
     int stage = 1;
-    std::array<bool, 4> canUpgrade{};
 };
 
 struct CampaignRewardGrant
 {
     int coins        = 0;
     int crystals     = 0;
-    int upgradeIndex = -1;
+    int wallKits     = 0;
+    int manaCharms   = 0;
 };
 
-// 推关模式的永久奖励候选器。它只负责抽取和选择校验，
+// 推关模式的首通奖励候选器。它只负责抽取和选择校验，
 // 实际入账与存档由 GameData 统一完成。
 class CampaignRewardModel
 {

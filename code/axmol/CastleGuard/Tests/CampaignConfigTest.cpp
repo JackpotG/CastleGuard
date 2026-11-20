@@ -31,6 +31,16 @@ TEST_SUITE("CampaignConfig")
         }
     }
 
+    TEST_CASE("campaign stages include continuous columns and simultaneous rows")
+    {
+        CampaignConfig campaign;
+        std::string error;
+        const auto json = ax::FileUtils::getInstance()->getStringFromFile("config/waves.json");
+        REQUIRE(campaign.loadFromJson(json, &error));
+        CHECK_EQ(campaign.levels()[0].waves[1].groups[0].pattern, SpawnPattern::Column);
+        CHECK_EQ(campaign.levels()[1].waves[1].groups[1].pattern, SpawnPattern::Row);
+    }
+
     TEST_CASE("core battle keeps the committed twelve-wave baseline")
     {
         CampaignConfig core;
@@ -42,6 +52,20 @@ TEST_SUITE("CampaignConfig")
         CHECK_EQ(core.levels().front().waves.size(), 12);
         CHECK_EQ(core.levels().front().configuredEnemyCount(), 163);
         CHECK_EQ(core.levels().front().clearCrystals, 0);
+    }
+
+    TEST_CASE("formation must be known and enter through the main spawn line")
+    {
+        CampaignConfig campaign;
+        std::string error;
+        const std::string invalid = R"({"levels":[{"name":"broken","waves":[{"name":"wave","groups":[{"type":"normal","count":2,"formation":"diagonal"}]}]}]})";
+        CHECK_FALSE(campaign.loadFromJson(invalid, &error));
+        CHECK_FALSE(error.empty());
+
+        error.clear();
+        const std::string flank = R"({"levels":[{"name":"broken","waves":[{"name":"wave","groups":[{"type":"normal","count":2,"from":"left","formation":"row"}]}]}]})";
+        CHECK_FALSE(campaign.loadFromJson(flank, &error));
+        CHECK_FALSE(error.empty());
     }
 
     TEST_CASE("invalid group data rejects the whole campaign")

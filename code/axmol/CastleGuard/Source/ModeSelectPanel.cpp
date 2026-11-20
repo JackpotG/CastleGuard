@@ -32,8 +32,8 @@ bool ModeSelectPanel::init()
 
     const char* titles[2] = {"推关养成", "无尽守城"};
     const char* descriptions[2] = {
-        "5 关战役\n首次通关获得永久养成三选一",
-        "无尽波次\n每 3 波获得本局临时增益",
+        "持续闯关与首通战利品",
+        "无尽波次与本局临时增益",
     };
     const Color4F colors[2] = {Color4F(0.20f, 0.42f, 0.68f, 1.0f),
                                Color4F(0.48f, 0.30f, 0.66f, 1.0f)};

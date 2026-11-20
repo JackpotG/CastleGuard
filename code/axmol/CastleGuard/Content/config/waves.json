@@ -1,5 +1,5 @@
 {
-  "_comment": "CastleGuard 五关战役配置。levels=关卡，waves=关内波次；groups 字段：type=怪物类型，count=数量，interval=组内间隔秒，delay=首只延迟秒，lane=固定车道(-1=随机)，from=spawn/left/right。",
+  "_comment": "闯关已制作的五关配置。groups: type/count/interval/delay/lane/from；formation=scatter(默认)/row(同帧横排)/column(同车道连续)。",
   "levels": [
     {
       "name": "第 1 关 · 城下试探",
@@ -16,7 +16,7 @@
           "name": "第一次冲锋",
           "restAfter": 2.5,
           "groups": [
-            { "type": "normal", "count": 10, "interval": 0.75 },
+            { "type": "normal", "count": 10, "interval": 0.75, "formation": "column" },
             { "type": "fast", "count": 3, "interval": 1.0, "delay": 4.0 }
           ]
         }
@@ -40,7 +40,7 @@
           "restAfter": 2.5,
           "groups": [
             { "type": "ranged", "count": 3, "interval": 2.0 },
-            { "type": "normal", "count": 8, "interval": 0.75, "delay": 2.0 },
+            { "type": "normal", "count": 8, "interval": 0.75, "delay": 2.0, "formation": "row" },
             { "type": "ranged", "count": 2, "interval": 2.5, "delay": 7.0 }
           ]
         }
@@ -54,9 +54,9 @@
           "name": "铁壁",
           "restAfter": 2.5,
           "groups": [
-            { "type": "shield", "count": 3, "interval": 2.5 },
-            { "type": "normal", "count": 8, "interval": 0.75, "delay": 1.0 },
-            { "type": "shield", "count": 2, "interval": 3.0, "delay": 7.0 }
+            { "type": "shield", "count": 2, "interval": 2.5 },
+            { "type": "normal", "count": 12, "interval": 0.75, "delay": 1.0, "formation": "row" },
+            { "type": "shield", "count": 1, "interval": 3.0, "delay": 7.0 }
           ]
         },
         {
@@ -64,7 +64,7 @@
           "restAfter": 2.5,
           "groups": [
             { "type": "bomber", "count": 4, "interval": 1.4 },
-            { "type": "fast", "count": 6, "interval": 0.7, "delay": 2.0 },
+            { "type": "fast", "count": 4, "interval": 0.7, "delay": 2.0 },
             { "type": "bomber", "count": 3, "interval": 1.2, "delay": 6.0 },
             { "type": "shield", "count": 2, "interval": 3.0, "delay": 4.0 }
           ]

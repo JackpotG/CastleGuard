@@ -147,6 +147,24 @@ bool CampaignConfig::loadFromJson(const std::string& json, std::string* error)
                     }
                     group.from = groupValue["from"].GetString();
                 }
+                if (groupValue.HasMember("formation"))
+                {
+                    if (!groupValue["formation"].IsString())
+                    {
+                        return fail(error, "group formation must be scatter, row or column");
+                    }
+                    const std::string formation = groupValue["formation"].GetString();
+                    if (formation == "row") group.pattern = SpawnPattern::Row;
+                    else if (formation == "column") group.pattern = SpawnPattern::Column;
+                    else if (formation != "scatter")
+                    {
+                        return fail(error, "group formation must be scatter, row or column");
+                    }
+                    if (group.pattern != SpawnPattern::Scatter && group.from != "spawn")
+                    {
+                        return fail(error, "row and column formations require spawn origin");
+                    }
+                }
                 wave.groups.push_back(std::move(group));
             }
             level.waves.push_back(std::move(wave));

@@ -23,6 +23,12 @@ struct SettlementSummary
     int totalCrystals    = 0;
 };
 
+struct CampaignBattleSupplies
+{
+    bool wallKit = false;
+    bool manaCharm = false;
+};
+
 // 纯经济规则：不依赖引擎、不读写磁盘，便于单元测试和未来跨引擎复用。
 class EconomyModel
 {
@@ -33,7 +39,7 @@ public:
     explicit EconomyModel(int totalCoins = 0, int totalCrystals = 0);
 
     void startRun();
-    bool recordKill();
+    bool recordKill(int coins = COINS_PER_KILL);
     void checkpointRun();
     void rewindToCheckpoint();
     SettlementSummary settle(bool victory, int clearCrystalReward = CLEAR_CRYSTAL_REWARD);
@@ -176,6 +182,8 @@ struct DebugPlayerData
     int crystals = 0;
     int highestClearedStage = 0;
     int highestRewardedStage = 0;
+    int wallKitStock = 0;
+    int manaCharmStock = 0;
     std::array<int, static_cast<size_t>(UpgradeId::Count)> upgradeLevels{};
     std::array<bool, static_cast<size_t>(SkillId::Count)> skillUnlocked{};
 };
@@ -192,7 +200,7 @@ public:
 
     void startRun();
     void abandonRun();
-    bool recordKill();
+    bool recordKill(int coins = EconomyModel::COINS_PER_KILL);
     void checkpointRun();
     void rewindToCheckpoint();
     SettlementSummary settleRun(bool victory, int stage, int stageCount, int clearCrystalReward);
@@ -204,6 +212,9 @@ public:
     int pendingCampaignRewardStage() const { return _campaign.pendingRewardStage(); }
     CampaignRewardContext campaignRewardContext(int stage) const;
     bool claimCampaignReward(int stage, CampaignRewardId id);
+    CampaignBattleSupplies consumeCampaignSupplies();
+    int wallKitStock() const { return _wallKitStock; }
+    int manaCharmStock() const { return _manaCharmStock; }
 
     const UpgradeDefinition& upgradeDefinition(UpgradeId id) const;
     const SkillDefinition& skillDefinition(SkillId id) const;
@@ -236,6 +247,8 @@ private:
     EconomyModel _economy;
     ProgressionModel _progression;
     CampaignProgressionModel _campaign;
+    int _wallKitStock = 0;
+    int _manaCharmStock = 0;
     std::array<UpgradeDefinition, static_cast<size_t>(UpgradeId::Count)> _upgrades;
     std::array<SkillDefinition, static_cast<size_t>(SkillId::Count)> _skills;
 };

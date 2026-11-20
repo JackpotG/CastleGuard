@@ -8,12 +8,15 @@
 #include <string>
 #include <utility>
 
+enum class ChoiceIcon { None, Coins, Crystals, Supplies, WallKit, ManaCharm };
+
 struct ThreeChoiceCard
 {
     std::string title;
     std::string description;
     std::string detail;
     ax::Color4B accent = ax::Color4B::WHITE;
+    ChoiceIcon icon = ChoiceIcon::None;
 };
 
 // 通用三选一展示层：只负责卡片和点击回传，不持有任何玩法状态。
@@ -27,7 +30,8 @@ public:
     bool init() override;
     void layout(const ax::Vec2& origin, const ax::Size& visibleSize);
     void open(const std::string& title, const std::string& subtitle,
-              const std::array<ThreeChoiceCard, CHOICE_COUNT>& cards);
+              const std::array<ThreeChoiceCard, CHOICE_COUNT>& cards,
+              bool iconLayout = false);
     void setChoiceCallback(std::function<void(size_t)> callback)
     {
         _choiceCallback = std::move(callback);
@@ -37,6 +41,7 @@ private:
     struct ChoiceView
     {
         ax::DrawNode* background  = nullptr;
+        ax::DrawNode* icon        = nullptr;
         ax::ui::Text* title       = nullptr;
         ax::ui::Text* description = nullptr;
         ax::ui::Text* detail      = nullptr;
@@ -51,6 +56,7 @@ private:
     std::array<ChoiceView, CHOICE_COUNT> _views;
     std::array<ThreeChoiceCard, CHOICE_COUNT> _cards;
     std::function<void(size_t)> _choiceCallback;
+    bool _iconLayout = false;
     ax::Vec2 _lastOrigin       = ax::Vec2::ZERO;
     ax::Size _lastVisibleSize  = ax::Size::ZERO;
 };

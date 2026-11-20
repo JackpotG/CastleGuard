@@ -19,6 +19,48 @@ void drawButton(DrawNode* background, const Size& size)
     background->drawRect(Vec2::ZERO, Vec2(size.width, size.height),
                          Color4F(0.72f, 1.0f, 0.82f, 1.0f), 2.0f);
 }
+
+void drawChoiceIcon(DrawNode* art, ChoiceIcon icon)
+{
+    art->clear();
+    const Color4F gold(0.96f, 0.72f, 0.22f, 1.0f);
+    const Color4F crystal(0.39f, 0.82f, 0.94f, 1.0f);
+    if (icon == ChoiceIcon::Coins || icon == ChoiceIcon::Supplies)
+    {
+        const float x = icon == ChoiceIcon::Supplies ? -14.0f : 0.0f;
+        art->drawSolidCircle(Vec2(x, 0.0f), 22.0f, 0.0f, 24, gold);
+        art->drawCircle(Vec2(x, 0.0f), 16.0f, 0.0f, 24, false,
+                        Color4F(1.0f, 0.90f, 0.46f, 1.0f), 3.0f);
+    }
+    if (icon == ChoiceIcon::Crystals || icon == ChoiceIcon::Supplies)
+    {
+        const float x = icon == ChoiceIcon::Supplies ? 17.0f : 0.0f;
+        const Vec2 gem[] = {Vec2(x, 25.0f), Vec2(x + 20.0f, 4.0f),
+                            Vec2(x + 12.0f, -20.0f), Vec2(x - 12.0f, -20.0f),
+                            Vec2(x - 20.0f, 4.0f)};
+        art->drawSolidPoly(gem, 5, crystal);
+        art->drawLine(gem[0], gem[2], Color4F(0.80f, 0.97f, 1.0f, 1.0f), 2.0f);
+    }
+    if (icon == ChoiceIcon::WallKit)
+    {
+        const Vec2 shield[] = {Vec2(-23.0f, 20.0f), Vec2(23.0f, 20.0f),
+                               Vec2(19.0f, -12.0f), Vec2(0.0f, -27.0f),
+                               Vec2(-19.0f, -12.0f)};
+        art->drawSolidPoly(shield, 5, Color4F(0.62f, 0.69f, 0.67f, 1.0f));
+        art->drawLine(Vec2(-11.0f, 3.0f), Vec2(11.0f, 3.0f),
+                      Color4F(0.24f, 0.38f, 0.36f, 1.0f), 4.0f);
+        art->drawLine(Vec2(0.0f, 14.0f), Vec2(0.0f, -9.0f),
+                      Color4F(0.24f, 0.38f, 0.36f, 1.0f), 4.0f);
+    }
+    if (icon == ChoiceIcon::ManaCharm)
+    {
+        art->drawCircle(Vec2::ZERO, 25.0f, 0.0f, 28, false, crystal, 3.0f);
+        const Vec2 rune[] = {Vec2(0.0f, 20.0f), Vec2(15.0f, 0.0f),
+                             Vec2(0.0f, -20.0f), Vec2(-15.0f, 0.0f)};
+        art->drawSolidPoly(rune, 4, crystal);
+        art->drawLine(rune[0], rune[2], Color4F(0.84f, 1.0f, 1.0f, 1.0f), 2.0f);
+    }
+}
 }  // namespace
 
 bool ThreeChoicePanel::init()
@@ -43,6 +85,8 @@ bool ThreeChoicePanel::init()
         auto& view = _views[i];
         view.background = DrawNode::create();
         addChild(view.background, 2);
+        view.icon = DrawNode::create();
+        addChild(view.icon, 3);
         view.title = ui::Text::create("", "Arial", 29);
         view.title->setAnchorPoint(Vec2(0.0f, 0.5f));
         addChild(view.title, 3);
@@ -83,8 +127,10 @@ void ThreeChoicePanel::layout(const Vec2& origin, const Size& visibleSize)
 {
     _lastOrigin      = origin;
     _lastVisibleSize = visibleSize;
-    const float panelW = std::min(660.0f, visibleSize.width * 0.92f);
-    const float panelH = std::min(880.0f, visibleSize.height * 0.86f);
+    const float panelW = std::min(_iconLayout ? 590.0f : 660.0f,
+                                  visibleSize.width * 0.92f);
+    const float panelH = std::min(_iconLayout ? 610.0f : 880.0f,
+                                  visibleSize.height * 0.86f);
     const Vec2 center(origin.x + visibleSize.width * 0.5f, origin.y + visibleSize.height * 0.5f);
     const Vec2 panelMin(center.x - panelW * 0.5f, center.y - panelH * 0.5f);
     const Vec2 panelMax(center.x + panelW * 0.5f, center.y + panelH * 0.5f);
@@ -98,7 +144,8 @@ void ThreeChoicePanel::layout(const Vec2& origin, const Size& visibleSize)
 
     _title->setPosition(Vec2(center.x, panelMax.y - 48.0f));
     _subtitle->setPosition(Vec2(center.x, panelMax.y - 86.0f));
-    const float listTop    = panelMax.y - 116.0f;
+    _subtitle->setVisible(!_iconLayout);
+    const float listTop    = panelMax.y - (_iconLayout ? 94.0f : 116.0f);
     const float listBottom = panelMin.y + 28.0f;
     const float rowH = (listTop - listBottom - CHOICE_GAP * 2.0f) / 3.0f;
     const float rowW = panelW - PANEL_PADDING * 2.0f;
@@ -115,6 +162,27 @@ void ThreeChoicePanel::layout(const Vec2& origin, const Size& visibleSize)
         view.background->drawSolidRect(rowMin, Vec2(rowMin.x + 7.0f, rowMax.y), accent);
         view.background->drawRect(rowMin, rowMax, Color4F(0.30f, 0.35f, 0.43f, 1.0f), 1.5f);
 
+        if (_iconLayout)
+        {
+            drawChoiceIcon(view.icon, _cards[i].icon);
+            view.icon->setPosition(Vec2(rowMin.x + 62.0f, rowMin.y + rowH * 0.5f));
+            view.icon->setVisible(true);
+            view.title->setPosition(Vec2(rowMin.x + 112.0f, rowMin.y + rowH * 0.64f));
+            view.description->setTextAreaSize(Size(rowW - 132.0f, 42.0f));
+            view.description->setPosition(Vec2(rowMin.x + 112.0f, rowMin.y + rowH * 0.36f));
+            view.detail->setVisible(false);
+            view.button->setContentSize(Size(rowW, rowH));
+            view.button->setPosition(Vec2(rowMin.x + rowW * 0.5f, rowMin.y + rowH * 0.5f));
+            view.button->setTitleText("");
+            view.buttonBg->setVisible(false);
+            continue;
+        }
+        view.icon->setVisible(false);
+        view.detail->setVisible(true);
+        view.buttonBg->setVisible(true);
+        view.button->setContentSize(Size(BUTTON_W, BUTTON_H));
+        view.button->setTitleText("选择");
+
         const float textX = rowMin.x + 24.0f;
         view.title->setPosition(Vec2(textX, rowMax.y - 34.0f));
         view.title->setTextColor(accent8);
@@ -130,9 +198,11 @@ void ThreeChoicePanel::layout(const Vec2& origin, const Size& visibleSize)
 }
 
 void ThreeChoicePanel::open(const std::string& title, const std::string& subtitle,
-                            const std::array<ThreeChoiceCard, CHOICE_COUNT>& cards)
+                            const std::array<ThreeChoiceCard, CHOICE_COUNT>& cards,
+                            bool iconLayout)
 {
     _cards = cards;
+    _iconLayout = iconLayout;
     _title->setString(title);
     _subtitle->setString(subtitle);
     for (size_t i = 0; i < _views.size(); ++i)

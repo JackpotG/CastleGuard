@@ -1,6 +1,7 @@
 #include "MonsterBalance.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace
 {
@@ -8,20 +9,20 @@ constexpr float DEFAULT_BASE_SPEED = 70.0f;
 constexpr float DEFAULT_BASE_BODY_RADIUS = 15.0f;
 
 const std::array<MonsterParameters, MonsterBalance::TYPE_COUNT> DEFAULT_PARAMETERS = {{
-    // HP, speed, body, power, interval, stop min, stop max, knockback factor
-    {1, 1.00f, 1.00f, 5, 1.0f, 0.00f, 0.00f, 1.00f},   // Normal
-    {1, 1.80f, 0.80f, 5, 1.0f, 0.00f, 0.00f, 1.15f},   // Fast
-    {1, 0.90f, 1.00f, 4, 1.8f, 0.62f, 0.62f, 1.00f},   // Ranged
-    {3, 0.75f, 1.25f, 5, 1.0f, 0.00f, 0.00f, 0.55f},   // Shield
-    {1, 1.40f, 0.90f, 15, 1.0f, 0.00f, 0.00f, 1.00f},  // Bomber
-    {1, 1.20f, 0.85f, 3, 2.2f, 0.25f, 0.62f, 0.80f},   // Flyer
-    {2, 0.70f, 1.00f, 1, 2.5f, 0.45f, 0.45f, 1.00f},   // Healer
-    {2, 1.00f, 1.15f, 5, 1.0f, 0.00f, 0.00f, 0.85f},   // Splitter
-    {3, 1.10f, 1.00f, 5, 1.0f, 0.00f, 0.00f, 0.80f},   // Rager
-    {1, 1.00f, 1.00f, 5, 1.0f, 0.00f, 0.00f, 1.00f},   // Ghost
-    {3, 0.60f, 1.00f, 1, 4.0f, 0.55f, 0.55f, 0.80f},   // Summoner
-    {1, 1.50f, 0.90f, 5, 1.0f, 0.00f, 0.00f, 0.65f},   // Aegis
-    {30, 0.55f, 2.40f, 4, 3.0f, 0.40f, 0.40f, 0.20f},  // Boss
+    // HP, speed, body, power, interval, stop min, stop max, knockback, coins
+    {2, 1.00f, 1.00f, 5, 1.0f, 0.00f, 0.00f, 1.00f, 1},   // Normal
+    {2, 1.80f, 0.80f, 5, 1.0f, 0.00f, 0.00f, 1.15f, 2},   // Fast
+    {3, 0.90f, 1.00f, 4, 1.8f, 0.62f, 0.62f, 1.00f, 2},   // Ranged
+    {5, 0.75f, 1.25f, 5, 1.0f, 0.00f, 0.00f, 0.55f, 3},   // Shield
+    {2, 1.40f, 0.90f, 15, 1.0f, 0.00f, 0.00f, 1.00f, 3},  // Bomber
+    {3, 1.20f, 0.85f, 3, 2.2f, 0.25f, 0.62f, 0.80f, 2},   // Flyer
+    {4, 0.70f, 1.00f, 1, 2.5f, 0.45f, 0.45f, 1.00f, 4},   // Healer
+    {4, 1.00f, 1.15f, 5, 1.0f, 0.00f, 0.00f, 0.85f, 3},   // Splitter
+    {5, 1.10f, 1.00f, 5, 1.0f, 0.00f, 0.00f, 0.80f, 3},   // Rager
+    {3, 1.00f, 1.00f, 5, 1.0f, 0.00f, 0.00f, 1.00f, 3},   // Ghost
+    {6, 0.60f, 1.00f, 1, 4.0f, 0.55f, 0.55f, 0.80f, 5},   // Summoner
+    {3, 1.50f, 0.90f, 5, 1.0f, 0.00f, 0.00f, 0.65f, 4},   // Aegis
+    {30, 0.55f, 2.40f, 4, 3.0f, 0.40f, 0.40f, 0.20f, 15},  // Boss
 }};
 }  // namespace
 
@@ -48,6 +49,12 @@ const MonsterParameters& MonsterBalance::parameters(MonsterType type) const
 void MonsterBalance::setParameters(MonsterType type, const MonsterParameters& value)
 {
     _parameters[indexOf(type)] = sanitize(value);
+}
+
+float MonsterBalance::healthAtStage(MonsterType type, int stage) const
+{
+    const int safeStage = std::clamp(stage, 1, 1000);
+    return std::min(99999.0f, parameters(type).maxHp * (1.0f + 0.20f * (safeStage - 1)));
 }
 
 float MonsterBalance::resolveKnockbackDistance(MonsterType type, float sourceDistance) const
@@ -91,7 +98,9 @@ size_t MonsterBalance::indexOf(MonsterType type)
 MonsterParameters MonsterBalance::sanitize(const MonsterParameters& value)
 {
     MonsterParameters result = value;
-    result.maxHp             = std::clamp(result.maxHp, 1, 999);
+    result.maxHp             = std::clamp(std::isfinite(result.maxHp) ? result.maxHp : 1.0f,
+                                          1.0f, 999.0f);
+    result.coinDrop          = std::clamp(result.coinDrop, 1, 100);
     result.speedMultiplier   = std::clamp(result.speedMultiplier, 0.1f, 10.0f);
     result.bodyScale         = std::clamp(result.bodyScale, 0.25f, 5.0f);
     result.actionPower       = std::clamp(result.actionPower, 0, 999);
