@@ -76,9 +76,9 @@ inline void drawOpenCrate(ax::DrawNode* art, const ax::Rect& bounds, Kind kind)
 
     for (int i = 0; i < 3; ++i)
     {
-        const float looseX = coins ? x + w + 3.0f + i * 6.0f
-                                   : x - 3.0f - i * 6.0f;
-        const ax::Vec2 p(looseX, y + 3.0f + (i % 2) * 4.0f);
+        const float looseX = coins ? x + w * (0.52f + i * 0.15f)
+                                   : x + w * (0.18f + i * 0.15f);
+        const ax::Vec2 p(looseX, y - 3.0f - (i % 2) * 3.0f);
         if (coins)
         {
             art->drawSolidCircle(p, 3.3f, 0.0f, 10,

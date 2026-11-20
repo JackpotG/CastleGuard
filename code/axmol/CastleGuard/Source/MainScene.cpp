@@ -177,7 +177,6 @@ constexpr float WALL_HEALTH_BAR_H = 16.0f;
 constexpr float MANA_BAR_H = WALL_HEALTH_BAR_H;
 constexpr float COMBAT_METER_GAP = 8.0f;
 constexpr float HEALTH_NUMBER_OPTICAL_Y = -3.0f;
-constexpr float CRATE_NUMBER_OPTICAL_Y = -6.0f;
 constexpr int COIN_PICKUP_POOL_SIZE = 64;
 constexpr float COIN_POPUP_TIME = 0.38f;
 constexpr float COIN_FLIGHT_TIME = 0.72f;
@@ -213,8 +212,9 @@ std::array<Rect, 2> obliqueSupplyRects(const Vec2& origin, const Size& visibleSi
     const float supplyH = std::min(34.0f, castle_world_layout::platformDepth(visibleSize) * 0.40f);
     const float supplyY = obliqueWallTop(origin, visibleSize) -
                           castle_world_layout::platformDepth(visibleSize) + 26.0f;
-    return {Rect(origin.x + visibleSize.width * 0.018f, supplyY, supplyW, supplyH),
-            Rect(origin.x + visibleSize.width * 0.982f - supplyW,
+    const float edgeInset = std::min(4.0f, visibleSize.width * 0.006f);
+    return {Rect(origin.x + edgeInset, supplyY, supplyW, supplyH),
+            Rect(origin.x + visibleSize.width - edgeInset - supplyW,
                  supplyY, supplyW, supplyH)};
 }
 
@@ -3510,12 +3510,12 @@ void MainScene::refreshEconomyHUD()
     _walletArt->clear();
     wall_supply_art::drawOpenCrate(_walletArt, supplies[0], wall_supply_art::Kind::Coins);
     wall_supply_art::drawOpenCrate(_walletArt, supplies[1], wall_supply_art::Kind::Crystals);
-    _coinLabel->setDimensions(supplies[0].size.width - 14.0f, 17.0f);
-    _crystalLabel->setDimensions(supplies[1].size.width - 14.0f, 17.0f);
+    _coinLabel->setDimensions(supplies[0].size.width - 18.0f, 12.0f);
+    _crystalLabel->setDimensions(supplies[1].size.width - 18.0f, 12.0f);
     _coinLabel->setPosition(Vec2(supplies[0].getMidX(),
-                                 supplies[0].getMinY() + 9.0f + CRATE_NUMBER_OPTICAL_Y));
+                                 supplies[0].getMinY() + supplies[0].size.height * 0.22f));
     _crystalLabel->setPosition(Vec2(supplies[1].getMidX(),
-                                    supplies[1].getMinY() + 9.0f + CRATE_NUMBER_OPTICAL_Y));
+                                    supplies[1].getMinY() + supplies[1].size.height * 0.22f));
 }
 
 void MainScene::refreshRunBuffHUD()

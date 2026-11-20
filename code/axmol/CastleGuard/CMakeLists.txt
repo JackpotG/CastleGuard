@@ -138,3 +138,29 @@ include(AXGamePlatformSetup)
 
 # Make sure the AXGameFinalSetup is included at the end of this file
 include(AXGameFinalSetup)
+
+# The engine only embeds OpenAL for Xcode builds. Ninja must assemble and sign
+# the macOS bundle after linking, or dyld cannot start the executable.
+if(MACOSX AND CMAKE_GENERATOR MATCHES "Ninja" AND AX_ENABLE_AUDIO AND ALSOFT_OSX_FRAMEWORK)
+  function(cg_package_macos_audio target)
+    add_custom_command(TARGET ${target} POST_BUILD
+      COMMAND "${CMAKE_COMMAND}" -E make_directory
+        "$<TARGET_BUNDLE_CONTENT_DIR:${target}>/Frameworks"
+      COMMAND "${CMAKE_COMMAND}" -E rm -rf
+        "$<TARGET_BUNDLE_CONTENT_DIR:${target}>/Frameworks/soft_oal.framework"
+      COMMAND /usr/bin/ditto
+        "$<TARGET_BUNDLE_DIR:OpenAL>"
+        "$<TARGET_BUNDLE_CONTENT_DIR:${target}>/Frameworks/soft_oal.framework"
+      COMMAND /usr/bin/codesign --force --deep --sign -
+        "$<TARGET_BUNDLE_DIR:${target}>"
+      COMMAND /usr/bin/codesign --verify --deep --strict
+        "$<TARGET_BUNDLE_DIR:${target}>"
+      COMMENT "Packaging macOS audio framework for ${target}"
+      VERBATIM)
+  endfunction()
+
+  cg_package_macos_audio(${APP_NAME})
+  if(_AX_TESTS)
+    cg_package_macos_audio(${TEST_TARGET_NAME})
+  endif()
+endif()
