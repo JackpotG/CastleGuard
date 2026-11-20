@@ -869,6 +869,10 @@ void MainScene::closeBattleSettings()
 
 void MainScene::returnToCampaignCity()
 {
+    stopContinuousFire();
+    _aimDragging = false;
+    _aimingSkill = -1;
+    _aimIndicator->setVisible(false);
     _settingsVisible = false;
     _settingsPanel->setVisible(false);
     GameData::getInstance().abandonRun();
@@ -4517,10 +4521,16 @@ void MainScene::onTouchesBegan(const std::vector<ax::Touch*>& touches, ax::Event
                 return;
             }
         }
-        if (_gameState == GameState::update &&
-            (_wallMeterRect.containsPoint(t->getLocation()) ||
-             isCombatHudPoint(t->getLocation())))
+        const Vec2 point = t->getLocation();
+        if (_gameState == GameState::update && isCombatHudPoint(point))
         {
+            return;
+        }
+        if (_gameState == GameState::update && _wallMeterRect.containsPoint(point))
+        {
+            if (_gameMode == GameMode::Campaign &&
+                _battleLayout == BattleLayout::Oblique25D && touches.size() == 1)
+                returnToCampaignCity();
             return;
         }
         // 瞄准模式下在战场【按下】：范围圈出现并开始跟随（拖动调整，抬起释放）
