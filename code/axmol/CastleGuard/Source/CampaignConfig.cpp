@@ -99,22 +99,45 @@ bool CampaignConfig::loadFromJson(const std::string& json, std::string* error)
 
             for (const auto& groupValue : waveValue["groups"].GetArray())
             {
-                if (!groupValue.IsObject() || !groupValue.HasMember("type") ||
-                    !groupValue["type"].IsString() || !groupValue.HasMember("count") ||
-                    !groupValue["count"].IsInt() || groupValue["count"].GetInt() <= 0)
+                if (!groupValue.IsObject())
                 {
-                    return fail(error, "every group needs a known type and positive count");
-                }
-
-                const auto type = monsterTypeFromString(groupValue["type"].GetString());
-                if (!type)
-                {
-                    return fail(error, "unknown monster type: " + std::string(groupValue["type"].GetString()));
+                    return fail(error, "every group must be an object");
                 }
 
                 SpawnGroupConfig group;
-                group.type  = *type;
-                group.count = groupValue["count"].GetInt();
+                if (groupValue.HasMember("types"))
+                {
+                    if (groupValue.HasMember("type") || groupValue.HasMember("count") ||
+                        !groupValue["types"].IsArray() || groupValue["types"].Empty())
+                    {
+                        return fail(error, "group types must be a non-empty array without type or count");
+                    }
+                    for (const auto& entry : groupValue["types"].GetArray())
+                    {
+                        if (!entry.IsString())
+                            return fail(error, "group types must contain monster ids");
+                        const auto type = monsterTypeFromString(entry.GetString());
+                        if (!type)
+                            return fail(error, "unknown monster type: " + std::string(entry.GetString()));
+                        group.types.push_back(*type);
+                    }
+                    group.type  = group.types.front();
+                    group.count = static_cast<int>(group.types.size());
+                }
+                else
+                {
+                    if (!groupValue.HasMember("type") || !groupValue["type"].IsString() ||
+                        !groupValue.HasMember("count") || !groupValue["count"].IsInt() ||
+                        groupValue["count"].GetInt() <= 0)
+                    {
+                        return fail(error, "every group needs a known type and positive count");
+                    }
+                    const auto type = monsterTypeFromString(groupValue["type"].GetString());
+                    if (!type)
+                        return fail(error, "unknown monster type: " + std::string(groupValue["type"].GetString()));
+                    group.type  = *type;
+                    group.count = groupValue["count"].GetInt();
+                }
                 if (groupValue.HasMember("interval"))
                 {
                     if (!groupValue["interval"].IsNumber() || groupValue["interval"].GetFloat() <= 0.0f)
@@ -164,6 +187,12 @@ bool CampaignConfig::loadFromJson(const std::string& json, std::string* error)
                     {
                         return fail(error, "row and column formations require spawn origin");
                     }
+                }
+                if (group.pattern == SpawnPattern::Row &&
+                    (group.count > FORMATION_LANE_COUNT ||
+                     (group.lane >= 0 && group.lane > FORMATION_LANE_COUNT - group.count)))
+                {
+                    return fail(error, "row formation must fit within the available lanes");
                 }
                 wave.groups.push_back(std::move(group));
             }

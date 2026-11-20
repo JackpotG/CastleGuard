@@ -80,7 +80,7 @@ namespace
 constexpr float SPAWN_RATIO = 0.96f;
 // Oblique25D：墙体基础高度；操作栏上方另保留可装武器的墙面。
 constexpr float WALL_RATIO  = castle_world_layout::WALL_RATIO;
-constexpr int LANE_COUNT    = 12;   // 加密车道：怪群感的第 1 步（配合出怪频率与抖动）
+constexpr int LANE_COUNT    = FORMATION_LANE_COUNT;  // 横排配置与战场车道共用同一容量
 // Oblique25D：调试用的纵深分段数
 #if CG_DEBUG_TOOLS
 constexpr int GROUND_BANDS = 3;
@@ -2370,13 +2370,14 @@ void MainScene::updateWaves(float delta)
                     const int batch = std::min(laneCount(), cfg.count - rt.spawned);
                     const int first = cfg.lane >= 0 ? cfg.lane : (laneCount() - batch) / 2;
                     for (int n = 0; n < batch; ++n)
-                        spawnMonster(cfg.type, first + n, cfg.from, true);
+                        spawnMonster(cfg.monsterTypeAt(static_cast<size_t>(rt.spawned + n)),
+                                     first + n, cfg.from, true);
                     rt.spawned += batch;
                 }
                 else
                 {
                     const int lane = cfg.pattern == SpawnPattern::Column ? rt.chosenLane : cfg.lane;
-                    spawnMonster(cfg.type, lane, cfg.from,
+                    spawnMonster(cfg.monsterTypeAt(static_cast<size_t>(rt.spawned)), lane, cfg.from,
                                  cfg.pattern == SpawnPattern::Column);
                     ++rt.spawned;
                 }

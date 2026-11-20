@@ -41,7 +41,10 @@ TEST_SUITE("CampaignConfig")
             for (const auto& wave : level.waves)
             {
                 for (const auto& group : wave.groups)
-                    hasBoss |= group.type == MonsterType::Boss;
+                {
+                    for (int spawnIndex = 0; spawnIndex < group.count; ++spawnIndex)
+                        hasBoss |= group.monsterTypeAt(static_cast<size_t>(spawnIndex)) == MonsterType::Boss;
+                }
             }
             CHECK_EQ(hasBoss, (i + 1) % 5 == 0);
         }
@@ -56,6 +59,24 @@ TEST_SUITE("CampaignConfig")
         CHECK_EQ(campaign.levels()[0].waves[1].groups[0].pattern, SpawnPattern::Column);
         CHECK_EQ(campaign.levels()[1].waves[1].groups[1].pattern, SpawnPattern::Row);
         CHECK_EQ(campaign.levels()[3].waves[1].groups[2].pattern, SpawnPattern::Column);
+
+        const auto& mixedColumn = campaign.levels()[5].waves[1].groups[0];
+        CHECK_EQ(mixedColumn.pattern, SpawnPattern::Column);
+        CHECK_EQ(mixedColumn.count, 6);
+        CHECK_EQ(mixedColumn.monsterTypeAt(0), MonsterType::Normal);
+        CHECK_EQ(mixedColumn.monsterTypeAt(1), MonsterType::Fast);
+        CHECK_EQ(mixedColumn.monsterTypeAt(3), MonsterType::Shield);
+        CHECK_EQ(mixedColumn.monsterTypeAt(5), MonsterType::Fast);
+        CHECK_EQ(mixedColumn.monsterTypeAt(7), MonsterType::Fast);
+
+        const auto& mixedRow = campaign.levels()[6].waves[1].groups[1];
+        CHECK_EQ(mixedRow.pattern, SpawnPattern::Row);
+        CHECK_EQ(mixedRow.count, 7);
+        CHECK_EQ(mixedRow.monsterTypeAt(0), MonsterType::Normal);
+        CHECK_EQ(mixedRow.monsterTypeAt(1), MonsterType::Fast);
+        CHECK_EQ(mixedRow.monsterTypeAt(3), MonsterType::Ranged);
+        CHECK_EQ(mixedRow.monsterTypeAt(5), MonsterType::Shield);
+        CHECK_EQ(mixedRow.monsterTypeAt(6), MonsterType::Normal);
     }
 
     TEST_CASE("core battle keeps the committed twelve-wave baseline")
@@ -83,6 +104,16 @@ TEST_SUITE("CampaignConfig")
         const std::string flank = R"({"levels":[{"name":"broken","waves":[{"name":"wave","groups":[{"type":"normal","count":2,"from":"left","formation":"row"}]}]}]})";
         CHECK_FALSE(campaign.loadFromJson(flank, &error));
         CHECK_FALSE(error.empty());
+
+        error.clear();
+        const std::string oversized = R"({"levels":[{"name":"broken","clearCrystals":1,"waves":[{"name":"wave","groups":[{"types":["normal","normal","normal","normal","normal","normal","normal","normal","normal","normal","normal","normal","normal"],"formation":"row"}]}]}]})";
+        CHECK_FALSE(campaign.loadFromJson(oversized, &error));
+        CHECK_EQ(error, "row formation must fit within the available lanes");
+
+        error.clear();
+        const std::string overflowingLane = R"({"levels":[{"name":"broken","clearCrystals":1,"waves":[{"name":"wave","groups":[{"types":["normal","fast"],"lane":11,"formation":"row"}]}]}]})";
+        CHECK_FALSE(campaign.loadFromJson(overflowingLane, &error));
+        CHECK_EQ(error, "row formation must fit within the available lanes");
     }
 
     TEST_CASE("invalid group data rejects the whole campaign")
@@ -99,5 +130,26 @@ TEST_SUITE("CampaignConfig")
         CHECK_FALSE(campaign.loadFromJson(json, &error));
         CHECK(campaign.empty());
         CHECK_FALSE(error.empty());
+    }
+
+    TEST_CASE("mixed group rejects empty, unknown and ambiguous type lists")
+    {
+        const std::array<std::string, 5> groups = {
+            R"({"types":[],"formation":"row"})",
+            R"({"types":["normal","unknown"],"formation":"column"})",
+            R"({"types":["normal",7],"formation":"row"})",
+            R"({"type":"normal","count":2,"types":["fast","normal"],"formation":"row"})",
+            R"({"types":["normal","fast"],"count":2,"formation":"column"})",
+        };
+        for (const auto& group : groups)
+        {
+            CampaignConfig campaign;
+            std::string error;
+            const std::string json = R"({"levels":[{"name":"broken","clearCrystals":1,"waves":[{"name":"wave","groups":[)" +
+                                     group + R"(]}]}]})";
+            CHECK_FALSE(campaign.loadFromJson(json, &error));
+            CHECK(campaign.empty());
+            CHECK_FALSE(error.empty());
+        }
     }
 }

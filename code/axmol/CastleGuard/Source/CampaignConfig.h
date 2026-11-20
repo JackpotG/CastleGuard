@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -28,6 +29,8 @@ enum class SpawnPattern
     Column,
 };
 
+inline constexpr int FORMATION_LANE_COUNT = 12;
+
 struct SpawnGroupConfig
 {
     MonsterType type = MonsterType::Normal;
@@ -37,6 +40,13 @@ struct SpawnGroupConfig
     int lane         = -1;
     std::string from = "spawn";
     SpawnPattern pattern = SpawnPattern::Scatter;
+    std::vector<MonsterType> types;
+
+    MonsterType monsterTypeAt(std::size_t spawnIndex) const
+    {
+        // 无尽模式增加出怪数时重复已配置的顺序。
+        return types.empty() ? type : types[spawnIndex % types.size()];
+    }
 };
 
 struct WaveConfig

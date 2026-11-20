@@ -451,7 +451,7 @@ private:
     void initFxPool();
     void spawnFx(int kind, const ax::Vec2& pos, float radius, float duration);
 
-    // ---- 五关战役（JSON 只读配置 + 独立运行时状态）----
+    // ---- 闯关模式（JSON 只读配置 + 独立运行时状态）----
     // 每组运行状态单独存：配置保持只读（同一波可以反复重打）
     struct SpawnGroupRuntime
     {
@@ -466,7 +466,7 @@ private:
         Resting,   // 本波已清场，休整倒计时
         AllClear,  // 全部波次打完
     };
-    bool loadCampaign();                 // 读 config/waves.json 的五关结构（失败用内置兜底）
+    bool loadCampaign();                 // 读 config/waves.json 的关卡结构（失败用内置兜底）
     void activateLevel(size_t index, bool announceUnlocks);
     void startLevel(size_t index);
     const LevelConfig& currentLevel() const;
