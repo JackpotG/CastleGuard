@@ -30,9 +30,9 @@
           "name": "侧翼突袭",
           "restAfter": 2.5,
           "groups": [
-            { "type": "fast", "count": 3, "interval": 0.85, "from": "left" },
-            { "type": "fast", "count": 3, "interval": 0.85, "from": "right", "delay": 1.5 },
-            { "type": "normal", "count": 4, "interval": 1.0, "delay": 3.0 }
+            { "type": "fast", "count": 1, "from": "left" },
+            { "type": "fast", "count": 1, "from": "right", "delay": 4.5 },
+            { "type": "normal", "count": 4, "interval": 1.7, "delay": 2.5 }
           ]
         },
         {

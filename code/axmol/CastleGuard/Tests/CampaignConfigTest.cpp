@@ -16,7 +16,7 @@ TEST_SUITE("CampaignConfig")
         REQUIRE(campaign.loadFromJson(json, &error));
         REQUIRE_EQ(campaign.levels().size(), 50);
 
-        const std::array<int, 5> expectedEnemies = {10, 19, 29, 40, 51};
+        const std::array<int, 5> expectedEnemies = {10, 15, 29, 40, 51};
         const std::array<int, 5> expectedCrystals = {1, 1, 2, 2, 4};
         for (size_t i = 0; i < campaign.levels().size(); ++i)
         {
@@ -77,6 +77,28 @@ TEST_SUITE("CampaignConfig")
         CHECK_EQ(mixedRow.monsterTypeAt(3), MonsterType::Ranged);
         CHECK_EQ(mixedRow.monsterTypeAt(5), MonsterType::Shield);
         CHECK_EQ(mixedRow.monsterTypeAt(6), MonsterType::Normal);
+    }
+
+    TEST_CASE("stage two introduces one fast enemy per flank with staggered arrivals")
+    {
+        CampaignConfig campaign;
+        std::string error;
+        const auto json = ax::FileUtils::getInstance()->getStringFromFile("config/waves.json");
+        REQUIRE(campaign.loadFromJson(json, &error));
+
+        const auto& groups = campaign.levels()[1].waves[0].groups;
+        REQUIRE_EQ(groups.size(), 3);
+        CHECK_EQ(groups[0].type, MonsterType::Fast);
+        CHECK_EQ(groups[0].from, "left");
+        CHECK_EQ(groups[0].count, 1);
+        CHECK_EQ(groups[1].type, MonsterType::Fast);
+        CHECK_EQ(groups[1].from, "right");
+        CHECK_EQ(groups[1].count, 1);
+        CHECK_EQ(groups[1].delay, doctest::Approx(4.5f));
+        CHECK_EQ(groups[2].type, MonsterType::Normal);
+        CHECK_EQ(groups[2].count, 4);
+        CHECK_EQ(groups[2].delay, doctest::Approx(2.5f));
+        CHECK_EQ(groups[2].interval, doctest::Approx(1.7f));
     }
 
     TEST_CASE("core battle keeps the committed twelve-wave baseline")
