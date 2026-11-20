@@ -89,7 +89,7 @@ public:
 
 private:
     // 战场布局（视角风格）：两个并行版本（2026-11-16 与 Stark 确认）
-    //   Oblique25D 伪 2.5D 斜俯视 = 原作构图（主线）：城墙底、出怪线顶，车道纵排+纵深色带
+    //   Oblique25D 伪 2.5D 斜俯视 = 原作构图（主线）：城墙底、多车道进攻、城外地形图
     //   SideView   纯侧视角 = 新增风格版本：底部地面条、左侧灰房子，怪物从右边沿地面
     //              右→左进攻房子（单条地面轨迹）
     // 横竖屏适配不做成两份手工场景：布局全部按当前可见尺寸计算，尺寸变化（旋转/
@@ -136,6 +136,12 @@ private:
 
     // ---- 调试层（CG_DEBUG_TOOLS=0 时整块不编译，正式包零残留） ----
 #if CG_DEBUG_TOOLS
+    bool _showLaneLines = false;
+    bool _showDepthLines = false;
+    bool _showSpawnLine = false;
+    ax::DrawNode* _debugLaneLines = nullptr;
+    ax::DrawNode* _debugDepthLines = nullptr;
+    ax::DrawNode* _debugSpawnLine = nullptr;
     void gotoWave(int offset);             // 调试跳波：offset = ±1（清场但不动血量）
 
     // ---- 常驻开发面板（ImGui 扩展） ----

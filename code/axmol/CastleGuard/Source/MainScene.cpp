@@ -25,6 +25,7 @@
 
 #include "MainScene.h"
 
+#include "BattlefieldArt.h"
 #include "CastleWorldLayout.h"
 #if CG_DEBUG_TOOLS
 #    include "DevelopmentMenuPanel.h"
@@ -60,7 +61,7 @@ static int s_sceneID = 1000;
 //
 // 两个并行的视角风格版本（2026-11-16 与 Stark 确认）：
 //   Oblique25D 伪 2.5D 斜俯视 = 原作构图（主线）：城墙在底部窄边、出怪线在顶部
-//              窄边，怪物沿多车道（纵排）上→下推进；车道即轨迹，地面纵深色带表远近
+//              窄边，怪物沿多车道（纵排）上→下推进；地形道路按透视向远处收窄
 //   SideView   纯侧视角 = 新增风格版本：底部一条地面、左侧灰色房子为防守目标，
 //              怪物从右缘进入，沿地面右→左进攻房子（单条地面轨迹）
 //
@@ -80,8 +81,10 @@ constexpr float SPAWN_RATIO = 0.96f;
 // Oblique25D：墙体基础高度；操作栏上方另保留可装武器的墙面。
 constexpr float WALL_RATIO  = castle_world_layout::WALL_RATIO;
 constexpr int LANE_COUNT    = 12;   // 加密车道：怪群感的第 1 步（配合出怪频率与抖动）
-// Oblique25D：地面纵深色带数量（远亮近暗，用纯色带先模拟 2.5D 纵深）
+// Oblique25D：调试用的纵深分段数
+#if CG_DEBUG_TOOLS
 constexpr int GROUND_BANDS = 3;
+#endif
 // SideView：地面条高度占比；房子中心 x 占比（靠左）
 constexpr float SIDE_GROUND_RATIO  = 0.25f;
 constexpr float SIDE_HOUSE_X_RATIO = 0.10f;
@@ -363,6 +366,11 @@ void MainScene::buildBattlefield(BattleLayout layout)
     _wallBowVisual = nullptr;
     _wallBowArrowMount = nullptr;
     _battleWall = nullptr;
+#if CG_DEBUG_TOOLS
+    _debugLaneLines = nullptr;
+    _debugDepthLines = nullptr;
+    _debugSpawnLine = nullptr;
+#endif
     if (_battlefield)
     {
         _battleRoot->removeChild(_battlefield);
@@ -383,9 +391,10 @@ void MainScene::buildBattlefield(BattleLayout layout)
     _worldBackdrop->drawSolidRect(origin, Vec2(right, top),
                                  Color4F(0.40f, 0.51f, 0.38f, 1.0f));
 
-    // 画虚线段的工具常量。注意：drawLine 只有 1 像素宽，手机高缩放比下会被
-    // 抗锯齿"吞掉"（上次看不到出怪线的原因），虚线段一律用 drawSolidRect
+#if CG_DEBUG_TOOLS
+    // 高缩放比设备上的调试虚线用实体矩形绘制，避免细线被抗锯齿吞掉。
     const float dash = 26.0f, gap = 16.0f, lineW = 6.0f;
+#endif
 
     // 布局重建后战场几何变了，在场怪物与其他弹体全部回收（回池，不销毁）
     for (auto& m : _monsterPool)
@@ -422,15 +431,22 @@ void MainScene::buildBattlefield(BattleLayout layout)
         // ======================= 纯侧视角（新增风格版本） =======================
         // 底部一条地面，左侧灰色房子是防守目标，怪物从右缘进入沿地面右→左进攻
         const float groundTop = origin.y + visibleSize.height * SIDE_GROUND_RATIO;
+#if CG_DEBUG_TOOLS
         const float spawnX    = origin.x + visibleSize.width * SPAWN_RATIO;
+#endif
 
         // 地面条（贯穿全宽）
         auto ground = DrawNode::create();
         ground->drawSolidRect(origin, Vec2(right, groundTop), Color4F(0.29f, 0.20f, 0.12f, 1.0f));
-        // 地面顶边一条亮线 = 怪物的行进轨迹（单车道）
-        ground->drawSolidRect(Vec2(origin.x, groundTop - 1.5f), Vec2(right, groundTop + 1.5f),
-                              Color4F(0.6f, 0.8f, 0.4f, 0.9f));
         _battlefield->addChild(ground, 0);
+#if CG_DEBUG_TOOLS
+        _debugLaneLines = DrawNode::create();
+        _debugLaneLines->drawSolidRect(Vec2(origin.x, groundTop - 1.5f),
+                                       Vec2(right, groundTop + 1.5f),
+                                       Color4F(0.6f, 0.8f, 0.4f, 0.9f));
+        _debugLaneLines->setVisible(_showLaneLines);
+        _battlefield->addChild(_debugLaneLines, 2);
+#endif
 
         // 房子（左）：灰色小屋立在地面顶边上——这就是怪物要攻击的目标
         // DrawNode 的几何都是以自身 (0,0) 画的，position 就是这块"画布"的局部原点
@@ -448,56 +464,58 @@ void MainScene::buildBattlefield(BattleLayout layout)
         _wallBowWeapon->setScale(0.88f);
         _battlefield->addChild(_wallBowWeapon, 2);
 
+#if CG_DEBUG_TOOLS
         // 出怪口（右缘，地面高度处的一小段红色虚线"门"）
         const float gateH = visibleSize.height * 0.10f;
-        auto spawnGate = DrawNode::create();
+        _debugSpawnLine = DrawNode::create();
         for (float y = groundTop; y + dash <= groundTop + gateH; y += dash + gap)
         {
-            spawnGate->drawSolidRect(Vec2(spawnX, y), Vec2(spawnX + lineW, y + dash),
-                                     Color4F(0.9f, 0.15f, 0.15f, 1.0f));
+            _debugSpawnLine->drawSolidRect(Vec2(spawnX, y), Vec2(spawnX + lineW, y + dash),
+                                            Color4F(0.9f, 0.15f, 0.15f, 1.0f));
         }
-        _battlefield->addChild(spawnGate, 1);
+        _debugSpawnLine->setVisible(_showSpawnLine);
+        _battlefield->addChild(_debugSpawnLine, 2);
+#endif
     }
     else
     {
         // ==================== 伪 2.5D 斜俯视（原作构图，主线） ====================
-        // 城墙在底（横条），地面在上，出怪线在顶缘；车道纵排，色带上浅下深
+        // 城墙在底（横条），地面在上；怪物仍从顶缘按车道推进
         const float wallTop = obliqueWallTop(origin, visibleSize);
+#if CG_DEBUG_TOOLS
         const float spawnY  = origin.y + visibleSize.height * SPAWN_RATIO;
+#endif
 
-        // 地面：三条色带上浅下深模拟纵深（上远下近）
-        // 怪物在平面内移动；后续按 y 排序绘制（远的先画、近的后画）
+        // 地形只负责视觉；怪物仍按原战斗坐标移动与排序。
         auto ground = DrawNode::create();
-        const Color4F bandColors[GROUND_BANDS] = {
-            Color4F(0.24f, 0.18f, 0.11f, 1.0f),  // 近处（底部）：深棕
-            Color4F(0.30f, 0.24f, 0.15f, 1.0f),  // 中间
-            Color4F(0.36f, 0.30f, 0.20f, 1.0f),  // 远处（顶部）：浅棕
-        };
-        const float bandH = (top - wallTop) / GROUND_BANDS;
-        for (int i = 0; i < GROUND_BANDS; ++i)
-        {
-            ground->drawSolidRect(Vec2(origin.x, wallTop + i * bandH),
-                                  Vec2(right, wallTop + (i + 1) * bandH), bandColors[i]);
-        }
-        // 色带分界线描亮线，方便看清"远近"
-        for (int i = 1; i < GROUND_BANDS; ++i)
-        {
-            float y = wallTop + i * bandH;
-            ground->drawSolidRect(Vec2(origin.x, y - 1.5f), Vec2(right, y + 1.5f),
-                                  Color4F(0.55f, 0.48f, 0.32f, 0.6f));
-        }
+        battlefield_art::drawExterior(ground, origin, visibleSize, wallTop);
         _battlefield->addChild(ground, 0);
 
+#if CG_DEBUG_TOOLS
+        _debugDepthLines = DrawNode::create();
+        for (int i = 1; i < GROUND_BANDS; ++i)
+        {
+            const float y = wallTop + i * (top - wallTop) / GROUND_BANDS;
+            _debugDepthLines->drawSolidRect(Vec2(origin.x, y - 1.5f),
+                                             Vec2(right, y + 1.5f),
+                                             Color4F(0.90f, 0.79f, 0.42f, 0.85f));
+        }
+        _debugDepthLines->setVisible(_showDepthLines);
+        _battlefield->addChild(_debugDepthLines, 2);
+
         // 车道：LANE_COUNT 条纵向分隔（怪物沿车道上→下推进，原作就是多车道出怪）
-        auto lanes = DrawNode::create();
+        _debugLaneLines = DrawNode::create();
         const float laneW = visibleSize.width / LANE_COUNT;
         for (int i = 1; i < LANE_COUNT; ++i)
         {
             float x = origin.x + i * laneW;
-            lanes->drawSolidRect(Vec2(x - 1.5f, wallTop), Vec2(x + 1.5f, top),
-                                 Color4F(0.55f, 0.48f, 0.32f, 0.6f));
+            _debugLaneLines->drawSolidRect(Vec2(x - 1.5f, wallTop),
+                                            Vec2(x + 1.5f, top),
+                                            Color4F(0.90f, 0.79f, 0.42f, 0.7f));
         }
-        _battlefield->addChild(lanes, 1);
+        _debugLaneLines->setVisible(_showLaneLines);
+        _battlefield->addChild(_debugLaneLines, 2);
+#endif
 
         // 城墙（底）：横条墙体 + 顶缘墙垛 + 中央主弓（箭矢从这里射出）
         auto wall = DrawNode::create();
@@ -570,14 +588,17 @@ void MainScene::buildBattlefield(BattleLayout layout)
         _wallBowWeapon->setScale(1.45f);
         _worldRoot->addChild(_wallBowWeapon, 3);
 
+#if CG_DEBUG_TOOLS
         // 出怪线（顶）：横向红色虚线，贯穿全宽
-        auto spawnLine = DrawNode::create();
+        _debugSpawnLine = DrawNode::create();
         for (float x = origin.x; x + dash <= right; x += dash + gap)
         {
-            spawnLine->drawSolidRect(Vec2(x, spawnY), Vec2(x + dash, spawnY + lineW),
-                                     Color4F(0.9f, 0.15f, 0.15f, 1.0f));
+            _debugSpawnLine->drawSolidRect(Vec2(x, spawnY), Vec2(x + dash, spawnY + lineW),
+                                            Color4F(0.9f, 0.15f, 0.15f, 1.0f));
         }
-        _battlefield->addChild(spawnLine, 1);
+        _debugSpawnLine->setVisible(_showSpawnLine);
+        _battlefield->addChild(_debugSpawnLine, 2);
+#endif
     }
 
     // 新战场初始即处于装填完成状态；箭数跟随当前多重箭属性。
@@ -965,6 +986,16 @@ void MainScene::drawDevelopmentControlTab()
         AXLOGI("[DevelopmentControl] layout=side");
         buildBattlefield(BattleLayout::SideView);
     }
+
+    ImGui::SeparatorText("战场辅助线");
+    if (ImGui::Checkbox("车道线", &_showLaneLines) && _debugLaneLines)
+        _debugLaneLines->setVisible(_showLaneLines);
+    ImGui::BeginDisabled(_debugDepthLines == nullptr);
+    if (ImGui::Checkbox("纵深线", &_showDepthLines) && _debugDepthLines)
+        _debugDepthLines->setVisible(_showDepthLines);
+    ImGui::EndDisabled();
+    if (ImGui::Checkbox("出怪线", &_showSpawnLine) && _debugSpawnLine)
+        _debugSpawnLine->setVisible(_showSpawnLine);
 
     ImGui::SeparatorText("本局控制");
     ImGui::EndDisabled();
