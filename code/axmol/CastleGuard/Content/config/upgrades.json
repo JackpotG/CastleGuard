@@ -40,7 +40,10 @@
       "description": "范围爆炸伤害",
       "unlockCost": 0,
       "defaultUnlocked": false,
-      "unlockStage": 3
+      "unlockStage": 3,
+      "treeRow": 0,
+      "treeX": 0.50,
+      "requires": ""
     },
     {
       "id": "freeze",
@@ -48,7 +51,10 @@
       "description": "范围减速控制",
       "unlockCost": 0,
       "defaultUnlocked": false,
-      "unlockStage": 4
+      "unlockStage": 4,
+      "treeRow": 1,
+      "treeX": 0.27,
+      "requires": "fireball"
     },
     {
       "id": "arrow_rain",
@@ -56,7 +62,10 @@
       "description": "持续覆盖一片区域",
       "unlockCost": 0,
       "defaultUnlocked": false,
-      "unlockStage": 5
+      "unlockStage": 5,
+      "treeRow": 2,
+      "treeX": 0.27,
+      "requires": "freeze"
     },
     {
       "id": "lightning",
@@ -64,7 +73,10 @@
       "description": "点杀主目标并麻痹周围敌人",
       "unlockCost": 5,
       "defaultUnlocked": false,
-      "unlockStage": 0
+      "unlockStage": 0,
+      "treeRow": 1,
+      "treeX": 0.73,
+      "requires": "fireball"
     }
   ]
 }

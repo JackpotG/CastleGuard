@@ -17,6 +17,7 @@ public:
 
     enum class Section
     {
+        All,
         Weapons,
         Research,
         Defense,
@@ -79,4 +80,7 @@ private:
     std::vector<UpgradeBranchView> _upgradeBranches;
     std::vector<TreeNodeView> _skillNodes;
     std::function<void()> _startRunCallback;
+    Section _section = Section::All;
+    ax::Vec2 _lastOrigin;
+    ax::Size _lastVisibleSize;
 };

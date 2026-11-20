@@ -139,6 +139,35 @@ bool validUpgrade(const UpgradeDefinition& definition)
 }
 }  // namespace
 
+bool validResearchTree(const std::array<SkillDefinition, static_cast<size_t>(SkillId::Count)>& skills)
+{
+    for (size_t i = 0; i < skills.size(); ++i)
+    {
+        const auto& node = skills[i];
+        if (node.id != static_cast<SkillId>(i) || node.key.empty() || node.name.empty() ||
+            node.treeRow < 0 || node.treeRow > 8 || !std::isfinite(node.treeX) ||
+            node.treeX < 0.12f || node.treeX > 0.88f || node.unlockStage < 0 || node.unlockCost < 0)
+            return false;
+        if ((node.defaultUnlocked && (node.unlockStage > 0 || node.unlockCost > 0)) ||
+            (!node.defaultUnlocked && (node.unlockStage > 0) == (node.unlockCost > 0)))
+            return false;
+        for (size_t j = 0; j < i; ++j)
+        {
+            if (node.treeRow == skills[j].treeRow && std::abs(node.treeX - skills[j].treeX) < 0.18f)
+                return false;
+        }
+        if (node.prerequisite == SkillId::Count) continue;
+        const size_t parentIndex = static_cast<size_t>(node.prerequisite);
+        if (parentIndex >= skills.size() || skills[parentIndex].treeRow >= node.treeRow)
+            return false;
+        const auto& parent = skills[parentIndex];
+        if (node.unlockStage > 0 && !parent.defaultUnlocked &&
+            (parent.unlockStage <= 0 || parent.unlockStage > node.unlockStage))
+            return false;
+    }
+    return true;
+}
+
 EconomyModel::EconomyModel(int totalCoins, int totalCrystals)
     : _totalCoins(std::max(0, totalCoins)), _totalCrystals(std::max(0, totalCrystals))
 {}
@@ -329,13 +358,19 @@ PurchaseResult ProgressionModel::unlockSkill(EconomyModel& economy, const SkillD
     PurchaseResult result;
     result.currency = Currency::Crystals;
     result.cost     = definition.unlockCost;
-    if (definition.id == SkillId::Count || definition.key.empty() || definition.unlockCost <= 0)
+    if (definition.id == SkillId::Count || definition.key.empty() ||
+        definition.unlockCost <= 0 || definition.unlockStage > 0)
     {
         return result;
     }
     if (isSkillUnlocked(definition.id))
     {
         result.status = PurchaseStatus::AlreadyUnlocked;
+        return result;
+    }
+    if (definition.prerequisite != SkillId::Count && !isSkillUnlocked(definition.prerequisite))
+    {
+        result.status = PurchaseStatus::PrerequisiteLocked;
         return result;
     }
     if (!economy.spendCrystals(definition.unlockCost))
@@ -367,14 +402,21 @@ std::vector<SkillId> ProgressionModel::unlockSkillsForStage(
     int stage, const std::array<SkillDefinition, static_cast<size_t>(SkillId::Count)>& definitions)
 {
     std::vector<SkillId> result;
-    for (const auto& definition : definitions)
+    for (size_t pass = 0; pass < definitions.size(); ++pass)
     {
-        if (definition.unlockStage > 0 && stage >= definition.unlockStage &&
-            !isSkillUnlocked(definition.id))
+        bool changed = false;
+        for (const auto& definition : definitions)
         {
-            setSkillUnlocked(definition.id, true);
-            result.push_back(definition.id);
+            if (definition.unlockStage > 0 && stage >= definition.unlockStage &&
+                !isSkillUnlocked(definition.id) &&
+                (definition.prerequisite == SkillId::Count || isSkillUnlocked(definition.prerequisite)))
+            {
+                setSkillUnlocked(definition.id, true);
+                result.push_back(definition.id);
+                changed = true;
+            }
         }
+        if (!changed) break;
     }
     return result;
 }
@@ -456,10 +498,14 @@ void GameData::loadCatalog()
                           {12, 26, 45, 70, 105}, {100, 120, 140, 160, 180, 200}},
     };
     _skills = {
-        SkillDefinition{SkillId::Fireball, "fireball", "火球", "范围爆炸伤害", 0, false, 3},
-        SkillDefinition{SkillId::Freeze, "freeze", "冰冻", "范围减速控制", 0, false, 4},
-        SkillDefinition{SkillId::ArrowRain, "arrow_rain", "箭雨", "持续覆盖一片区域", 0, false, 5},
-        SkillDefinition{SkillId::Lightning, "lightning", "闪电", "点杀主目标并麻痹周围敌人", 5, false, 0},
+        SkillDefinition{SkillId::Fireball, "fireball", "火球", "范围爆炸伤害", 0, false, 3,
+                        0, 0.5f, SkillId::Count},
+        SkillDefinition{SkillId::Freeze, "freeze", "冰冻", "范围减速控制", 0, false, 4,
+                        1, 0.27f, SkillId::Fireball},
+        SkillDefinition{SkillId::ArrowRain, "arrow_rain", "箭雨", "持续覆盖一片区域", 0, false, 5,
+                        2, 0.27f, SkillId::Freeze},
+        SkillDefinition{SkillId::Lightning, "lightning", "闪电", "点杀主目标并麻痹周围敌人", 5, false, 0,
+                        1, 0.73f, SkillId::Fireball},
     };
 
     const std::string text = ax::FileUtils::getInstance()->getStringFromFile(CATALOG_PATH);
@@ -520,27 +566,49 @@ void GameData::loadCatalog()
 
     if (doc.HasMember("skills") && doc["skills"].IsArray())
     {
+        auto parsedSkills = _skills;
+        std::array<bool, static_cast<size_t>(SkillId::Count)> seen{};
+        bool valid = true;
         for (const auto& item : doc["skills"].GetArray())
         {
             if (!item.IsObject() || !item.HasMember("id") || !item["id"].IsString())
             {
-                continue;
+                valid = false;
+                break;
             }
             const SkillId id = skillIdFromKey(item["id"].GetString());
-            if (id == SkillId::Count || !item.HasMember("name") || !item["name"].IsString() ||
+            if (id == SkillId::Count || seen[static_cast<size_t>(id)] ||
+                !item.HasMember("name") || !item["name"].IsString() ||
                 !item.HasMember("description") || !item["description"].IsString() ||
                 !item.HasMember("unlockCost") || !item["unlockCost"].IsInt() ||
-                !item.HasMember("defaultUnlocked") || !item["defaultUnlocked"].IsBool())
+                !item.HasMember("defaultUnlocked") || !item["defaultUnlocked"].IsBool() ||
+                !item.HasMember("unlockStage") || !item["unlockStage"].IsInt() ||
+                !item.HasMember("treeRow") || !item["treeRow"].IsInt() ||
+                !item.HasMember("treeX") || !item["treeX"].IsNumber() ||
+                !item.HasMember("requires") || !item["requires"].IsString())
             {
-                continue;
+                valid = false;
+                break;
             }
-            const int unlockStage = item.HasMember("unlockStage") && item["unlockStage"].IsInt()
-                                        ? std::max(0, item["unlockStage"].GetInt())
-                                        : 0;
-            _skills[static_cast<size_t>(id)] = SkillDefinition{
+            const std::string parentKey = item["requires"].GetString();
+            const SkillId parent = parentKey.empty() ? SkillId::Count : skillIdFromKey(parentKey.c_str());
+            if (!parentKey.empty() && parent == SkillId::Count)
+            {
+                valid = false;
+                break;
+            }
+            parsedSkills[static_cast<size_t>(id)] = SkillDefinition{
                 id, item["id"].GetString(), item["name"].GetString(), item["description"].GetString(),
-                item["unlockCost"].GetInt(), item["defaultUnlocked"].GetBool(), unlockStage};
+                item["unlockCost"].GetInt(), item["defaultUnlocked"].GetBool(),
+                item["unlockStage"].GetInt(), item["treeRow"].GetInt(),
+                item["treeX"].GetFloat(), parent};
+            seen[static_cast<size_t>(id)] = true;
         }
+        if (valid && std::all_of(seen.begin(), seen.end(), [](bool value) { return value; }) &&
+            validResearchTree(parsedSkills))
+            _skills = std::move(parsedSkills);
+        else
+            AXLOGW("[Progression][Research] invalid skill tree, using built-in defaults");
     }
     AXLOGI("[Progression] catalog loaded: {} upgrades, {} skills", _upgrades.size(), _skills.size());
 }

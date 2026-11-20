@@ -103,8 +103,12 @@ bool UpgradePanel::init()
 
 void UpgradePanel::layout(const Vec2& origin, const Size& visibleSize)
 {
+    _lastOrigin = origin;
+    _lastVisibleSize = visibleSize;
     const float panelW = std::min(650.0f, visibleSize.width * 0.92f);
-    const float panelH = std::min(1080.0f, visibleSize.height * 0.90f);
+    const float preferredH = _section == Section::Defense ? 540.0f
+                             : _section == Section::All ? 1080.0f : 920.0f;
+    const float panelH = std::min(preferredH, visibleSize.height * 0.90f);
     const Vec2 center(origin.x + visibleSize.width * 0.5f, origin.y + visibleSize.height * 0.5f);
     const Vec2 panelMin(center.x - panelW * 0.5f, center.y - panelH * 0.5f);
     const Vec2 panelMax(center.x + panelW * 0.5f, center.y + panelH * 0.5f);
@@ -139,30 +143,33 @@ void UpgradePanel::layout(const Vec2& origin, const Size& visibleSize)
 
 void UpgradePanel::open()
 {
-    _title->setString("城堡工坊");
-    _feedback->setString("");
-    refresh();
-    setVisible(true);
-    _scroll->jumpToTop();
+    openAt(Section::All);
 }
 
 void UpgradePanel::openAt(Section section)
 {
-    open();
+    _section = section;
     switch (section)
     {
+    case Section::All:
+        _title->setString("成长总览");
+        break;
     case Section::Weapons:
-        _title->setString("军械所 · 弓术");
+        _title->setString("军械所");
         break;
     case Section::Research:
-        _title->setString("研究院 · 科技");
-        _scroll->jumpToBottom();
+        _title->setString("研究院");
         break;
     case Section::Defense:
-        _title->setString("城防营 · 城墙");
-        _scroll->jumpToPercentVertical(65.0f);
+        _title->setString("城防营");
         break;
     }
+    _feedback->setString("");
+    if (_lastVisibleSize.width > 0.0f && _lastVisibleSize.height > 0.0f)
+        layout(_lastOrigin, _lastVisibleSize);
+    refresh();
+    setVisible(true);
+    _scroll->jumpToTop();
 }
 
 void UpgradePanel::rebuildTree(float contentWidth)
@@ -173,9 +180,24 @@ void UpgradePanel::rebuildTree(float contentWidth)
     _skillConnector = nullptr;
     _skillRoot      = nullptr;
 
-    const int upgradeCount = static_cast<int>(UpgradeId::Count);
-    const float innerH = SECTION_HEIGHT * 2.0f + upgradeCount * UPGRADE_BRANCH_HEIGHT +
-                         SKILL_TREE_HEIGHT + 20.0f;
+    const bool showResearch = _section == Section::All || _section == Section::Research;
+    std::vector<UpgradeId> upgradeIds;
+    if (_section == Section::All || _section == Section::Weapons)
+        upgradeIds = {UpgradeId::ArrowDamage, UpgradeId::FireRate, UpgradeId::MultiShot};
+    if (_section == Section::All || _section == Section::Defense)
+        upgradeIds.push_back(UpgradeId::WallHealth);
+    int maxResearchRow = 0;
+    if (showResearch)
+    {
+        for (int i = 0; i < static_cast<int>(SkillId::Count); ++i)
+            maxResearchRow = std::max(maxResearchRow, GameData::getInstance()
+                .skillDefinition(static_cast<SkillId>(i)).treeRow);
+    }
+    const float treeHeight = SKILL_TREE_HEIGHT + maxResearchRow * 138.0f;
+    const float sections = _section == Section::All ? 2.0f : 1.0f;
+    const float naturalH = SECTION_HEIGHT * sections +
+        upgradeIds.size() * UPGRADE_BRANCH_HEIGHT + (showResearch ? treeHeight : 0.0f) + 20.0f;
+    const float innerH = std::max(_scroll->getContentSize().height, naturalH);
     _scroll->setInnerContainerSize(Size(contentWidth, innerH));
     float y = innerH;
 
@@ -187,10 +209,10 @@ void UpgradePanel::rebuildTree(float contentWidth)
         y -= SECTION_HEIGHT * 0.5f;
     };
 
-    addSection("弓术与城防研究");
-    for (int i = 0; i < upgradeCount; ++i)
+    if (!upgradeIds.empty())
+        addSection(_section == Section::Defense ? "城墙工事" : "弓箭装备");
+    for (const auto id : upgradeIds)
     {
-        const auto id = static_cast<UpgradeId>(i);
         const auto& definition = GameData::getInstance().upgradeDefinition(id);
         const float branchTop = y;
 
@@ -214,7 +236,7 @@ void UpgradePanel::rebuildTree(float contentWidth)
             const Vec2 position(startX + (endX - startX) * t, nodeY);
 
             TreeNodeView node;
-            node.id          = i;
+            node.id          = static_cast<int>(id);
             node.targetLevel = level;
             node.graphic     = DrawNode::create();
             node.graphic->setPosition(position);
@@ -239,7 +261,8 @@ void UpgradePanel::rebuildTree(float contentWidth)
         y -= UPGRADE_BRANCH_HEIGHT;
     }
 
-    addSection("技能里程碑");
+    if (!showResearch) return;
+    addSection(_section == Section::All ? "技能研发" : "法术与战术");
     const float skillTop = y;
     const Vec2 rootPosition(contentWidth * 0.5f, skillTop - 43.0f);
     _skillConnector = DrawNode::create();
@@ -254,14 +277,11 @@ void UpgradePanel::rebuildTree(float contentWidth)
     rootLabel->setPosition(rootPosition);
 
     const int skillCount = static_cast<int>(SkillId::Count);
-    const float skillStartX = 48.0f;
-    const float skillEndX   = contentWidth - 48.0f;
-    const float skillY      = skillTop - 135.0f;
     for (int i = 0; i < skillCount; ++i)
     {
-        const float t = skillCount == 1 ? 0.0f : static_cast<float>(i) / (skillCount - 1);
-        const Vec2 position(skillStartX + (skillEndX - skillStartX) * t, skillY);
-        _skillConnector->drawLine(rootPosition, position, Color4F(0.30f, 0.38f, 0.49f, 1.0f));
+        const auto& definition = GameData::getInstance().skillDefinition(static_cast<SkillId>(i));
+        const Vec2 position(contentWidth * definition.treeX,
+                            skillTop - 132.0f - definition.treeRow * 138.0f);
 
         TreeNodeView node;
         node.id      = i;
@@ -300,13 +320,25 @@ void UpgradePanel::refresh()
         const auto id          = static_cast<SkillId>(node.id);
         const auto& definition = GameData::getInstance().skillDefinition(id);
         const bool unlocked    = GameData::getInstance().isSkillUnlocked(id);
-        const bool available   = !unlocked && definition.unlockStage == 0 && definition.unlockCost > 0;
+        const bool parentReady = definition.prerequisite == SkillId::Count ||
+            GameData::getInstance().isSkillUnlocked(definition.prerequisite);
+        const bool available   = !unlocked && parentReady &&
+            definition.unlockStage == 0 && definition.unlockCost > 0;
         const Color4F color    = unlocked ? Color4F(0.82f, 0.70f, 0.28f, 1.0f)
                                : available ? Color4F(0.24f, 0.69f, 0.92f, 1.0f)
                                            : Color4F(0.30f, 0.38f, 0.49f, 1.0f);
         if (_skillConnector && _skillRoot)
         {
-            _skillConnector->drawLine(_skillRoot->getPosition(), node.graphic->getPosition(), color);
+            Vec2 parentPosition = _skillRoot->getPosition();
+            if (definition.prerequisite != SkillId::Count)
+            {
+                const auto parent = std::find_if(_skillNodes.begin(), _skillNodes.end(),
+                    [&](const TreeNodeView& candidate) {
+                        return candidate.id == static_cast<int>(definition.prerequisite);
+                    });
+                if (parent != _skillNodes.end()) parentPosition = parent->graphic->getPosition();
+            }
+            _skillConnector->drawLine(parentPosition, node.graphic->getPosition(), color, 3.0f);
         }
     }
 }
@@ -371,7 +403,10 @@ void UpgradePanel::refreshSkillNode(TreeNodeView& node)
     const auto id          = static_cast<SkillId>(node.id);
     const auto& definition = data.skillDefinition(id);
     const bool unlocked    = data.isSkillUnlocked(id);
-    const bool purchasable = !unlocked && definition.unlockStage == 0 && definition.unlockCost > 0;
+    const bool parentReady = definition.prerequisite == SkillId::Count ||
+        data.isSkillUnlocked(definition.prerequisite);
+    const bool purchasable = !unlocked && parentReady &&
+        definition.unlockStage == 0 && definition.unlockCost > 0;
     const bool affordable  = data.economy().totalCrystals() >= definition.unlockCost;
 
     node.title->setString(definition.name);
@@ -385,9 +420,15 @@ void UpgradePanel::refreshSkillNode(TreeNodeView& node)
         node.status->setString(StringUtils::format("%d 水晶", definition.unlockCost));
         drawNode(node, NodeState::Available, affordable);
     }
+    else if (!parentReady && definition.unlockStage == 0)
+    {
+        node.status->setString("需前置");
+        drawNode(node, NodeState::Locked);
+    }
     else
     {
-        node.status->setString(StringUtils::format("第 %d 关", definition.unlockStage));
+        node.status->setString(definition.unlockStage > 0
+            ? StringUtils::format("第 %d 关", definition.unlockStage) : "未开放");
         drawNode(node, NodeState::Locked);
     }
 }
@@ -468,6 +509,9 @@ void UpgradePanel::showResult(const PurchaseResult& result)
         break;
     case PurchaseStatus::AlreadyUnlocked:
         _feedback->setString("这个技能已经解锁");
+        break;
+    case PurchaseStatus::PrerequisiteLocked:
+        _feedback->setString("请先解锁前置技能");
         break;
     default:
         _feedback->setString("配置异常，购买未执行");

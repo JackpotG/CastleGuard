@@ -7,7 +7,7 @@
 
 TEST_SUITE("CampaignConfig")
 {
-    TEST_CASE("production campaign has five increasingly dense levels")
+    TEST_CASE("campaign starts gently and grows through authored levels")
     {
         CampaignConfig campaign;
         std::string error;
@@ -16,7 +16,7 @@ TEST_SUITE("CampaignConfig")
         REQUIRE(campaign.loadFromJson(json, &error));
         REQUIRE_EQ(campaign.levels().size(), 5);
 
-        const std::array<int, 5> expectedEnemies = {19, 29, 37, 40, 51};
+        const std::array<int, 5> expectedEnemies = {10, 19, 29, 40, 51};
         const std::array<int, 5> expectedCrystals = {1, 1, 2, 2, 4};
         for (size_t i = 0; i < campaign.levels().size(); ++i)
         {
@@ -39,6 +39,7 @@ TEST_SUITE("CampaignConfig")
         REQUIRE(campaign.loadFromJson(json, &error));
         CHECK_EQ(campaign.levels()[0].waves[1].groups[0].pattern, SpawnPattern::Column);
         CHECK_EQ(campaign.levels()[1].waves[1].groups[1].pattern, SpawnPattern::Row);
+        CHECK_EQ(campaign.levels()[3].waves[1].groups[2].pattern, SpawnPattern::Column);
     }
 
     TEST_CASE("core battle keeps the committed twelve-wave baseline")

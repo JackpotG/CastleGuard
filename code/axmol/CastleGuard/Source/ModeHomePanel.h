@@ -30,6 +30,7 @@ public:
     static float cityPanDistance(const ax::Size& visibleSize);
     void layout(const ax::Vec2& origin, const ax::Size& visibleSize);
     void open(int campaignStageCount);
+    void setStageNumber(int stage);
     bool handleCityTouch(const ax::Vec2& screenPoint);
     void setStartCallback(std::function<void()> callback) { _startCallback = std::move(callback); }
     void setFacilityCallback(std::function<void(CityFacility)> callback)
@@ -55,6 +56,7 @@ private:
     ax::ui::Button* _workshopButton = nullptr;
     ax::DrawNode* _workshopButtonBg = nullptr;
     ax::DrawNode* _cityArt = nullptr;
+    ax::ui::Text* _stageNumber = nullptr;
     ax::Rect _wallHitRect;
     struct FacilityView
     {

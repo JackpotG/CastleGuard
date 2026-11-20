@@ -2226,6 +2226,7 @@ const LevelConfig& MainScene::currentLevel() const
 void MainScene::activateLevel(size_t index, bool announceUnlocks)
 {
     _levelIndex = std::min(index, _campaign.levels().size() - 1);
+    if (_campaignMenuPanel) _campaignMenuPanel->setStageNumber(static_cast<int>(_levelIndex) + 1);
     _waves      = currentLevel().waves;
     _waveIndex = 0;
     _waveState = WaveState::Idle;

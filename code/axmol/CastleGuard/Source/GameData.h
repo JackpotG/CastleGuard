@@ -114,7 +114,12 @@ struct SkillDefinition
     int unlockCost       = 0;
     bool defaultUnlocked = false;
     int unlockStage      = 0;  // >0 表示进入该关自动解锁；0 表示不由关卡里程碑解锁
+    int treeRow          = 0;
+    float treeX          = 0.5f;  // 研究树横向位置，0..1
+    SkillId prerequisite = SkillId::Count;
 };
+
+bool validResearchTree(const std::array<SkillDefinition, static_cast<size_t>(SkillId::Count)>& skills);
 
 enum class PurchaseStatus
 {
@@ -122,6 +127,7 @@ enum class PurchaseStatus
     InsufficientFunds,
     MaxLevel,
     AlreadyUnlocked,
+    PrerequisiteLocked,
     InvalidDefinition,
 };
 

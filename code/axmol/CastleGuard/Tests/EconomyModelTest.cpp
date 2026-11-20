@@ -3,6 +3,7 @@
 #include "doctest/doctest.h"
 
 #include <algorithm>
+#include <array>
 
 TEST_SUITE("EconomyModel")
 {
@@ -291,5 +292,49 @@ TEST_SUITE("ProductionProgressionCatalog")
         CHECK_EQ(firstUnlockStage, 3);
         CHECK_EQ(data.skillDefinition(SkillId::Fireball).unlockStage, 3);
         CHECK_FALSE(data.skillDefinition(SkillId::Fireball).defaultUnlocked);
+        CHECK_EQ(data.skillDefinition(SkillId::Freeze).prerequisite, SkillId::Fireball);
+        CHECK_EQ(data.skillDefinition(SkillId::ArrowRain).prerequisite, SkillId::Freeze);
+        CHECK_EQ(data.skillDefinition(SkillId::Lightning).prerequisite, SkillId::Fireball);
+        CHECK_EQ(data.skillDefinition(SkillId::Lightning).treeRow, 1);
+        CHECK_EQ(data.skillDefinition(SkillId::Lightning).treeX, doctest::Approx(0.73f));
+    }
+
+    TEST_CASE("research tree rejects cycles, overlapping nodes and unreachable milestones")
+    {
+        const auto& data = GameData::getInstance();
+        std::array<SkillDefinition, static_cast<size_t>(SkillId::Count)> skills;
+        for (size_t i = 0; i < skills.size(); ++i)
+            skills[i] = data.skillDefinition(static_cast<SkillId>(i));
+        REQUIRE(validResearchTree(skills));
+
+        skills[1].treeX = skills[3].treeX;
+        CHECK_FALSE(validResearchTree(skills));
+        skills[1] = data.skillDefinition(SkillId::Freeze);
+
+        skills[0].prerequisite = SkillId::Freeze;
+        CHECK_FALSE(validResearchTree(skills));
+        skills[0] = data.skillDefinition(SkillId::Fireball);
+
+        skills[1].unlockStage = 2;
+        CHECK_FALSE(validResearchTree(skills));
+        skills[1] = data.skillDefinition(SkillId::Freeze);
+
+        skills[3].unlockCost = 0;
+        CHECK_FALSE(validResearchTree(skills));
+    }
+
+    TEST_CASE("research prerequisites block purchases without spending crystals")
+    {
+        EconomyModel economy(0, 8);
+        ProgressionModel progression;
+        const auto& lightning = GameData::getInstance().skillDefinition(SkillId::Lightning);
+
+        const auto blocked = progression.unlockSkill(economy, lightning);
+        CHECK_EQ(blocked.status, PurchaseStatus::PrerequisiteLocked);
+        CHECK_EQ(economy.totalCrystals(), 8);
+        progression.setSkillUnlocked(SkillId::Fireball, true);
+        const auto purchased = progression.unlockSkill(economy, lightning);
+        CHECK(purchased.purchased());
+        CHECK_EQ(economy.totalCrystals(), 3);
     }
 }

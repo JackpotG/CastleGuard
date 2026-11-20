@@ -9,15 +9,15 @@
           "name": "试探",
           "restAfter": 2.5,
           "groups": [
-            { "type": "normal", "count": 6, "interval": 1.0 }
+            { "type": "normal", "count": 4, "interval": 1.5 }
           ]
         },
         {
           "name": "第一次冲锋",
           "restAfter": 2.5,
           "groups": [
-            { "type": "normal", "count": 10, "interval": 0.75, "formation": "column" },
-            { "type": "fast", "count": 3, "interval": 1.0, "delay": 4.0 }
+            { "type": "normal", "count": 5, "interval": 1.0, "formation": "column" },
+            { "type": "fast", "count": 1, "interval": 1.0, "delay": 5.0 }
           ]
         }
       ]
@@ -30,17 +30,17 @@
           "name": "侧翼突袭",
           "restAfter": 2.5,
           "groups": [
-            { "type": "fast", "count": 5, "interval": 0.65, "from": "left" },
-            { "type": "fast", "count": 5, "interval": 0.65, "from": "right", "delay": 1.5 },
-            { "type": "normal", "count": 6, "interval": 0.8, "delay": 3.0 }
+            { "type": "fast", "count": 3, "interval": 0.85, "from": "left" },
+            { "type": "fast", "count": 3, "interval": 0.85, "from": "right", "delay": 1.5 },
+            { "type": "normal", "count": 4, "interval": 1.0, "delay": 3.0 }
           ]
         },
         {
           "name": "远程压制",
           "restAfter": 2.5,
           "groups": [
-            { "type": "ranged", "count": 3, "interval": 2.0 },
-            { "type": "normal", "count": 8, "interval": 0.75, "delay": 2.0, "formation": "row" },
+            { "type": "ranged", "count": 2, "interval": 2.0 },
+            { "type": "normal", "count": 5, "interval": 0.75, "delay": 2.0, "formation": "row" },
             { "type": "ranged", "count": 2, "interval": 2.5, "delay": 7.0 }
           ]
         }
@@ -54,7 +54,7 @@
           "name": "铁壁",
           "restAfter": 2.5,
           "groups": [
-            { "type": "shield", "count": 2, "interval": 2.5 },
+            { "type": "shield", "count": 1, "interval": 2.5 },
             { "type": "normal", "count": 12, "interval": 0.75, "delay": 1.0, "formation": "row" },
             { "type": "shield", "count": 1, "interval": 3.0, "delay": 7.0 }
           ]
@@ -63,18 +63,18 @@
           "name": "敢死队",
           "restAfter": 2.5,
           "groups": [
-            { "type": "bomber", "count": 4, "interval": 1.4 },
-            { "type": "fast", "count": 4, "interval": 0.7, "delay": 2.0 },
-            { "type": "bomber", "count": 3, "interval": 1.2, "delay": 6.0 },
-            { "type": "shield", "count": 2, "interval": 3.0, "delay": 4.0 }
+            { "type": "bomber", "count": 3, "interval": 1.4 },
+            { "type": "fast", "count": 3, "interval": 0.8, "delay": 2.0 },
+            { "type": "bomber", "count": 2, "interval": 1.2, "delay": 6.0 },
+            { "type": "shield", "count": 1, "interval": 3.0, "delay": 4.0 }
           ]
         },
         {
           "name": "分裂增殖",
           "restAfter": 3.0,
           "groups": [
-            { "type": "splitter", "count": 4, "interval": 1.7 },
-            { "type": "fast", "count": 5, "interval": 0.7, "delay": 3.0 }
+            { "type": "splitter", "count": 3, "interval": 1.7 },
+            { "type": "fast", "count": 3, "interval": 0.85, "delay": 3.0 }
           ]
         }
       ]
@@ -98,7 +98,7 @@
           "groups": [
             { "type": "shield", "count": 3, "interval": 2.0 },
             { "type": "healer", "count": 2, "interval": 3.0, "delay": 2.0 },
-            { "type": "normal", "count": 8, "interval": 0.75, "delay": 1.0 }
+            { "type": "normal", "count": 8, "interval": 0.75, "delay": 1.0, "formation": "column" }
           ]
         },
         {
