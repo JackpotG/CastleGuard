@@ -7,14 +7,14 @@
 
 TEST_SUITE("CampaignConfig")
 {
-    TEST_CASE("campaign starts gently and grows through authored levels")
+    TEST_CASE("campaign keeps the five tuned stages and loads fifty levels")
     {
         CampaignConfig campaign;
         std::string error;
         const auto json = ax::FileUtils::getInstance()->getStringFromFile("config/waves.json");
 
         REQUIRE(campaign.loadFromJson(json, &error));
-        REQUIRE_EQ(campaign.levels().size(), 5);
+        REQUIRE_EQ(campaign.levels().size(), 50);
 
         const std::array<int, 5> expectedEnemies = {10, 19, 29, 40, 51};
         const std::array<int, 5> expectedCrystals = {1, 1, 2, 2, 4};
@@ -22,12 +22,28 @@ TEST_SUITE("CampaignConfig")
         {
             const auto& level = campaign.levels()[i];
             CHECK_FALSE(level.waves.empty());
-            CHECK_EQ(level.configuredEnemyCount(), expectedEnemies[i]);
-            CHECK_EQ(level.clearCrystals, expectedCrystals[i]);
-            if (i > 0)
+            if (i < expectedEnemies.size())
             {
-                CHECK_GT(level.configuredEnemyCount(), campaign.levels()[i - 1].configuredEnemyCount());
+                CHECK_EQ(level.configuredEnemyCount(), expectedEnemies[i]);
+                CHECK_EQ(level.clearCrystals, expectedCrystals[i]);
+                if (i > 0)
+                    CHECK_GT(level.configuredEnemyCount(), campaign.levels()[i - 1].configuredEnemyCount());
             }
+            else
+            {
+                CHECK_GE(level.configuredEnemyCount(), 20);
+                CHECK_LE(level.configuredEnemyCount(), 55);
+                CHECK_EQ(level.waves.size(), (i + 1) % 5 == 0 ? 4 : 3);
+                if (i > 5 && i % 5 != 0)
+                    CHECK_GT(level.configuredEnemyCount(), campaign.levels()[i - 1].configuredEnemyCount());
+            }
+            bool hasBoss = false;
+            for (const auto& wave : level.waves)
+            {
+                for (const auto& group : wave.groups)
+                    hasBoss |= group.type == MonsterType::Boss;
+            }
+            CHECK_EQ(hasBoss, (i + 1) % 5 == 0);
         }
     }
 

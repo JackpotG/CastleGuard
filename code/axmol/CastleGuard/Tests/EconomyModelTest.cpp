@@ -272,6 +272,17 @@ TEST_SUITE("CampaignProgressionModel")
         CHECK_EQ(campaign.pendingRewardStage(), 0);
         CHECK_FALSE(campaign.claimRewardStage(3));
     }
+
+    TEST_CASE("fiftieth stage remains replayable after a sequential clear")
+    {
+        CampaignProgressionModel campaign(48, 48);
+        CHECK_EQ(campaign.nextStage(50), 49);
+        CHECK(campaign.completeStage(49, 50));
+        CHECK_EQ(campaign.nextStage(50), 50);
+        CHECK(campaign.completeStage(50, 50));
+        CHECK_EQ(campaign.nextStage(50), 50);
+        CHECK_FALSE(campaign.completeStage(50, 50));
+    }
 }
 
 TEST_SUITE("ProductionProgressionCatalog")

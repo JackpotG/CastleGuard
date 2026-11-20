@@ -2175,7 +2175,7 @@ void MainScene::spawnMonster(MonsterType type, int lane, const std::string& from
 }
 
 // ---------------------------------------------------------------------------
-// 五关战役：CampaignConfig 负责结构与校验，场景只持有当前关的波次运行时。
+// 闯关配置：CampaignConfig 负责结构与校验，场景只持有当前关的波次运行时。
 // 状态机：Idle → Spawning（按组出怪）→ Resting（清场休整）→ 下一波 → AllClear。
 // ---------------------------------------------------------------------------
 bool MainScene::loadCampaign()
@@ -2245,9 +2245,11 @@ void MainScene::activateLevel(size_t index, bool announceUnlocks)
 void MainScene::prepareEndlessWave(int waveNumber)
 {
     std::vector<const WaveConfig*> templates;
-    for (const auto& level : _campaign.levels())
+    const auto& levels = _campaign.levels();
+    const size_t templateLevelCount = std::min<size_t>(5, levels.size());
+    for (size_t i = 0; i < templateLevelCount; ++i)
     {
-        for (const auto& wave : level.waves)
+        for (const auto& wave : levels[i].waves)
         {
             templates.push_back(&wave);
         }

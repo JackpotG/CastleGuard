@@ -34,6 +34,16 @@ TEST_SUITE("MonsterBalance")
         CHECK_EQ(balance.healthAtStage(MonsterType::Normal, 1), doctest::Approx(2.0f));
         CHECK_EQ(balance.healthAtStage(MonsterType::Normal, 2), doctest::Approx(2.4f));
         CHECK_EQ(balance.healthAtStage(MonsterType::Normal, 5), doctest::Approx(3.6f));
+        for (const int stage : {6, 25, 50})
+        {
+            const float multiplier = 1.0f + 0.20f * (stage - 1);
+            for (size_t i = 0; i < MonsterBalance::TYPE_COUNT; ++i)
+            {
+                const auto type = static_cast<MonsterType>(i);
+                CHECK_EQ(balance.healthAtStage(type, stage),
+                         doctest::Approx(balance.parameters(type).maxHp * multiplier));
+            }
+        }
         CHECK_EQ(balance.parameters(MonsterType::Boss).knockbackFactor, doctest::Approx(0.20f));
         CHECK_EQ(balance.resolveKnockbackDistance(MonsterType::Boss, 40.0f),
                  doctest::Approx(8.0f));

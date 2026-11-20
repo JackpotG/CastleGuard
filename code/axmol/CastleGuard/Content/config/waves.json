@@ -1,5 +1,5 @@
 {
-  "_comment": "闯关已制作的五关配置。groups: type/count/interval/delay/lane/from；formation=scatter(默认)/row(同帧横排)/column(同车道连续)。",
+  "_comment": "闯关配置共 50 关：前 5 关是已试玩基线，第 6~50 关为分章节配表基线。groups: type/count/interval/delay/lane/from；formation=scatter(默认)/row(同帧横排)/column(同车道连续)。怪物生命由基础值乘关卡进度系数计算，不在此表逐关覆盖。",
   "levels": [
     {
       "name": "第 1 关 · 城下试探",
@@ -149,6 +149,1518 @@
             { "type": "boss", "count": 1 },
             { "type": "normal", "count": 6, "interval": 1.0, "delay": 4.0 },
             { "type": "fast", "count": 4, "interval": 0.8, "delay": 9.0 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 6 关 · 荒原前哨",
+      "clearCrystals": 2,
+      "waves": [
+        {
+          "name": "斥候",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 4, "interval": 1.2 },
+            { "type": "fast", "count": 2, "interval": 1.4, "delay": 2, "from": "left" }
+          ]
+        },
+        {
+          "name": "交锋",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 6, "interval": 0.95, "formation": "column" },
+            { "type": "ranged", "count": 2, "interval": 2.2, "delay": 3 }
+          ]
+        },
+        {
+          "name": "突围",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 7, "formation": "row" },
+            { "type": "fast", "count": 3, "interval": 1.2, "delay": 2, "from": "right" },
+            { "type": "shield", "count": 1, "interval": 2.5, "delay": 5 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 7 关 · 荒原试锋",
+      "clearCrystals": 2,
+      "waves": [
+        {
+          "name": "侧翼",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 5, "interval": 1.1 },
+            { "type": "fast", "count": 3, "interval": 1.25, "delay": 2, "from": "right" }
+          ]
+        },
+        {
+          "name": "远袭",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "ranged", "count": 3, "interval": 2.2 },
+            { "type": "normal", "count": 7, "delay": 2, "formation": "row" }
+          ]
+        },
+        {
+          "name": "追击",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "fast", "count": 4, "interval": 1.1, "from": "left" },
+            { "type": "normal", "count": 7, "interval": 0.95, "delay": 2, "formation": "column" },
+            { "type": "shield", "count": 1, "delay": 5 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 8 关 · 荒原合围",
+      "clearCrystals": 2,
+      "waves": [
+        {
+          "name": "合流",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 6, "interval": 1.1 },
+            { "type": "fast", "count": 4, "interval": 1.2, "delay": 2, "from": "left" }
+          ]
+        },
+        {
+          "name": "压阵",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 7, "formation": "row" },
+            { "type": "ranged", "count": 3, "interval": 2.2, "delay": 2 },
+            { "type": "shield", "count": 1, "delay": 5 }
+          ]
+        },
+        {
+          "name": "围攻",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 8, "interval": 0.9, "formation": "column" },
+            { "type": "fast", "count": 4, "interval": 1.1, "delay": 2, "from": "right" },
+            { "type": "ranged", "count": 2, "interval": 2.3, "delay": 5 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 9 关 · 荒原逆袭",
+      "clearCrystals": 2,
+      "waves": [
+        {
+          "name": "前压",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 7, "interval": 1.05 },
+            { "type": "fast", "count": 4, "interval": 1.1, "delay": 2, "from": "right" }
+          ]
+        },
+        {
+          "name": "夹击",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 8, "formation": "row" },
+            { "type": "ranged", "count": 3, "interval": 2.2, "delay": 2 },
+            { "type": "shield", "count": 2, "interval": 2.3, "delay": 5 }
+          ]
+        },
+        {
+          "name": "攻城",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 8, "interval": 0.9, "formation": "column" },
+            { "type": "fast", "count": 3, "interval": 1.1, "delay": 2, "from": "left" },
+            { "type": "fast", "count": 2, "interval": 1.1, "delay": 4, "from": "right" },
+            { "type": "ranged", "count": 3, "interval": 2.3, "delay": 6 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 10 关 · 荒原首领",
+      "clearCrystals": 4,
+      "waves": [
+        {
+          "name": "前锋",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 6, "interval": 1.1 },
+            { "type": "fast", "count": 4, "interval": 1.2, "delay": 2, "from": "left" }
+          ]
+        },
+        {
+          "name": "护卫",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 8, "formation": "row" },
+            { "type": "ranged", "count": 3, "interval": 2.2, "delay": 2 }
+          ]
+        },
+        {
+          "name": "冲阵",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 7, "interval": 0.9, "formation": "column" },
+            { "type": "shield", "count": 2, "interval": 2.3, "delay": 2 },
+            { "type": "fast", "count": 2, "interval": 1.1, "delay": 3, "from": "left" },
+            { "type": "fast", "count": 2, "interval": 1.1, "delay": 5, "from": "right" }
+          ]
+        },
+        {
+          "name": "首领",
+          "restAfter": 3.0,
+          "groups": [
+            { "type": "boss", "count": 1 },
+            { "type": "normal", "count": 6, "interval": 1, "delay": 3 },
+            { "type": "ranged", "count": 2, "interval": 2.5, "delay": 7 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 11 关 · 雾谷前哨",
+      "clearCrystals": 2,
+      "waves": [
+        {
+          "name": "斥候",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 4, "interval": 1.2 },
+            { "type": "ghost", "count": 2, "interval": 1.4, "delay": 2, "from": "right" }
+          ]
+        },
+        {
+          "name": "交锋",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 6, "interval": 0.95, "formation": "column" },
+            { "type": "healer", "count": 2, "interval": 2.2, "delay": 3 }
+          ]
+        },
+        {
+          "name": "突围",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 7, "formation": "row" },
+            { "type": "ghost", "count": 3, "interval": 1.2, "delay": 2, "from": "left" },
+            { "type": "splitter", "count": 1, "interval": 2.5, "delay": 5 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 12 关 · 雾谷试锋",
+      "clearCrystals": 2,
+      "waves": [
+        {
+          "name": "侧翼",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 5, "interval": 1.1 },
+            { "type": "ghost", "count": 3, "interval": 1.25, "delay": 2, "from": "left" }
+          ]
+        },
+        {
+          "name": "远袭",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "healer", "count": 2, "interval": 2.2 },
+            { "type": "normal", "count": 7, "delay": 2, "formation": "row" }
+          ]
+        },
+        {
+          "name": "追击",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "ghost", "count": 4, "interval": 1.1, "from": "right" },
+            { "type": "normal", "count": 7, "interval": 0.95, "delay": 2, "formation": "column" },
+            { "type": "splitter", "count": 1, "delay": 5 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 13 关 · 雾谷合围",
+      "clearCrystals": 2,
+      "waves": [
+        {
+          "name": "合流",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 6, "interval": 1.1 },
+            { "type": "ghost", "count": 4, "interval": 1.2, "delay": 2, "from": "right" }
+          ]
+        },
+        {
+          "name": "压阵",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 7, "formation": "row" },
+            { "type": "healer", "count": 2, "interval": 2.2, "delay": 2 },
+            { "type": "splitter", "count": 1, "delay": 5 }
+          ]
+        },
+        {
+          "name": "围攻",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 8, "interval": 0.9, "formation": "column" },
+            { "type": "ghost", "count": 4, "interval": 1.1, "delay": 2, "from": "left" },
+            { "type": "healer", "count": 2, "interval": 2.3, "delay": 5 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 14 关 · 雾谷逆袭",
+      "clearCrystals": 2,
+      "waves": [
+        {
+          "name": "前压",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 7, "interval": 1.05 },
+            { "type": "ghost", "count": 4, "interval": 1.1, "delay": 2, "from": "left" }
+          ]
+        },
+        {
+          "name": "夹击",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 8, "formation": "row" },
+            { "type": "healer", "count": 2, "interval": 2.2, "delay": 2 },
+            { "type": "splitter", "count": 2, "interval": 2.3, "delay": 5 }
+          ]
+        },
+        {
+          "name": "攻城",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 8, "interval": 0.9, "formation": "column" },
+            { "type": "ghost", "count": 3, "interval": 1.1, "delay": 2, "from": "right" },
+            { "type": "ghost", "count": 2, "interval": 1.1, "delay": 4, "from": "left" },
+            { "type": "healer", "count": 2, "interval": 2.3, "delay": 6 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 15 关 · 雾谷首领",
+      "clearCrystals": 4,
+      "waves": [
+        {
+          "name": "前锋",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 6, "interval": 1.1 },
+            { "type": "ghost", "count": 4, "interval": 1.2, "delay": 2, "from": "right" }
+          ]
+        },
+        {
+          "name": "护卫",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 8, "formation": "row" },
+            { "type": "healer", "count": 2, "interval": 2.2, "delay": 2 }
+          ]
+        },
+        {
+          "name": "冲阵",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 7, "interval": 0.9, "formation": "column" },
+            { "type": "splitter", "count": 2, "interval": 2.3, "delay": 2 },
+            { "type": "ghost", "count": 2, "interval": 1.1, "delay": 3, "from": "right" },
+            { "type": "ghost", "count": 2, "interval": 1.1, "delay": 5, "from": "left" }
+          ]
+        },
+        {
+          "name": "首领",
+          "restAfter": 3.0,
+          "groups": [
+            { "type": "boss", "count": 1 },
+            { "type": "normal", "count": 6, "interval": 1, "delay": 3 },
+            { "type": "healer", "count": 2, "interval": 2.5, "delay": 7 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 16 关 · 炎脊前哨",
+      "clearCrystals": 2,
+      "waves": [
+        {
+          "name": "斥候",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 4, "interval": 1.2 },
+            { "type": "bomber", "count": 2, "interval": 1.4, "delay": 2, "from": "left" }
+          ]
+        },
+        {
+          "name": "交锋",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 6, "interval": 0.95, "formation": "column" },
+            { "type": "rager", "count": 2, "interval": 2.2, "delay": 3 }
+          ]
+        },
+        {
+          "name": "突围",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 7, "formation": "row" },
+            { "type": "bomber", "count": 3, "interval": 1.2, "delay": 2, "from": "right" },
+            { "type": "shield", "count": 1, "interval": 2.5, "delay": 5 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 17 关 · 炎脊试锋",
+      "clearCrystals": 2,
+      "waves": [
+        {
+          "name": "侧翼",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 5, "interval": 1.1 },
+            { "type": "bomber", "count": 3, "interval": 1.25, "delay": 2, "from": "right" }
+          ]
+        },
+        {
+          "name": "远袭",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "rager", "count": 3, "interval": 2.2 },
+            { "type": "normal", "count": 7, "delay": 2, "formation": "row" }
+          ]
+        },
+        {
+          "name": "追击",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "bomber", "count": 4, "interval": 1.1, "from": "left" },
+            { "type": "normal", "count": 7, "interval": 0.95, "delay": 2, "formation": "column" },
+            { "type": "shield", "count": 1, "delay": 5 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 18 关 · 炎脊合围",
+      "clearCrystals": 2,
+      "waves": [
+        {
+          "name": "合流",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 6, "interval": 1.1 },
+            { "type": "bomber", "count": 4, "interval": 1.2, "delay": 2, "from": "left" }
+          ]
+        },
+        {
+          "name": "压阵",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 7, "formation": "row" },
+            { "type": "rager", "count": 3, "interval": 2.2, "delay": 2 },
+            { "type": "shield", "count": 1, "delay": 5 }
+          ]
+        },
+        {
+          "name": "围攻",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 8, "interval": 0.9, "formation": "column" },
+            { "type": "bomber", "count": 4, "interval": 1.1, "delay": 2, "from": "right" },
+            { "type": "rager", "count": 2, "interval": 2.3, "delay": 5 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 19 关 · 炎脊逆袭",
+      "clearCrystals": 2,
+      "waves": [
+        {
+          "name": "前压",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 7, "interval": 1.05 },
+            { "type": "bomber", "count": 4, "interval": 1.1, "delay": 2, "from": "right" }
+          ]
+        },
+        {
+          "name": "夹击",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 8, "formation": "row" },
+            { "type": "rager", "count": 3, "interval": 2.2, "delay": 2 },
+            { "type": "shield", "count": 2, "interval": 2.3, "delay": 5 }
+          ]
+        },
+        {
+          "name": "攻城",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 8, "interval": 0.9, "formation": "column" },
+            { "type": "bomber", "count": 3, "interval": 1.1, "delay": 2, "from": "left" },
+            { "type": "bomber", "count": 2, "interval": 1.1, "delay": 4, "from": "right" },
+            { "type": "rager", "count": 3, "interval": 2.3, "delay": 6 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 20 关 · 炎脊首领",
+      "clearCrystals": 4,
+      "waves": [
+        {
+          "name": "前锋",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 6, "interval": 1.1 },
+            { "type": "bomber", "count": 4, "interval": 1.2, "delay": 2, "from": "left" }
+          ]
+        },
+        {
+          "name": "护卫",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 8, "formation": "row" },
+            { "type": "rager", "count": 3, "interval": 2.2, "delay": 2 }
+          ]
+        },
+        {
+          "name": "冲阵",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 7, "interval": 0.9, "formation": "column" },
+            { "type": "shield", "count": 2, "interval": 2.3, "delay": 2 },
+            { "type": "bomber", "count": 2, "interval": 1.1, "delay": 3, "from": "left" },
+            { "type": "bomber", "count": 2, "interval": 1.1, "delay": 5, "from": "right" }
+          ]
+        },
+        {
+          "name": "首领",
+          "restAfter": 3.0,
+          "groups": [
+            { "type": "boss", "count": 1 },
+            { "type": "normal", "count": 6, "interval": 1, "delay": 3 },
+            { "type": "rager", "count": 2, "interval": 2.5, "delay": 7 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 21 关 · 云崖前哨",
+      "clearCrystals": 3,
+      "waves": [
+        {
+          "name": "斥候",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "fast", "count": 5, "interval": 1.2 },
+            { "type": "flyer", "count": 2, "interval": 1.4, "delay": 2, "from": "right" }
+          ]
+        },
+        {
+          "name": "交锋",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "fast", "count": 7, "interval": 0.95, "formation": "column" },
+            { "type": "ranged", "count": 2, "interval": 2.2, "delay": 3 }
+          ]
+        },
+        {
+          "name": "突围",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "fast", "count": 8, "formation": "row" },
+            { "type": "flyer", "count": 3, "interval": 1.2, "delay": 2, "from": "left" },
+            { "type": "aegis", "count": 1, "interval": 2.5, "delay": 5 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 22 关 · 云崖试锋",
+      "clearCrystals": 3,
+      "waves": [
+        {
+          "name": "侧翼",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "fast", "count": 6, "interval": 1.1 },
+            { "type": "flyer", "count": 3, "interval": 1.25, "delay": 2, "from": "left" }
+          ]
+        },
+        {
+          "name": "远袭",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "ranged", "count": 3, "interval": 2.2 },
+            { "type": "fast", "count": 8, "delay": 2, "formation": "row" }
+          ]
+        },
+        {
+          "name": "追击",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "flyer", "count": 4, "interval": 1.1, "from": "right" },
+            { "type": "fast", "count": 8, "interval": 0.95, "delay": 2, "formation": "column" },
+            { "type": "aegis", "count": 1, "delay": 5 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 23 关 · 云崖合围",
+      "clearCrystals": 3,
+      "waves": [
+        {
+          "name": "合流",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "fast", "count": 7, "interval": 1.1 },
+            { "type": "flyer", "count": 4, "interval": 1.2, "delay": 2, "from": "right" }
+          ]
+        },
+        {
+          "name": "压阵",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "fast", "count": 8, "formation": "row" },
+            { "type": "ranged", "count": 3, "interval": 2.2, "delay": 2 },
+            { "type": "aegis", "count": 1, "delay": 5 }
+          ]
+        },
+        {
+          "name": "围攻",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "fast", "count": 9, "interval": 0.9, "formation": "column" },
+            { "type": "flyer", "count": 4, "interval": 1.1, "delay": 2, "from": "left" },
+            { "type": "ranged", "count": 2, "interval": 2.3, "delay": 5 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 24 关 · 云崖逆袭",
+      "clearCrystals": 3,
+      "waves": [
+        {
+          "name": "前压",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "fast", "count": 8, "interval": 1.05 },
+            { "type": "flyer", "count": 4, "interval": 1.1, "delay": 2, "from": "left" }
+          ]
+        },
+        {
+          "name": "夹击",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "fast", "count": 9, "formation": "row" },
+            { "type": "ranged", "count": 3, "interval": 2.2, "delay": 2 },
+            { "type": "aegis", "count": 2, "interval": 2.3, "delay": 5 }
+          ]
+        },
+        {
+          "name": "攻城",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "fast", "count": 9, "interval": 0.9, "formation": "column" },
+            { "type": "flyer", "count": 3, "interval": 1.1, "delay": 2, "from": "right" },
+            { "type": "flyer", "count": 2, "interval": 1.1, "delay": 4, "from": "left" },
+            { "type": "ranged", "count": 3, "interval": 2.3, "delay": 6 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 25 关 · 云崖首领",
+      "clearCrystals": 4,
+      "waves": [
+        {
+          "name": "前锋",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "fast", "count": 7, "interval": 1.1 },
+            { "type": "flyer", "count": 4, "interval": 1.2, "delay": 2, "from": "right" }
+          ]
+        },
+        {
+          "name": "护卫",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "fast", "count": 9, "formation": "row" },
+            { "type": "ranged", "count": 3, "interval": 2.2, "delay": 2 }
+          ]
+        },
+        {
+          "name": "冲阵",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "fast", "count": 8, "interval": 0.9, "formation": "column" },
+            { "type": "aegis", "count": 2, "interval": 2.3, "delay": 2 },
+            { "type": "flyer", "count": 2, "interval": 1.1, "delay": 3, "from": "right" },
+            { "type": "flyer", "count": 2, "interval": 1.1, "delay": 5, "from": "left" }
+          ]
+        },
+        {
+          "name": "首领",
+          "restAfter": 3.0,
+          "groups": [
+            { "type": "boss", "count": 1 },
+            { "type": "fast", "count": 7, "interval": 1, "delay": 3 },
+            { "type": "ranged", "count": 2, "interval": 2.5, "delay": 7 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 26 关 · 裂隙前哨",
+      "clearCrystals": 3,
+      "waves": [
+        {
+          "name": "斥候",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 5, "interval": 1.2 },
+            { "type": "splitter", "count": 2, "interval": 1.4, "delay": 2, "from": "left" }
+          ]
+        },
+        {
+          "name": "交锋",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 7, "interval": 0.95, "formation": "column" },
+            { "type": "summoner", "count": 1, "interval": 2.2, "delay": 3 }
+          ]
+        },
+        {
+          "name": "突围",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 8, "formation": "row" },
+            { "type": "splitter", "count": 3, "interval": 1.2, "delay": 2, "from": "right" },
+            { "type": "ghost", "count": 1, "interval": 2.5, "delay": 5 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 27 关 · 裂隙试锋",
+      "clearCrystals": 3,
+      "waves": [
+        {
+          "name": "侧翼",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 6, "interval": 1.1 },
+            { "type": "splitter", "count": 3, "interval": 1.25, "delay": 2, "from": "right" }
+          ]
+        },
+        {
+          "name": "远袭",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "summoner", "count": 1, "interval": 2.2 },
+            { "type": "normal", "count": 8, "delay": 2, "formation": "row" }
+          ]
+        },
+        {
+          "name": "追击",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "splitter", "count": 4, "interval": 1.1, "from": "left" },
+            { "type": "normal", "count": 8, "interval": 0.95, "delay": 2, "formation": "column" },
+            { "type": "ghost", "count": 1, "delay": 5 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 28 关 · 裂隙合围",
+      "clearCrystals": 3,
+      "waves": [
+        {
+          "name": "合流",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 7, "interval": 1.1 },
+            { "type": "splitter", "count": 4, "interval": 1.2, "delay": 2, "from": "left" }
+          ]
+        },
+        {
+          "name": "压阵",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 8, "formation": "row" },
+            { "type": "summoner", "count": 1, "interval": 2.2, "delay": 2 },
+            { "type": "ghost", "count": 1, "delay": 5 }
+          ]
+        },
+        {
+          "name": "围攻",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 9, "interval": 0.9, "formation": "column" },
+            { "type": "splitter", "count": 4, "interval": 1.1, "delay": 2, "from": "right" },
+            { "type": "summoner", "count": 1, "interval": 2.3, "delay": 5 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 29 关 · 裂隙逆袭",
+      "clearCrystals": 3,
+      "waves": [
+        {
+          "name": "前压",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 8, "interval": 1.05 },
+            { "type": "splitter", "count": 4, "interval": 1.1, "delay": 2, "from": "right" }
+          ]
+        },
+        {
+          "name": "夹击",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 9, "formation": "row" },
+            { "type": "summoner", "count": 1, "interval": 2.2, "delay": 2 },
+            { "type": "ghost", "count": 2, "interval": 2.3, "delay": 5 }
+          ]
+        },
+        {
+          "name": "攻城",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 9, "interval": 0.9, "formation": "column" },
+            { "type": "splitter", "count": 3, "interval": 1.1, "delay": 2, "from": "left" },
+            { "type": "splitter", "count": 2, "interval": 1.1, "delay": 4, "from": "right" },
+            { "type": "summoner", "count": 1, "interval": 2.3, "delay": 6 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 30 关 · 裂隙首领",
+      "clearCrystals": 4,
+      "waves": [
+        {
+          "name": "前锋",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 7, "interval": 1.1 },
+            { "type": "splitter", "count": 4, "interval": 1.2, "delay": 2, "from": "left" }
+          ]
+        },
+        {
+          "name": "护卫",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 9, "formation": "row" },
+            { "type": "summoner", "count": 1, "interval": 2.2, "delay": 2 }
+          ]
+        },
+        {
+          "name": "冲阵",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 8, "interval": 0.9, "formation": "column" },
+            { "type": "ghost", "count": 2, "interval": 2.3, "delay": 2 },
+            { "type": "splitter", "count": 2, "interval": 1.1, "delay": 3, "from": "left" },
+            { "type": "splitter", "count": 2, "interval": 1.1, "delay": 5, "from": "right" }
+          ]
+        },
+        {
+          "name": "首领",
+          "restAfter": 3.0,
+          "groups": [
+            { "type": "boss", "count": 1 },
+            { "type": "normal", "count": 7, "interval": 1, "delay": 3 },
+            { "type": "summoner", "count": 1, "interval": 2.5, "delay": 7 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 31 关 · 铁幕前哨",
+      "clearCrystals": 3,
+      "waves": [
+        {
+          "name": "斥候",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 5, "interval": 1.2 },
+            { "type": "shield", "count": 2, "interval": 1.4, "delay": 2, "from": "right" }
+          ]
+        },
+        {
+          "name": "交锋",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 7, "interval": 0.95, "formation": "column" },
+            { "type": "aegis", "count": 2, "interval": 2.2, "delay": 3 }
+          ]
+        },
+        {
+          "name": "突围",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 8, "formation": "row" },
+            { "type": "shield", "count": 3, "interval": 1.2, "delay": 2, "from": "left" },
+            { "type": "rager", "count": 1, "interval": 2.5, "delay": 5 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 32 关 · 铁幕试锋",
+      "clearCrystals": 3,
+      "waves": [
+        {
+          "name": "侧翼",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 6, "interval": 1.1 },
+            { "type": "shield", "count": 3, "interval": 1.25, "delay": 2, "from": "left" }
+          ]
+        },
+        {
+          "name": "远袭",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "aegis", "count": 3, "interval": 2.2 },
+            { "type": "normal", "count": 8, "delay": 2, "formation": "row" }
+          ]
+        },
+        {
+          "name": "追击",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "shield", "count": 4, "interval": 1.1, "from": "right" },
+            { "type": "normal", "count": 8, "interval": 0.95, "delay": 2, "formation": "column" },
+            { "type": "rager", "count": 1, "delay": 5 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 33 关 · 铁幕合围",
+      "clearCrystals": 3,
+      "waves": [
+        {
+          "name": "合流",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 7, "interval": 1.1 },
+            { "type": "shield", "count": 4, "interval": 1.2, "delay": 2, "from": "right" }
+          ]
+        },
+        {
+          "name": "压阵",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 8, "formation": "row" },
+            { "type": "aegis", "count": 3, "interval": 2.2, "delay": 2 },
+            { "type": "rager", "count": 1, "delay": 5 }
+          ]
+        },
+        {
+          "name": "围攻",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 9, "interval": 0.9, "formation": "column" },
+            { "type": "shield", "count": 4, "interval": 1.1, "delay": 2, "from": "left" },
+            { "type": "aegis", "count": 2, "interval": 2.3, "delay": 5 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 34 关 · 铁幕逆袭",
+      "clearCrystals": 3,
+      "waves": [
+        {
+          "name": "前压",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 8, "interval": 1.05 },
+            { "type": "shield", "count": 4, "interval": 1.1, "delay": 2, "from": "left" }
+          ]
+        },
+        {
+          "name": "夹击",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 9, "formation": "row" },
+            { "type": "aegis", "count": 3, "interval": 2.2, "delay": 2 },
+            { "type": "rager", "count": 2, "interval": 2.3, "delay": 5 }
+          ]
+        },
+        {
+          "name": "攻城",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 9, "interval": 0.9, "formation": "column" },
+            { "type": "shield", "count": 3, "interval": 1.1, "delay": 2, "from": "right" },
+            { "type": "shield", "count": 2, "interval": 1.1, "delay": 4, "from": "left" },
+            { "type": "aegis", "count": 3, "interval": 2.3, "delay": 6 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 35 关 · 铁幕首领",
+      "clearCrystals": 4,
+      "waves": [
+        {
+          "name": "前锋",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 7, "interval": 1.1 },
+            { "type": "shield", "count": 4, "interval": 1.2, "delay": 2, "from": "right" }
+          ]
+        },
+        {
+          "name": "护卫",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 9, "formation": "row" },
+            { "type": "aegis", "count": 3, "interval": 2.2, "delay": 2 }
+          ]
+        },
+        {
+          "name": "冲阵",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 8, "interval": 0.9, "formation": "column" },
+            { "type": "rager", "count": 2, "interval": 2.3, "delay": 2 },
+            { "type": "shield", "count": 2, "interval": 1.1, "delay": 3, "from": "right" },
+            { "type": "shield", "count": 2, "interval": 1.1, "delay": 5, "from": "left" }
+          ]
+        },
+        {
+          "name": "首领",
+          "restAfter": 3.0,
+          "groups": [
+            { "type": "boss", "count": 1 },
+            { "type": "normal", "count": 7, "interval": 1, "delay": 3 },
+            { "type": "aegis", "count": 2, "interval": 2.5, "delay": 7 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 36 关 · 暮影前哨",
+      "clearCrystals": 3,
+      "waves": [
+        {
+          "name": "斥候",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 6, "interval": 1.2 },
+            { "type": "ghost", "count": 2, "interval": 1.4, "delay": 2, "from": "left" }
+          ]
+        },
+        {
+          "name": "交锋",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 8, "interval": 0.95, "formation": "column" },
+            { "type": "summoner", "count": 1, "interval": 2.2, "delay": 3 }
+          ]
+        },
+        {
+          "name": "突围",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 9, "formation": "row" },
+            { "type": "ghost", "count": 3, "interval": 1.2, "delay": 2, "from": "right" },
+            { "type": "aegis", "count": 1, "interval": 2.5, "delay": 5 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 37 关 · 暮影试锋",
+      "clearCrystals": 3,
+      "waves": [
+        {
+          "name": "侧翼",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 7, "interval": 1.1 },
+            { "type": "ghost", "count": 3, "interval": 1.25, "delay": 2, "from": "right" }
+          ]
+        },
+        {
+          "name": "远袭",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "summoner", "count": 1, "interval": 2.2 },
+            { "type": "normal", "count": 9, "delay": 2, "formation": "row" }
+          ]
+        },
+        {
+          "name": "追击",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "ghost", "count": 4, "interval": 1.1, "from": "left" },
+            { "type": "normal", "count": 9, "interval": 0.95, "delay": 2, "formation": "column" },
+            { "type": "aegis", "count": 1, "delay": 5 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 38 关 · 暮影合围",
+      "clearCrystals": 3,
+      "waves": [
+        {
+          "name": "合流",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 8, "interval": 1.1 },
+            { "type": "ghost", "count": 4, "interval": 1.2, "delay": 2, "from": "left" }
+          ]
+        },
+        {
+          "name": "压阵",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 9, "formation": "row" },
+            { "type": "summoner", "count": 1, "interval": 2.2, "delay": 2 },
+            { "type": "aegis", "count": 1, "delay": 5 }
+          ]
+        },
+        {
+          "name": "围攻",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 10, "interval": 0.9, "formation": "column" },
+            { "type": "ghost", "count": 4, "interval": 1.1, "delay": 2, "from": "right" },
+            { "type": "summoner", "count": 1, "interval": 2.3, "delay": 5 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 39 关 · 暮影逆袭",
+      "clearCrystals": 3,
+      "waves": [
+        {
+          "name": "前压",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 9, "interval": 1.05 },
+            { "type": "ghost", "count": 4, "interval": 1.1, "delay": 2, "from": "right" }
+          ]
+        },
+        {
+          "name": "夹击",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 10, "formation": "row" },
+            { "type": "summoner", "count": 1, "interval": 2.2, "delay": 2 },
+            { "type": "aegis", "count": 2, "interval": 2.3, "delay": 5 }
+          ]
+        },
+        {
+          "name": "攻城",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 10, "interval": 0.9, "formation": "column" },
+            { "type": "ghost", "count": 3, "interval": 1.1, "delay": 2, "from": "left" },
+            { "type": "ghost", "count": 2, "interval": 1.1, "delay": 4, "from": "right" },
+            { "type": "summoner", "count": 1, "interval": 2.3, "delay": 6 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 40 关 · 暮影首领",
+      "clearCrystals": 5,
+      "waves": [
+        {
+          "name": "前锋",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 8, "interval": 1.1 },
+            { "type": "ghost", "count": 4, "interval": 1.2, "delay": 2, "from": "left" }
+          ]
+        },
+        {
+          "name": "护卫",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 10, "formation": "row" },
+            { "type": "summoner", "count": 1, "interval": 2.2, "delay": 2 }
+          ]
+        },
+        {
+          "name": "冲阵",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 9, "interval": 0.9, "formation": "column" },
+            { "type": "aegis", "count": 2, "interval": 2.3, "delay": 2 },
+            { "type": "ghost", "count": 2, "interval": 1.1, "delay": 3, "from": "left" },
+            { "type": "ghost", "count": 2, "interval": 1.1, "delay": 5, "from": "right" }
+          ]
+        },
+        {
+          "name": "首领",
+          "restAfter": 3.0,
+          "groups": [
+            { "type": "boss", "count": 1 },
+            { "type": "normal", "count": 8, "interval": 1, "delay": 3 },
+            { "type": "summoner", "count": 1, "interval": 2.5, "delay": 7 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 41 关 · 风暴前哨",
+      "clearCrystals": 3,
+      "waves": [
+        {
+          "name": "斥候",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "fast", "count": 6, "interval": 1.2 },
+            { "type": "flyer", "count": 2, "interval": 1.4, "delay": 2, "from": "right" }
+          ]
+        },
+        {
+          "name": "交锋",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "fast", "count": 8, "interval": 0.95, "formation": "column" },
+            { "type": "healer", "count": 2, "interval": 2.2, "delay": 3 }
+          ]
+        },
+        {
+          "name": "突围",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "fast", "count": 9, "formation": "row" },
+            { "type": "flyer", "count": 3, "interval": 1.2, "delay": 2, "from": "left" },
+            { "type": "ranged", "count": 1, "interval": 2.5, "delay": 5 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 42 关 · 风暴试锋",
+      "clearCrystals": 3,
+      "waves": [
+        {
+          "name": "侧翼",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "fast", "count": 7, "interval": 1.1 },
+            { "type": "flyer", "count": 3, "interval": 1.25, "delay": 2, "from": "left" }
+          ]
+        },
+        {
+          "name": "远袭",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "healer", "count": 2, "interval": 2.2 },
+            { "type": "fast", "count": 9, "delay": 2, "formation": "row" }
+          ]
+        },
+        {
+          "name": "追击",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "flyer", "count": 4, "interval": 1.1, "from": "right" },
+            { "type": "fast", "count": 9, "interval": 0.95, "delay": 2, "formation": "column" },
+            { "type": "ranged", "count": 1, "delay": 5 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 43 关 · 风暴合围",
+      "clearCrystals": 3,
+      "waves": [
+        {
+          "name": "合流",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "fast", "count": 8, "interval": 1.1 },
+            { "type": "flyer", "count": 4, "interval": 1.2, "delay": 2, "from": "right" }
+          ]
+        },
+        {
+          "name": "压阵",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "fast", "count": 9, "formation": "row" },
+            { "type": "healer", "count": 2, "interval": 2.2, "delay": 2 },
+            { "type": "ranged", "count": 1, "delay": 5 }
+          ]
+        },
+        {
+          "name": "围攻",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "fast", "count": 10, "interval": 0.9, "formation": "column" },
+            { "type": "flyer", "count": 4, "interval": 1.1, "delay": 2, "from": "left" },
+            { "type": "healer", "count": 2, "interval": 2.3, "delay": 5 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 44 关 · 风暴逆袭",
+      "clearCrystals": 3,
+      "waves": [
+        {
+          "name": "前压",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "fast", "count": 9, "interval": 1.05 },
+            { "type": "flyer", "count": 4, "interval": 1.1, "delay": 2, "from": "left" }
+          ]
+        },
+        {
+          "name": "夹击",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "fast", "count": 10, "formation": "row" },
+            { "type": "healer", "count": 2, "interval": 2.2, "delay": 2 },
+            { "type": "ranged", "count": 2, "interval": 2.3, "delay": 5 }
+          ]
+        },
+        {
+          "name": "攻城",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "fast", "count": 10, "interval": 0.9, "formation": "column" },
+            { "type": "flyer", "count": 3, "interval": 1.1, "delay": 2, "from": "right" },
+            { "type": "flyer", "count": 2, "interval": 1.1, "delay": 4, "from": "left" },
+            { "type": "healer", "count": 2, "interval": 2.3, "delay": 6 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 45 关 · 风暴首领",
+      "clearCrystals": 5,
+      "waves": [
+        {
+          "name": "前锋",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "fast", "count": 8, "interval": 1.1 },
+            { "type": "flyer", "count": 4, "interval": 1.2, "delay": 2, "from": "right" }
+          ]
+        },
+        {
+          "name": "护卫",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "fast", "count": 10, "formation": "row" },
+            { "type": "healer", "count": 2, "interval": 2.2, "delay": 2 }
+          ]
+        },
+        {
+          "name": "冲阵",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "fast", "count": 9, "interval": 0.9, "formation": "column" },
+            { "type": "ranged", "count": 2, "interval": 2.3, "delay": 2 },
+            { "type": "flyer", "count": 2, "interval": 1.1, "delay": 3, "from": "right" },
+            { "type": "flyer", "count": 2, "interval": 1.1, "delay": 5, "from": "left" }
+          ]
+        },
+        {
+          "name": "首领",
+          "restAfter": 3.0,
+          "groups": [
+            { "type": "boss", "count": 1 },
+            { "type": "fast", "count": 8, "interval": 1, "delay": 3 },
+            { "type": "healer", "count": 2, "interval": 2.5, "delay": 7 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 46 关 · 终境前哨",
+      "clearCrystals": 3,
+      "waves": [
+        {
+          "name": "斥候",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 6, "interval": 1.2 },
+            { "type": "rager", "count": 2, "interval": 1.4, "delay": 2, "from": "left" }
+          ]
+        },
+        {
+          "name": "交锋",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 8, "interval": 0.95, "formation": "column" },
+            { "type": "aegis", "count": 2, "interval": 2.2, "delay": 3 }
+          ]
+        },
+        {
+          "name": "突围",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 9, "formation": "row" },
+            { "type": "rager", "count": 3, "interval": 1.2, "delay": 2, "from": "right" },
+            { "type": "summoner", "count": 1, "interval": 2.5, "delay": 5 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 47 关 · 终境试锋",
+      "clearCrystals": 3,
+      "waves": [
+        {
+          "name": "侧翼",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 7, "interval": 1.1 },
+            { "type": "rager", "count": 3, "interval": 1.25, "delay": 2, "from": "right" }
+          ]
+        },
+        {
+          "name": "远袭",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "aegis", "count": 3, "interval": 2.2 },
+            { "type": "normal", "count": 9, "delay": 2, "formation": "row" }
+          ]
+        },
+        {
+          "name": "追击",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "rager", "count": 4, "interval": 1.1, "from": "left" },
+            { "type": "normal", "count": 9, "interval": 0.95, "delay": 2, "formation": "column" },
+            { "type": "summoner", "count": 1, "delay": 5 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 48 关 · 终境合围",
+      "clearCrystals": 3,
+      "waves": [
+        {
+          "name": "合流",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 8, "interval": 1.1 },
+            { "type": "rager", "count": 4, "interval": 1.2, "delay": 2, "from": "left" }
+          ]
+        },
+        {
+          "name": "压阵",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 9, "formation": "row" },
+            { "type": "aegis", "count": 3, "interval": 2.2, "delay": 2 },
+            { "type": "summoner", "count": 1, "delay": 5 }
+          ]
+        },
+        {
+          "name": "围攻",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 10, "interval": 0.9, "formation": "column" },
+            { "type": "rager", "count": 4, "interval": 1.1, "delay": 2, "from": "right" },
+            { "type": "aegis", "count": 2, "interval": 2.3, "delay": 5 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 49 关 · 终境逆袭",
+      "clearCrystals": 3,
+      "waves": [
+        {
+          "name": "前压",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 9, "interval": 1.05 },
+            { "type": "rager", "count": 4, "interval": 1.1, "delay": 2, "from": "right" }
+          ]
+        },
+        {
+          "name": "夹击",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 10, "formation": "row" },
+            { "type": "aegis", "count": 3, "interval": 2.2, "delay": 2 },
+            { "type": "summoner", "count": 1, "interval": 2.3, "delay": 5 }
+          ]
+        },
+        {
+          "name": "攻城",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 10, "interval": 0.9, "formation": "column" },
+            { "type": "rager", "count": 3, "interval": 1.1, "delay": 2, "from": "left" },
+            { "type": "rager", "count": 2, "interval": 1.1, "delay": 4, "from": "right" },
+            { "type": "aegis", "count": 3, "interval": 2.3, "delay": 6 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "第 50 关 · 终境首领",
+      "clearCrystals": 5,
+      "waves": [
+        {
+          "name": "前锋",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 8, "interval": 1.1 },
+            { "type": "rager", "count": 4, "interval": 1.2, "delay": 2, "from": "left" }
+          ]
+        },
+        {
+          "name": "护卫",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 10, "formation": "row" },
+            { "type": "aegis", "count": 3, "interval": 2.2, "delay": 2 }
+          ]
+        },
+        {
+          "name": "冲阵",
+          "restAfter": 2.5,
+          "groups": [
+            { "type": "normal", "count": 9, "interval": 0.9, "formation": "column" },
+            { "type": "summoner", "count": 1, "interval": 2.3, "delay": 2 },
+            { "type": "rager", "count": 2, "interval": 1.1, "delay": 3, "from": "left" },
+            { "type": "rager", "count": 2, "interval": 1.1, "delay": 5, "from": "right" }
+          ]
+        },
+        {
+          "name": "首领",
+          "restAfter": 3.0,
+          "groups": [
+            { "type": "boss", "count": 1 },
+            { "type": "normal", "count": 8, "interval": 1, "delay": 3 },
+            { "type": "aegis", "count": 2, "interval": 2.5, "delay": 7 }
           ]
         }
       ]
