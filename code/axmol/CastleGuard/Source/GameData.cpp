@@ -793,8 +793,13 @@ void GameData::startRun()
 
 void GameData::abandonRun()
 {
-    _economy.discardRun(false);
-    AXLOGI("[CampaignCity][Economy] run abandoned");
+    const auto result = _economy.settle(false, 0);
+    if (result.committed)
+    {
+        save();
+        AXLOGI("[CampaignCity][Economy] run abandoned: coinsBanked={}, totalCoins={}, crystals={}",
+               result.coinsEarned, result.totalCoins, result.totalCrystals);
+    }
 }
 
 bool GameData::recordKill()

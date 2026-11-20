@@ -300,7 +300,8 @@ private:
     struct CoinPickup
     {
         enum class Phase { Idle, Popup, Flying };
-        ax::Label* popup = nullptr;
+        ax::Node* popup = nullptr;
+        ax::Label* popupAmount = nullptr;
         ax::DrawNode* coin = nullptr;
         ax::Vec2 start;
         ax::Vec2 flightStart;

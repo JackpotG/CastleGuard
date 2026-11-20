@@ -3389,9 +3389,19 @@ void MainScene::initCoinPickupPool()
     for (int i = 0; i < COIN_PICKUP_POOL_SIZE; ++i)
     {
         CoinPickup pickup;
-        pickup.popup = Label::createWithSystemFont("", "Arial", 22);
-        pickup.popup->setTextColor(Color4B(255, 222, 105, 255));
-        pickup.popup->enableOutline(Color4B(36, 25, 13, 230), 2);
+        pickup.popup = Node::create();
+        auto popupIcon = DrawNode::create();
+        popupIcon->drawSolidCircle(Vec2(-14.0f, 0.0f), 8.0f, 0.0f, 16,
+                                   Color4F(0.95f, 0.65f, 0.12f, 1.0f));
+        popupIcon->drawCircle(Vec2(-14.0f, 0.0f), 6.0f, 0.0f, 16, false,
+                              Color4F(1.0f, 0.88f, 0.35f, 1.0f), 1.5f);
+        pickup.popup->addChild(popupIcon);
+        pickup.popupAmount = Label::createWithSystemFont("", "Arial", 22);
+        pickup.popupAmount->setAnchorPoint(Vec2(0.0f, 0.5f));
+        pickup.popupAmount->setPosition(Vec2::ZERO);
+        pickup.popupAmount->setTextColor(Color4B(255, 222, 105, 255));
+        pickup.popupAmount->enableOutline(Color4B(36, 25, 13, 230), 2);
+        pickup.popup->addChild(pickup.popupAmount);
         pickup.popup->setVisible(false);
         _battleRoot->addChild(pickup.popup, 5);
 
@@ -3417,7 +3427,7 @@ void MainScene::spawnCoinPickup(const Vec2& position, int amount)
         pickup.elapsed = 0.0f;
         pickup.amount = amount;
         pickup.phase = CoinPickup::Phase::Popup;
-        pickup.popup->setString(StringUtils::format("金币 +%d", amount));
+        pickup.popupAmount->setString(StringUtils::format("+%d", amount));
         pickup.popup->setPosition(position);
         pickup.popup->setOpacity(255);
         pickup.popup->setScale(0.85f);
