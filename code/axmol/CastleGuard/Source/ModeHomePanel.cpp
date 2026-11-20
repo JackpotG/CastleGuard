@@ -325,7 +325,7 @@ bool ModeHomePanel::initWithKind(ModeHomeKind kind)
 
         _cityArt = DrawNode::create();
         addChild(_cityArt, 1);
-        _stageNumber = ui::Text::create("1", "Arial", 31);
+        _stageNumber = ui::Text::create("1", "Arial", 24);
         _stageNumber->setTextColor(Color4B(243, 226, 165, 255));
         addChild(_stageNumber, 3);
 
@@ -481,16 +481,16 @@ void ModeHomePanel::layoutCity(const Vec2& origin, const Size& visibleSize)
                        Vec2(centerX, wallBase + h * 0.043f),
                        Color4F(0.80f, 0.69f, 0.46f, 1.0f), 2.0f);
     const Vec2 stageCenter(centerX - w * 0.14f, wallBase + h * 0.030f);
-    const float plaqueHalfW = std::min(w * 0.054f, 42.0f);
-    const float plaqueHalfH = std::min(h * 0.022f, 28.0f);
+    const float plaqueHalfW = std::min(w * 0.043f, 32.0f);
+    const float plaqueHalfH = std::min(h * 0.016f, 20.0f);
     _cityArt->drawSolidRect(stageCenter - Vec2(plaqueHalfW, plaqueHalfH),
                             stageCenter + Vec2(plaqueHalfW, plaqueHalfH),
                             Color4F(0.24f, 0.30f, 0.32f, 1.0f));
     _cityArt->drawRect(stageCenter - Vec2(plaqueHalfW, plaqueHalfH),
                        stageCenter + Vec2(plaqueHalfW, plaqueHalfH),
                        Color4F(0.77f, 0.69f, 0.48f, 1.0f), 2.5f);
-    for (float dx : {-plaqueHalfW + 9.0f, plaqueHalfW - 9.0f})
-        _cityArt->drawSolidCircle(stageCenter + Vec2(dx, 0.0f), 2.5f, 0.0f, 12,
+    for (float dx : {-plaqueHalfW + 7.0f, plaqueHalfW - 7.0f})
+        _cityArt->drawSolidCircle(stageCenter + Vec2(dx, 0.0f), 2.0f, 0.0f, 12,
                                   Color4F(0.77f, 0.69f, 0.48f, 1.0f));
     _stageNumber->setPosition(stageCenter);
     const float parapetY = wallFaceTop -
@@ -592,8 +592,9 @@ void ModeHomePanel::setStageNumber(int stage)
 {
     if (_stageNumber)
     {
-        _stageNumber->setString(std::to_string(std::max(1, stage)));
-        _stageNumber->setFontSize(stage >= 100 ? 23.0f : 31.0f);
+        const std::string number = std::to_string(std::max(1, stage));
+        _stageNumber->setString(number);
+        _stageNumber->setFontSize(std::min(24.0f, 70.0f / number.size()));
     }
 }
 
