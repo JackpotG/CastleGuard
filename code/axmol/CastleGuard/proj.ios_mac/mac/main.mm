@@ -26,8 +26,43 @@
 
 #include "AppDelegate.h"
 #include "axmol.h"
+#import <Foundation/Foundation.h>
+
+#include <cstdio>
 
 using namespace ax;
+
+static bool configureWritablePath()
+{
+    NSFileManager* fileManager = [NSFileManager defaultManager];
+    NSURL* supportDirectory = [[fileManager URLsForDirectory:NSApplicationSupportDirectory
+                                                  inDomains:NSUserDomainMask] firstObject];
+    NSString* bundleIdentifier = [[NSBundle mainBundle] bundleIdentifier];
+    if (!supportDirectory || !bundleIdentifier.length)
+    {
+        std::fprintf(stderr, "[StartupStorage] Application Support or bundle identifier unavailable\n");
+        return false;
+    }
+
+    NSURL* gameDirectory = [supportDirectory URLByAppendingPathComponent:bundleIdentifier isDirectory:YES];
+    NSError* error = nil;
+    if (![fileManager createDirectoryAtURL:gameDirectory
+               withIntermediateDirectories:YES attributes:nil error:&error])
+    {
+        std::fprintf(stderr, "[StartupStorage] Could not create data directory: %s\n",
+                     error ? [[error localizedDescription] UTF8String] : "unknown error");
+        return false;
+    }
+
+    auto* fileUtils = FileUtils::getInstance();
+    if (!fileUtils)
+    {
+        std::fprintf(stderr, "[StartupStorage] FileUtils initialization failed\n");
+        return false;
+    }
+    fileUtils->setWritablePath([[gameDirectory path] UTF8String]);
+    return true;
+}
 
 int axmol_main()
 {
@@ -38,6 +73,12 @@ int axmol_main()
 
 int main(int argc, char* argv[])
 {
+    @autoreleasepool
+    {
+        if (!configureWritablePath())
+            return 1;
+    }
+
 #if _AX_TESTS
     AppDelegate app;
     return app.run(argc, argv);

@@ -63,7 +63,7 @@ elseif(APPLE)
       proj.ios_mac/mac/Icon.icns
     )
     list(APPEND GAME_SOURCE
-      proj.ios_mac/mac/main.cpp
+      proj.ios_mac/mac/main.mm
       proj.ios_mac/mac/Prefix.pch
       ${APP_UI_RES}
     )

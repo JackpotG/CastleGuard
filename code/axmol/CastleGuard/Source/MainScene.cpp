@@ -176,7 +176,7 @@ constexpr float COMBAT_HEALTH_BAR_H = 28.0f;
 constexpr float WALL_HEALTH_BAR_H = 16.0f;
 constexpr float MANA_BAR_H = WALL_HEALTH_BAR_H;
 constexpr float COMBAT_METER_GAP = 8.0f;
-constexpr float HEALTH_NUMBER_OPTICAL_Y = -3.0f;
+constexpr float HEALTH_NUMBER_OPTICAL_Y = -1.0f;
 constexpr int COIN_PICKUP_POOL_SIZE = 64;
 constexpr float COIN_POPUP_TIME = 0.38f;
 constexpr float COIN_FLIGHT_TIME = 0.72f;
@@ -640,11 +640,11 @@ void MainScene::initCombatHUD()
 {
     _wallHealthBar = DrawNode::create();
     addChild(_wallHealthBar, 6);
-    _wallHealthLabel = Label::createWithSystemFont("", "Arial", 14);
+    _wallHealthLabel = Label::createWithSystemFont("", "Arial", 12);
     _wallHealthLabel->setAlignment(TextHAlignment::CENTER, TextVAlignment::CENTER);
     _wallHealthLabel->setOverflow(Label::Overflow::SHRINK);
     _wallHealthLabel->setTextColor(Color4B::WHITE);
-    _wallHealthLabel->enableOutline(Color4B(0, 0, 0, 220), 2);
+    _wallHealthLabel->enableOutline(Color4B(0, 0, 0, 220), 1);
     addChild(_wallHealthLabel, 6);
 
     _bossHealthBar = DrawNode::create();
@@ -672,7 +672,7 @@ void MainScene::layoutCombatHUD(const Vec2& origin, const Size& visibleSize)
     const float bossY   = origin.y + visibleSize.height - 135.0f;
     _wallHealthRect = Rect(origin.x + edge, wallY, wallW, WALL_HEALTH_BAR_H);
     _bossHealthRect = Rect(centerX - bossW * 0.5f, bossY, bossW, COMBAT_HEALTH_BAR_H);
-    _wallHealthLabel->setDimensions(wallW, WALL_HEALTH_BAR_H);
+    _wallHealthLabel->setDimensions(wallW - 4.0f, WALL_HEALTH_BAR_H - 4.0f);
     _wallHealthLabel->setPosition(Vec2(_wallHealthRect.getMidX(),
                                        wallY + WALL_HEALTH_BAR_H * 0.5f +
                                            HEALTH_NUMBER_OPTICAL_Y));
