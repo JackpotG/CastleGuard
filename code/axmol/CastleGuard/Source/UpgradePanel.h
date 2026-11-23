@@ -42,9 +42,12 @@ private:
     {
         int targetLevel = 0;
         int id          = 0;
+        float radius    = 31.0f;
+        bool skill      = false;
         ax::DrawNode* graphic  = nullptr;
         ax::ui::Text* title    = nullptr;
         ax::ui::Text* status   = nullptr;
+        ax::ui::Text* detail   = nullptr;
         ax::ui::Button* target = nullptr;
     };
 
@@ -60,6 +63,7 @@ private:
     void rebuildTree(float contentWidth);
     void refresh();
     void refreshUpgradeBranch(UpgradeBranchView& branch);
+    void refreshResearchUpgradeNode(TreeNodeView& node);
     void refreshSkillNode(TreeNodeView& node);
     void drawNode(TreeNodeView& node, NodeState state, bool affordable = true);
     void selectUpgradeNode(UpgradeId id, int targetLevel);
@@ -77,7 +81,9 @@ private:
     ax::DrawNode* _startButtonBg  = nullptr;
     ax::DrawNode* _skillConnector = nullptr;
     ax::DrawNode* _skillRoot      = nullptr;
+    ax::DrawNode* _researchConnector = nullptr;
     std::vector<UpgradeBranchView> _upgradeBranches;
+    std::vector<TreeNodeView> _researchNodes;
     std::vector<TreeNodeView> _skillNodes;
     std::function<void()> _startRunCallback;
     Section _section = Section::All;

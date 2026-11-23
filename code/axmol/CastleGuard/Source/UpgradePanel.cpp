@@ -1,6 +1,7 @@
 #include "UpgradePanel.h"
 
 #include <algorithm>
+#include <array>
 
 using namespace ax;
 
@@ -8,8 +9,8 @@ namespace
 {
 constexpr float PANEL_PADDING         = 24.0f;
 constexpr float SECTION_HEIGHT        = 52.0f;
-constexpr float UPGRADE_BRANCH_HEIGHT = 150.0f;
-constexpr float SKILL_TREE_HEIGHT     = 226.0f;
+constexpr float UPGRADE_BRANCH_HEIGHT = 162.0f;
+constexpr float SKILL_TREE_HEIGHT     = 585.0f;
 constexpr float NODE_RADIUS           = 31.0f;
 constexpr float NODE_TARGET_SIZE      = 78.0f;
 
@@ -25,6 +26,14 @@ std::string valueText(UpgradeId id, float value)
         return StringUtils::format("每次 %.0f 支", value);
     case UpgradeId::WallHealth:
         return StringUtils::format("生命 %.0f", value);
+    case UpgradeId::HeavyStrike:
+        return StringUtils::format("击退 %.0f", value);
+    case UpgradeId::Precision:
+        return StringUtils::format("暴击 %.0f%%", value * 100.0f);
+    case UpgradeId::ManaFlow:
+        return StringUtils::format("回蓝 +%.1f/秒", value);
+    case UpgradeId::WallArmor:
+        return StringUtils::format("减伤 %.0f", value);
     default:
         return "";
     }
@@ -48,6 +57,92 @@ ui::Text* addText(Node* parent, const std::string& text, float fontSize, const V
     label->setAnchorPoint(anchor);
     parent->addChild(label, z);
     return label;
+}
+
+void drawUpgradeIcon(DrawNode* graphic, int id, bool skill, float radius, const Color4F& color)
+{
+    const float s = radius * 0.48f;
+    if (skill)
+    {
+        switch (static_cast<SkillId>(id))
+        {
+        case SkillId::Fireball:
+            graphic->drawSolidCircle(Vec2::ZERO, s * 0.55f, 0, 16, color);
+            graphic->drawSolidTriangle(Vec2(-s, -s), Vec2(0, s), Vec2(s, -s), color, color);
+            return;
+        case SkillId::Freeze:
+            graphic->drawLine(Vec2(-s, 0), Vec2(s, 0), color, 3);
+            graphic->drawLine(Vec2(0, -s), Vec2(0, s), color, 3);
+            graphic->drawLine(Vec2(-s * 0.7f, -s * 0.7f), Vec2(s * 0.7f, s * 0.7f), color, 2);
+            graphic->drawLine(Vec2(-s * 0.7f, s * 0.7f), Vec2(s * 0.7f, -s * 0.7f), color, 2);
+            return;
+        case SkillId::ArrowRain:
+            for (int i = -1; i <= 1; ++i)
+            {
+                const float x = i * s * 0.7f;
+                graphic->drawLine(Vec2(x, s), Vec2(x, -s * 0.55f), color, 2);
+                graphic->drawSolidTriangle(Vec2(x - 4, -s * 0.45f), Vec2(x + 4, -s * 0.45f),
+                                           Vec2(x, -s), color, color);
+            }
+            return;
+        case SkillId::Lightning:
+            graphic->drawSolidTriangle(Vec2(0, s), Vec2(-s * 0.65f, -s * 0.1f),
+                                       Vec2(s * 0.15f, -s * 0.1f), color, color);
+            graphic->drawSolidTriangle(Vec2(-s * 0.1f, s * 0.1f), Vec2(s * 0.65f, s * 0.1f),
+                                       Vec2(-s * 0.25f, -s), color, color);
+            return;
+        default: break;
+        }
+    }
+    switch (static_cast<UpgradeId>(id))
+    {
+    case UpgradeId::ArrowDamage:
+        graphic->drawLine(Vec2(-s * 0.7f, -s), Vec2(s * 0.6f, s * 0.6f), color, 4);
+        graphic->drawSolidTriangle(Vec2(s * 0.2f, s), Vec2(s, s * 0.2f),
+                                   Vec2(s * 0.65f, s * 0.7f), color, color);
+        graphic->drawLine(Vec2(-s, -s * 0.5f), Vec2(-s * 0.3f, -s * 0.8f), color, 3);
+        break;
+    case UpgradeId::HeavyStrike:
+        graphic->drawLine(Vec2(-s * 0.45f, -s), Vec2(s * 0.35f, s * 0.6f), color, 4);
+        graphic->drawSolidRect(Vec2(-s * 0.55f, s * 0.35f), Vec2(s, s), color);
+        break;
+    case UpgradeId::FireRate:
+        for (int i = -1; i <= 1; ++i)
+            graphic->drawLine(Vec2(-s, i * s * 0.55f), Vec2(s * 0.6f, i * s * 0.55f), color, 2);
+        graphic->drawSolidTriangle(Vec2(s * 0.35f, s), Vec2(s, 0), Vec2(s * 0.35f, -s), color, color);
+        break;
+    case UpgradeId::ManaFlow:
+        graphic->drawCircle(Vec2::ZERO, s * 0.8f, 0, 24, false, color, 3);
+        graphic->drawSolidCircle(Vec2::ZERO, s * 0.2f, 0, 12, color);
+        graphic->drawLine(Vec2(0, s * 0.25f), Vec2(0, s), color, 3);
+        break;
+    case UpgradeId::Precision:
+        graphic->drawCircle(Vec2::ZERO, s, 0, 24, false, color, 2);
+        graphic->drawCircle(Vec2::ZERO, s * 0.55f, 0, 24, false, color, 2);
+        graphic->drawSolidCircle(Vec2::ZERO, s * 0.18f, 0, 12, color);
+        break;
+    case UpgradeId::MultiShot:
+        for (int i = -1; i <= 1; ++i)
+        {
+            graphic->drawLine(Vec2(-s, i * s * 0.55f), Vec2(s, i * s * 0.55f), color, 2);
+            graphic->drawSolidTriangle(Vec2(s * 0.4f, i * s * 0.55f + 4),
+                                       Vec2(s * 0.4f, i * s * 0.55f - 4),
+                                       Vec2(s, i * s * 0.55f), color, color);
+        }
+        break;
+    case UpgradeId::WallHealth:
+        graphic->drawSolidRect(Vec2(-s, -s * 0.8f), Vec2(s, s * 0.4f), color);
+        for (int i = -1; i <= 1; ++i)
+            graphic->drawSolidRect(Vec2(i * s * 0.7f - 3, s * 0.3f),
+                                   Vec2(i * s * 0.7f + 3, s), color);
+        break;
+    case UpgradeId::WallArmor:
+        graphic->drawSolidTriangle(Vec2(-s, s), Vec2(s, s), Vec2(0, -s), color, color);
+        graphic->drawLine(Vec2(0, s * 0.55f), Vec2(0, -s * 0.55f),
+                          Color4F(0.20f, 0.24f, 0.29f, 1.0f), 2);
+        break;
+    default: break;
+    }
 }
 }  // namespace
 
@@ -106,7 +201,7 @@ void UpgradePanel::layout(const Vec2& origin, const Size& visibleSize)
     _lastOrigin = origin;
     _lastVisibleSize = visibleSize;
     const float panelW = std::min(650.0f, visibleSize.width * 0.92f);
-    const float preferredH = _section == Section::Defense ? 540.0f
+    const float preferredH = _section == Section::Defense ? 560.0f
                              : _section == Section::All ? 1080.0f : 920.0f;
     const float panelH = std::min(preferredH, visibleSize.height * 0.90f);
     const Vec2 center(origin.x + visibleSize.width * 0.5f, origin.y + visibleSize.height * 0.5f);
@@ -123,7 +218,7 @@ void UpgradePanel::layout(const Vec2& origin, const Size& visibleSize)
     _title->setPosition(Vec2(center.x, panelMax.y - 42.0f));
     _wallet->setPosition(Vec2(center.x, panelMax.y - 82.0f));
 
-    const float footerH      = 108.0f;
+    const float footerH      = _section == Section::Defense ? 82.0f : 108.0f;
     const float scrollTop    = panelMax.y - 112.0f;
     const float scrollBottom = panelMin.y + footerH;
     const float scrollW      = panelW - PANEL_PADDING * 2.0f;
@@ -176,25 +271,35 @@ void UpgradePanel::rebuildTree(float contentWidth)
 {
     _scroll->removeAllChildren();
     _upgradeBranches.clear();
+    _researchNodes.clear();
     _skillNodes.clear();
     _skillConnector = nullptr;
     _skillRoot      = nullptr;
+    _researchConnector = nullptr;
 
     const bool showResearch = _section == Section::All || _section == Section::Research;
     std::vector<UpgradeId> upgradeIds;
     if (_section == Section::All || _section == Section::Weapons)
         upgradeIds = {UpgradeId::ArrowDamage, UpgradeId::FireRate, UpgradeId::MultiShot};
     if (_section == Section::All || _section == Section::Defense)
+    {
         upgradeIds.push_back(UpgradeId::WallHealth);
-    int maxResearchRow = 0;
+        upgradeIds.push_back(UpgradeId::WallArmor);
+    }
+    int maxSkillRow = 0;
+    int maxUpgradeRow = 0;
     if (showResearch)
     {
         for (int i = 0; i < static_cast<int>(SkillId::Count); ++i)
-            maxResearchRow = std::max(maxResearchRow, GameData::getInstance()
+            maxSkillRow = std::max(maxSkillRow, GameData::getInstance()
                 .skillDefinition(static_cast<SkillId>(i)).treeRow);
+        for (int i = 0; i < static_cast<int>(UpgradeId::Count); ++i)
+            maxUpgradeRow = std::max(maxUpgradeRow, GameData::getInstance()
+                .upgradeDefinition(static_cast<UpgradeId>(i)).treeRow);
     }
-    const float treeHeight = SKILL_TREE_HEIGHT + maxResearchRow * 138.0f;
-    const float sections = _section == Section::All ? 2.0f : 1.0f;
+    const float extraResearchHeight = std::max(0, maxUpgradeRow - 1) * 160.0f;
+    const float treeHeight = SKILL_TREE_HEIGHT + maxSkillRow * 138.0f + extraResearchHeight;
+    const float sections = showResearch && !upgradeIds.empty() ? 2.0f : 1.0f;
     const float naturalH = SECTION_HEIGHT * sections +
         upgradeIds.size() * UPGRADE_BRANCH_HEIGHT + (showResearch ? treeHeight : 0.0f) + 20.0f;
     const float innerH = std::max(_scroll->getContentSize().height, naturalH);
@@ -222,14 +327,14 @@ void UpgradePanel::rebuildTree(float contentWidth)
         _scroll->addChild(branch.connector, 0);
         branch.title = addText(_scroll, definition.name, 24.0f, Vec2(0.0f, 0.5f));
         branch.title->setPosition(Vec2(12.0f, branchTop - 25.0f));
-        branch.detail = addText(_scroll, "", 17.0f, Vec2(1.0f, 0.5f));
+        branch.detail = addText(_scroll, "", 17.0f, Vec2(0.0f, 0.5f));
         branch.detail->setTextColor(Color4B(185, 198, 215, 255));
-        branch.detail->setPosition(Vec2(contentWidth - 12.0f, branchTop - 25.0f));
+        branch.detail->setPosition(Vec2(12.0f, branchTop - 56.0f));
 
         const int levelCount = std::max(1, definition.maxLevel());
-        const float startX = levelCount == 1 ? contentWidth * 0.5f : 48.0f;
-        const float endX   = levelCount == 1 ? contentWidth * 0.5f : contentWidth - 48.0f;
-        const float nodeY  = branchTop - 88.0f;
+        const float startX = levelCount == 1 ? contentWidth * 0.5f : 36.0f;
+        const float endX   = levelCount == 1 ? contentWidth * 0.5f : contentWidth - 36.0f;
+        const float nodeY  = branchTop - 111.0f;
         for (int level = 1; level <= levelCount; ++level)
         {
             const float t = levelCount == 1 ? 0.0f : static_cast<float>(level - 1) / (levelCount - 1);
@@ -238,18 +343,18 @@ void UpgradePanel::rebuildTree(float contentWidth)
             TreeNodeView node;
             node.id          = static_cast<int>(id);
             node.targetLevel = level;
+            node.radius      = std::clamp((contentWidth - 58.0f) / (levelCount * 2.0f), 16.0f, NODE_RADIUS);
             node.graphic     = DrawNode::create();
             node.graphic->setPosition(position);
             _scroll->addChild(node.graphic, 1);
-            node.title = addText(_scroll, StringUtils::format("Lv.%d", level), 18.0f,
-                                 Vec2(0.5f, 0.5f), 3);
+            node.title = addText(_scroll, "", 18.0f, Vec2(0.5f, 0.5f), 3);
             node.title->setPosition(position);
-            node.status = addText(_scroll, "", 15.0f, Vec2(0.5f, 0.5f), 3);
-            node.status->setPosition(position + Vec2(0.0f, -45.0f));
+            node.status = addText(_scroll, "", 13.0f, Vec2(0.5f, 0.5f), 3);
+            node.status->setPosition(position + Vec2(0.0f, -37.0f));
 
             node.target = ui::Button::create();
             node.target->ignoreContentAdaptWithSize(false);
-            node.target->setContentSize(Size(NODE_TARGET_SIZE, NODE_TARGET_SIZE));
+            node.target->setContentSize(Size(node.radius * 2.0f + 10.0f, node.radius * 2.0f + 10.0f));
             node.target->setPosition(position);
             node.target->addClickEventListener([this, id, level](Object*) {
                 selectUpgradeNode(id, level);
@@ -262,9 +367,45 @@ void UpgradePanel::rebuildTree(float contentWidth)
     }
 
     if (!showResearch) return;
-    addSection(_section == Section::All ? "技能研发" : "法术与战术");
+    addSection("基础属性");
     const float skillTop = y;
-    const Vec2 rootPosition(contentWidth * 0.5f, skillTop - 43.0f);
+    _researchConnector = DrawNode::create();
+    _scroll->addChild(_researchConnector, 0);
+    const std::array<UpgradeId, 5> researchIds = {
+        UpgradeId::ArrowDamage, UpgradeId::FireRate, UpgradeId::Precision,
+        UpgradeId::HeavyStrike, UpgradeId::ManaFlow};
+    for (size_t i = 0; i < researchIds.size(); ++i)
+    {
+        const auto& definition = GameData::getInstance().upgradeDefinition(researchIds[i]);
+        const Vec2 position(contentWidth * definition.treeX, skillTop - 95.0f - definition.treeRow * 160.0f);
+        TreeNodeView node;
+        node.id = static_cast<int>(researchIds[i]);
+        node.graphic = DrawNode::create();
+        node.graphic->setPosition(position);
+        _scroll->addChild(node.graphic, 1);
+        node.title = addText(_scroll, "", 17.0f, Vec2(0.5f, 0.5f), 3);
+        node.title->setPosition(position + Vec2(0, -43));
+        node.status = addText(_scroll, "", 13.0f, Vec2(0.5f, 0.5f), 3);
+        node.status->setPosition(position + Vec2(0, -64));
+        node.detail = addText(_scroll, "", 13.0f, Vec2(0.5f, 0.5f), 3);
+        node.detail->setPosition(position + Vec2(0, -84));
+        node.target = ui::Button::create();
+        node.target->ignoreContentAdaptWithSize(false);
+        node.target->setContentSize(Size(NODE_TARGET_SIZE, NODE_TARGET_SIZE));
+        node.target->setPosition(position);
+        const UpgradeId id = researchIds[i];
+        node.target->addClickEventListener([this, id](Object*) { purchaseUpgrade(id); });
+        _scroll->addChild(node.target, 4);
+        _researchNodes.push_back(node);
+    }
+    auto* tacticsLabel = addText(_scroll, "战术专精", 23.0f, Vec2(0, 0.5f));
+    tacticsLabel->setTextColor(Color4B(150, 205, 255, 255));
+    tacticsLabel->setPosition(Vec2(12, skillTop - 207));
+    auto* spellsLabel = addText(_scroll, "法术研习", 23.0f, Vec2(0, 0.5f));
+    spellsLabel->setTextColor(Color4B(150, 205, 255, 255));
+    spellsLabel->setPosition(Vec2(12, skillTop - 373 - extraResearchHeight));
+
+    const Vec2 rootPosition(contentWidth * 0.5f, skillTop - 416.0f - extraResearchHeight);
     _skillConnector = DrawNode::create();
     _scroll->addChild(_skillConnector, 0);
     _skillRoot = DrawNode::create();
@@ -273,7 +414,7 @@ void UpgradePanel::rebuildTree(float contentWidth)
     _skillRoot->drawCircle(Vec2::ZERO, 24.0f, 0.0f, 28, false,
                            Color4F(0.64f, 0.78f, 0.94f, 1.0f), 2.0f);
     _scroll->addChild(_skillRoot, 1);
-    auto* rootLabel = addText(_scroll, "技能", 16.0f, Vec2(0.5f, 0.5f), 2);
+    auto* rootLabel = addText(_scroll, "法术", 16.0f, Vec2(0.5f, 0.5f), 2);
     rootLabel->setPosition(rootPosition);
 
     const int skillCount = static_cast<int>(SkillId::Count);
@@ -281,17 +422,18 @@ void UpgradePanel::rebuildTree(float contentWidth)
     {
         const auto& definition = GameData::getInstance().skillDefinition(static_cast<SkillId>(i));
         const Vec2 position(contentWidth * definition.treeX,
-                            skillTop - 132.0f - definition.treeRow * 138.0f);
+                            skillTop - 509.0f - extraResearchHeight - definition.treeRow * 138.0f);
 
         TreeNodeView node;
         node.id      = i;
+        node.skill   = true;
         node.graphic = DrawNode::create();
         node.graphic->setPosition(position);
         _scroll->addChild(node.graphic, 1);
         node.title = addText(_scroll, "", 17.0f, Vec2(0.5f, 0.5f), 3);
-        node.title->setPosition(position);
-        node.status = addText(_scroll, "", 14.0f, Vec2(0.5f, 0.5f), 3);
-        node.status->setPosition(position + Vec2(0.0f, -46.0f));
+        node.title->setPosition(position + Vec2(0, -43));
+        node.status = addText(_scroll, "", 13.0f, Vec2(0.5f, 0.5f), 3);
+        node.status->setPosition(position + Vec2(0.0f, -65.0f));
         node.target = ui::Button::create();
         node.target->ignoreContentAdaptWithSize(false);
         node.target->setContentSize(Size(NODE_TARGET_SIZE, NODE_TARGET_SIZE));
@@ -309,6 +451,22 @@ void UpgradePanel::refresh()
     for (auto& branch : _upgradeBranches)
     {
         refreshUpgradeBranch(branch);
+    }
+    if (_researchConnector) _researchConnector->clear();
+    for (auto& node : _researchNodes)
+    {
+        refreshResearchUpgradeNode(node);
+        const auto& definition = GameData::getInstance().upgradeDefinition(static_cast<UpgradeId>(node.id));
+        if (!_researchConnector || definition.prerequisite == UpgradeId::Count) continue;
+        const auto parent = std::find_if(_researchNodes.begin(), _researchNodes.end(),
+            [&](const TreeNodeView& candidate) {
+                return candidate.id == static_cast<int>(definition.prerequisite);
+            });
+        if (parent == _researchNodes.end()) continue;
+        const bool ready = GameData::getInstance().upgradePrerequisiteMet(static_cast<UpgradeId>(node.id));
+        _researchConnector->drawLine(parent->graphic->getPosition(), node.graphic->getPosition(),
+                                     ready ? Color4F(0.24f, 0.69f, 0.92f, 1.0f)
+                                           : Color4F(0.30f, 0.38f, 0.49f, 1.0f), 3);
     }
     if (_skillConnector)
     {
@@ -358,7 +516,7 @@ void UpgradePanel::refreshUpgradeBranch(UpgradeBranchView& branch)
         const float next = definition.values[level + 1];
         branch.detail->setString(valueText(branch.id, current) + "  ->  " + valueText(branch.id, next));
     }
-    branch.title->setString(StringUtils::format("%s  Lv.%d/%d", definition.name.c_str(), level,
+    branch.title->setString(StringUtils::format("%s  %d/%d", definition.name.c_str(), level,
                                                  definition.maxLevel()));
 
     branch.connector->clear();
@@ -379,7 +537,7 @@ void UpgradePanel::refreshUpgradeBranch(UpgradeBranchView& branch)
     {
         if (node.targetLevel <= level)
         {
-            node.status->setString("已完成");
+            node.status->setString("");
             drawNode(node, NodeState::Completed);
             continue;
         }
@@ -388,13 +546,44 @@ void UpgradePanel::refreshUpgradeBranch(UpgradeBranchView& branch)
             const int cost = definition.costs[level];
             const bool coins = definition.currency == Currency::Coins;
             const bool affordable = coins ? economy.totalCoins() >= cost : economy.totalCrystals() >= cost;
-            node.status->setString(StringUtils::format("%d %s", cost, coins ? "金币" : "水晶"));
+            node.status->setString(StringUtils::format("%d%s", cost, coins ? "金" : "晶"));
             drawNode(node, NodeState::Available, affordable);
             continue;
         }
-        node.status->setString(StringUtils::format("前置 Lv.%d", node.targetLevel - 1));
+        node.status->setString("");
         drawNode(node, NodeState::Locked);
     }
+}
+
+void UpgradePanel::refreshResearchUpgradeNode(TreeNodeView& node)
+{
+    const auto& data = GameData::getInstance();
+    const auto id = static_cast<UpgradeId>(node.id);
+    const auto& definition = data.upgradeDefinition(id);
+    const int level = std::min(data.upgradeLevel(id), definition.maxLevel());
+    node.title->setString(definition.name);
+    node.status->setString(valueText(id, definition.values[
+        definition.prerequisite == UpgradeId::Count ? level : definition.maxLevel()]));
+    if (level >= definition.maxLevel())
+    {
+        node.detail->setString("已掌握");
+        drawNode(node, NodeState::Completed);
+        return;
+    }
+    if (!data.upgradePrerequisiteMet(id))
+    {
+        node.detail->setString(StringUtils::format("需%s %d", data.upgradeDefinition(
+            definition.prerequisite).name.c_str(), definition.requiredLevel));
+        drawNode(node, NodeState::Locked);
+        return;
+    }
+    const int cost = definition.costs[level];
+    const bool coins = definition.currency == Currency::Coins;
+    const bool affordable = coins ? data.economy().totalCoins() >= cost
+                                  : data.economy().totalCrystals() >= cost;
+    node.detail->setString(StringUtils::format("%d%s · %d/%d", cost, coins ? "金" : "晶",
+                                               level, definition.maxLevel()));
+    drawNode(node, NodeState::Available, affordable);
 }
 
 void UpgradePanel::refreshSkillNode(TreeNodeView& node)
@@ -461,11 +650,14 @@ void UpgradePanel::drawNode(TreeNodeView& node, NodeState state, bool affordable
     }
 
     node.graphic->clear();
-    node.graphic->drawSolidCircle(Vec2::ZERO, NODE_RADIUS, 0.0f, 32, fill);
-    node.graphic->drawCircle(Vec2::ZERO, NODE_RADIUS, 0.0f, 32, false, line,
+    node.graphic->drawSolidCircle(Vec2::ZERO, node.radius, 0.0f, 32, fill);
+    node.graphic->drawCircle(Vec2::ZERO, node.radius, 0.0f, 32, false, line,
                              state == NodeState::Available ? 4.0f : 2.5f);
+    drawUpgradeIcon(node.graphic, node.id, node.skill, node.radius,
+                    Color4F(text.r / 255.0f, text.g / 255.0f, text.b / 255.0f, 1.0f));
     node.title->setTextColor(text);
     node.status->setTextColor(text);
+    if (node.detail) node.detail->setTextColor(text);
     node.target->setTouchEnabled(state == NodeState::Available);
     node.target->setBright(state == NodeState::Available);
 }

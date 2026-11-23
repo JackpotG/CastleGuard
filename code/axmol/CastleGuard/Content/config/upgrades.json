@@ -2,19 +2,23 @@
   "upgrades": [
     {
       "id": "arrow_damage",
-      "name": "强弓",
-      "description": "每支箭造成更多伤害",
+      "name": "力量",
+      "description": "提高每支箭的基础伤害",
       "currency": "coins",
       "costs": [8, 18, 34, 58, 90],
-      "values": [1, 2, 3, 4, 5, 6]
+      "values": [1, 2, 3, 4, 5, 6],
+      "treeRow": 0,
+      "treeX": 0.27
     },
     {
       "id": "fire_rate",
-      "name": "疾射",
+      "name": "敏捷",
       "description": "缩短两次射击的间隔",
       "currency": "coins",
       "costs": [10, 22, 40, 65, 100],
-      "values": [1.0, 0.9166667, 0.8333333, 0.7611111, 0.6944444, 0.6388889]
+      "values": [1.0, 0.9166667, 0.8333333, 0.7611111, 0.6944444, 0.6388889],
+      "treeRow": 0,
+      "treeX": 0.73
     },
     {
       "id": "multi_shot",
@@ -31,6 +35,50 @@
       "currency": "coins",
       "costs": [12, 26, 45, 70, 105],
       "values": [100, 120, 140, 160, 180, 200]
+    },
+    {
+      "id": "heavy_strike",
+      "name": "强力一击",
+      "description": "箭矢击退距离翻倍",
+      "currency": "crystals",
+      "costs": [4],
+      "values": [36, 72],
+      "requires": "arrow_damage",
+      "requiredLevel": 5,
+      "treeRow": 1,
+      "treeX": 0.50
+    },
+    {
+      "id": "precision",
+      "name": "鹰眼",
+      "description": "箭矢获得 12% 暴击概率",
+      "currency": "crystals",
+      "costs": [3],
+      "values": [0, 0.12],
+      "requires": "arrow_damage",
+      "requiredLevel": 3,
+      "treeRow": 1,
+      "treeX": 0.17
+    },
+    {
+      "id": "mana_flow",
+      "name": "法力回路",
+      "description": "每秒额外回复 1.5 点法力",
+      "currency": "crystals",
+      "costs": [3],
+      "values": [0, 1.5],
+      "requires": "fire_rate",
+      "requiredLevel": 3,
+      "treeRow": 1,
+      "treeX": 0.83
+    },
+    {
+      "id": "wall_armor",
+      "name": "城墙护甲",
+      "description": "每次受击减少伤害，最低承受 1 点",
+      "currency": "coins",
+      "costs": [20, 45, 80],
+      "values": [0, 1, 2, 3]
     }
   ],
   "skills": [

@@ -287,6 +287,75 @@ TEST_SUITE("CampaignProgressionModel")
 
 TEST_SUITE("ProductionProgressionCatalog")
 {
+    TEST_CASE("research specialization follows attribute thresholds without early spending")
+    {
+        const auto& data = GameData::getInstance();
+        const auto& strike = data.upgradeDefinition(UpgradeId::HeavyStrike);
+        const auto& precision = data.upgradeDefinition(UpgradeId::Precision);
+        const auto& mana = data.upgradeDefinition(UpgradeId::ManaFlow);
+        CHECK_EQ(data.upgradeDefinition(UpgradeId::ArrowDamage).name, "力量");
+        CHECK_EQ(data.upgradeDefinition(UpgradeId::FireRate).name, "敏捷");
+        CHECK_EQ(strike.prerequisite, UpgradeId::ArrowDamage);
+        CHECK_EQ(strike.requiredLevel, 5);
+        CHECK_EQ(strike.treeRow, 1);
+        CHECK_EQ(strike.treeX, doctest::Approx(0.50f));
+        CHECK_EQ(strike.values[1], doctest::Approx(72.0f));
+        CHECK_EQ(precision.prerequisite, UpgradeId::ArrowDamage);
+        CHECK_EQ(precision.requiredLevel, 3);
+        CHECK_EQ(precision.values[1], doctest::Approx(0.12f));
+        CHECK_EQ(mana.prerequisite, UpgradeId::FireRate);
+        CHECK_EQ(mana.requiredLevel, 3);
+        CHECK_EQ(mana.values[1], doctest::Approx(1.5f));
+
+        EconomyModel economy(0, 10);
+        ProgressionModel progression;
+        CHECK_EQ(progression.purchaseUpgrade(economy, strike).status, PurchaseStatus::PrerequisiteLocked);
+        CHECK_EQ(economy.totalCrystals(), 10);
+        progression.setUpgradeLevel(UpgradeId::ArrowDamage, 5);
+        CHECK(progression.purchaseUpgrade(economy, strike).purchased());
+        CHECK_EQ(economy.totalCrystals(), 6);
+        CHECK_EQ(progression.purchaseUpgrade(economy, strike).status, PurchaseStatus::MaxLevel);
+        CHECK_EQ(economy.totalCrystals(), 6);
+    }
+
+    TEST_CASE("research upgrade tree rejects cycles and unreachable requirements")
+    {
+        const auto& data = GameData::getInstance();
+        std::array<UpgradeDefinition, static_cast<size_t>(UpgradeId::Count)> upgrades;
+        for (size_t i = 0; i < upgrades.size(); ++i)
+            upgrades[i] = data.upgradeDefinition(static_cast<UpgradeId>(i));
+        REQUIRE(validUpgradeTree(upgrades));
+
+        upgrades[static_cast<size_t>(UpgradeId::HeavyStrike)].requiredLevel = 6;
+        CHECK_FALSE(validUpgradeTree(upgrades));
+        upgrades[static_cast<size_t>(UpgradeId::HeavyStrike)] = data.upgradeDefinition(UpgradeId::HeavyStrike);
+
+        upgrades[static_cast<size_t>(UpgradeId::HeavyStrike)].treeX =
+            data.upgradeDefinition(UpgradeId::Precision).treeX;
+        CHECK_FALSE(validUpgradeTree(upgrades));
+        upgrades[static_cast<size_t>(UpgradeId::HeavyStrike)] = data.upgradeDefinition(UpgradeId::HeavyStrike);
+
+        upgrades[static_cast<size_t>(UpgradeId::ArrowDamage)].treeRow = 1;
+        CHECK_FALSE(validUpgradeTree(upgrades));
+        upgrades[static_cast<size_t>(UpgradeId::ArrowDamage)] = data.upgradeDefinition(UpgradeId::ArrowDamage);
+
+        upgrades[static_cast<size_t>(UpgradeId::ArrowDamage)].prerequisite = UpgradeId::HeavyStrike;
+        upgrades[static_cast<size_t>(UpgradeId::ArrowDamage)].requiredLevel = 1;
+        CHECK_FALSE(validUpgradeTree(upgrades));
+    }
+
+    TEST_CASE("wall armor reduces each hit but cannot make attacks harmless")
+    {
+        const auto& armor = GameData::getInstance().upgradeDefinition(UpgradeId::WallArmor);
+        CHECK_EQ(armor.values.size(), 4);
+        CHECK_EQ(armor.values[0], doctest::Approx(0.0f));
+        CHECK_EQ(armor.values[3], doctest::Approx(3.0f));
+        CHECK_EQ(wallDamageAfterArmor(5, 0), 5);
+        CHECK_EQ(wallDamageAfterArmor(5, 2), 3);
+        CHECK_EQ(wallDamageAfterArmor(1, 3), 1);
+        CHECK_EQ(wallDamageAfterArmor(0, 3), 0);
+    }
+
     TEST_CASE("production catalog places its first automatic skill at stage three")
     {
         const auto& data = GameData::getInstance();

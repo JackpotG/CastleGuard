@@ -80,6 +80,10 @@ enum class UpgradeId
     FireRate,
     MultiShot,
     WallHealth,
+    HeavyStrike,
+    Precision,
+    ManaFlow,
+    WallArmor,
     Count,
 };
 
@@ -101,6 +105,10 @@ struct UpgradeDefinition
     Currency currency = Currency::Coins;
     std::vector<int> costs;       // costs[level] 是从当前等级升一级的价格
     std::vector<float> values;    // values[level] 是等级效果；疾射使用相对基础间隔的倍率
+    UpgradeId prerequisite = UpgradeId::Count;
+    int requiredLevel = 0;
+    int treeRow = -1;
+    float treeX = 0.5f;
 
     int maxLevel() const { return static_cast<int>(costs.size()); }
 };
@@ -120,6 +128,8 @@ struct SkillDefinition
 };
 
 bool validResearchTree(const std::array<SkillDefinition, static_cast<size_t>(SkillId::Count)>& skills);
+bool validUpgradeTree(const std::array<UpgradeDefinition, static_cast<size_t>(UpgradeId::Count)>& upgrades);
+int wallDamageAfterArmor(int rawDamage, int armor);
 
 enum class PurchaseStatus
 {
@@ -146,6 +156,7 @@ class ProgressionModel
 public:
     int upgradeLevel(UpgradeId id) const;
     bool isSkillUnlocked(SkillId id) const;
+    bool meetsUpgradePrerequisite(const UpgradeDefinition& definition) const;
     void setUpgradeLevel(UpgradeId id, int level);
     void setSkillUnlocked(SkillId id, bool unlocked);
 
@@ -225,6 +236,7 @@ public:
     const UpgradeDefinition& upgradeDefinition(UpgradeId id) const;
     const SkillDefinition& skillDefinition(SkillId id) const;
     int upgradeLevel(UpgradeId id) const;
+    bool upgradePrerequisiteMet(UpgradeId id) const;
     bool isSkillUnlocked(SkillId id) const;
     PurchaseResult purchaseUpgrade(UpgradeId id);
     PurchaseResult unlockSkill(SkillId id);
@@ -233,6 +245,10 @@ public:
     float fireIntervalMultiplier() const;
     int multiShotCount() const;
     int wallMaxHealth() const;
+    int wallArmor() const;
+    float knockbackDistance() const;
+    float criticalChance() const;
+    float manaRegenBonus() const;
 
 #if CG_DEBUG_TOOLS
     DebugPlayerData debugPlayerData() const;

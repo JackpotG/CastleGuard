@@ -1298,12 +1298,12 @@ void MainScene::drawSandboxTab()
     ImGui::InputInt("法力符文库存", &_sandboxDraft.manaCharmStock, 1, 5);
     ImGui::TextDisabled("关卡进度在重开或开始下一局时生效。");
 
-    const char* upgradeNames[] = {"强弓等级", "疾射等级", "多重箭等级", "城墙等级"};
     for (size_t i = 0; i < _sandboxDraft.upgradeLevels.size(); ++i)
     {
         const auto id      = static_cast<UpgradeId>(i);
         const int maxLevel = data.upgradeDefinition(id).maxLevel();
-        ImGui::SliderInt(upgradeNames[i], &_sandboxDraft.upgradeLevels[i], 0, maxLevel);
+        const std::string label = data.upgradeDefinition(id).name + "进度";
+        ImGui::SliderInt(label.c_str(), &_sandboxDraft.upgradeLevels[i], 0, maxLevel);
     }
 
     const char* skillNames[] = {"解锁火球", "解锁冰冻", "解锁箭雨", "解锁闪电"};
@@ -1414,6 +1414,8 @@ PlayerCombatStats MainScene::currentCombatStats() const
                                                                    : FAST_MODE_FIRE_INTERVAL;
     base.fireInterval   = modeFireInterval * data.fireIntervalMultiplier();
     base.multiShotCount = data.multiShotCount();
+    base.knockbackDistance = data.knockbackDistance();
+    base.criticalChance = data.criticalChance();
     return _gameMode == GameMode::Endless ? _runBuffs.resolve(base) : base;
 }
 
@@ -3174,7 +3176,8 @@ void MainScene::damageWall(int dmg)
         return;
     }
 #endif
-    _wallHP = std::max(0, _wallHP - dmg);
+    const int reducedDamage = wallDamageAfterArmor(dmg, GameData::getInstance().wallArmor());
+    _wallHP = std::max(0, _wallHP - reducedDamage);
     refreshCombatHUD();
     AXLOGD("城墙血量：{}，击杀：{}", _wallHP, GameData::getInstance().economy().runKills());
     if (_wallHP == 0)
@@ -4359,7 +4362,8 @@ void MainScene::updateSkills(float delta)
     else
 #endif
     {
-        _mana = std::min(MANA_MAX, _mana + (MANA_REGEN + _campaignManaRegenBonus) * delta);
+        _mana = std::min(MANA_MAX, _mana + (MANA_REGEN + _campaignManaRegenBonus +
+                                           GameData::getInstance().manaRegenBonus()) * delta);
     }
     for (int i = 0; i < SKILL_COUNT; ++i)
     {
