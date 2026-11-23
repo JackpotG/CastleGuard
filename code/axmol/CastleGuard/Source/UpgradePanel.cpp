@@ -208,7 +208,7 @@ void UpgradePanel::layout(const Vec2& origin, const Size& visibleSize)
     _lastOrigin = origin;
     _lastVisibleSize = visibleSize;
     const float panelW = std::min(650.0f, visibleSize.width * 0.92f);
-    const float preferredH = _section == Section::Defense ? 560.0f
+    const float preferredH = _section == Section::Defense ? 760.0f
                              : _section == Section::Weapons ? 690.0f
                              : _section == Section::All ? 1080.0f : 920.0f;
     const float panelH = std::min(preferredH, visibleSize.height * 0.90f);
@@ -287,8 +287,9 @@ void UpgradePanel::rebuildTree(float contentWidth)
 
     const bool showBow = _section == Section::All || _section == Section::Weapons;
     const bool showMagic = _section == Section::All || _section == Section::Research;
+    const bool showDefense = _section == Section::All || _section == Section::Defense;
     std::vector<UpgradeId> upgradeIds;
-    if (_section == Section::All || _section == Section::Defense)
+    if (showDefense)
     {
         upgradeIds.push_back(UpgradeId::WallHealth);
         upgradeIds.push_back(UpgradeId::WallArmor);
@@ -316,10 +317,10 @@ void UpgradePanel::rebuildTree(float contentWidth)
     const float bowHeight = showBow ? SECTION_HEIGHT + (maxBowRow + 1) * 160.0f + 55.0f : 0.0f;
     const float magicHeight = showMagic ?
         SECTION_HEIGHT + (maxMagicRow + 1) * 160.0f + 55.0f +
-        SECTION_HEIGHT + 145.0f + maxSkillRow * 138.0f + 100.0f +
-        SECTION_HEIGHT + 100.0f : 0.0f;
+        SECTION_HEIGHT + 145.0f + maxSkillRow * 138.0f + 100.0f : 0.0f;
+    const float defenseFacilityHeight = showDefense ? SECTION_HEIGHT + 100.0f : 0.0f;
     const float naturalH = (!upgradeIds.empty() ? SECTION_HEIGHT : 0.0f) +
-        upgradeIds.size() * UPGRADE_BRANCH_HEIGHT + bowHeight + magicHeight + 20.0f;
+        upgradeIds.size() * UPGRADE_BRANCH_HEIGHT + defenseFacilityHeight + bowHeight + magicHeight + 20.0f;
     const float innerH = std::max(_scroll->getContentSize().height, naturalH);
     _scroll->setInnerContainerSize(Size(contentWidth, innerH));
     float y = innerH;
@@ -382,6 +383,23 @@ void UpgradePanel::rebuildTree(float contentWidth)
         }
         _upgradeBranches.push_back(std::move(branch));
         y -= UPGRADE_BRANCH_HEIGHT;
+    }
+
+    if (showDefense)
+    {
+        addSection("城防设施");
+        auto* tower = DrawNode::create();
+        tower->setPosition(Vec2(56.0f, y - 49.0f));
+        tower->drawSolidRect(Vec2(-19, -24), Vec2(19, 14), Color4F(0.20f, 0.25f, 0.32f, 1.0f));
+        tower->drawSolidTriangle(Vec2(-24, 14), Vec2(0, 34), Vec2(24, 14),
+                                 Color4F(0.34f, 0.39f, 0.48f, 1.0f), Color4F(0.34f, 0.39f, 0.48f, 1.0f));
+        _scroll->addChild(tower, 1);
+        auto* towerLabel = addText(_scroll, "魔法塔", 19.0f, Vec2(0, 0.5f));
+        towerLabel->setPosition(Vec2(95.0f, y - 42.0f));
+        auto* towerState = addText(_scroll, "待建造", 14.0f, Vec2(0, 0.5f));
+        towerState->setTextColor(Color4B(145, 153, 166, 255));
+        towerState->setPosition(Vec2(95.0f, y - 66.0f));
+        y -= 100.0f;
     }
 
     if (!showBow && !showMagic) return;
@@ -469,20 +487,6 @@ void UpgradePanel::rebuildTree(float contentWidth)
         _scroll->addChild(node.target, 4);
         _skillNodes.push_back(node);
     }
-    y -= 145.0f + maxSkillRow * 138.0f + 100.0f;
-
-    addSection("魔法设施");
-    auto* tower = DrawNode::create();
-    tower->setPosition(Vec2(56.0f, y - 49.0f));
-    tower->drawSolidRect(Vec2(-19, -24), Vec2(19, 14), Color4F(0.20f, 0.25f, 0.32f, 1.0f));
-    tower->drawSolidTriangle(Vec2(-24, 14), Vec2(0, 34), Vec2(24, 14),
-                             Color4F(0.34f, 0.39f, 0.48f, 1.0f), Color4F(0.34f, 0.39f, 0.48f, 1.0f));
-    _scroll->addChild(tower, 1);
-    auto* towerLabel = addText(_scroll, "魔法塔", 19.0f, Vec2(0, 0.5f));
-    towerLabel->setPosition(Vec2(95.0f, y - 42.0f));
-    auto* towerState = addText(_scroll, "待建造", 14.0f, Vec2(0, 0.5f));
-    towerState->setTextColor(Color4B(145, 153, 166, 255));
-    towerState->setPosition(Vec2(95.0f, y - 66.0f));
 }
 
 void UpgradePanel::refresh()
