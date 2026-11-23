@@ -933,7 +933,26 @@ void MainScene::onImGuiDraw()
                                    viewport.y - initialSize.y - 16.0f),
                             ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(initialSize, ImGuiCond_FirstUseEver);
-    ImGui::Begin("开发者工具");
+    const bool upgradeOpen = _upgradePanel && _upgradePanel->isVisible();
+    if (upgradeOpen != _debugPanelParked)
+    {
+        ImGui::SetNextWindowCollapsed(upgradeOpen, ImGuiCond_Always);
+        const ImVec2 position = upgradeOpen
+            ? ImVec2(viewport.x - initialSize.x - 16.0f, viewport.y - 42.0f)
+            : ImVec2(_debugPanelSavedPos.x, _debugPanelSavedPos.y);
+        ImGui::SetNextWindowPos(position, ImGuiCond_Always);
+        _debugPanelParked = upgradeOpen;
+    }
+    if (!ImGui::Begin("开发者工具"))
+    {
+        ImGui::End();
+        return;
+    }
+    if (!upgradeOpen)
+    {
+        const ImVec2 position = ImGui::GetWindowPos();
+        _debugPanelSavedPos = Vec2(position.x, position.y);
+    }
     ImGui::Text("帧率: %.1f", 1.0f / ImGui::GetIO().DeltaTime);
     if (ImGui::BeginTabBar("开发者工具标签"))
     {
@@ -4128,7 +4147,7 @@ void MainScene::tryAimSkill(int index)
         _skillHintTimer = 1.2f;
         return;
     }
-    if (_mana < SKILL_MANA[index])
+    if (_mana < SKILL_MANA[index] * GameData::getInstance().spellManaCostMultiplier())
     {
         _skillHint->setString("蓝量不足！");
         _skillHint->setVisible(true);
@@ -4182,7 +4201,8 @@ void MainScene::castSkill(const Vec2& pos)
         return;
     }
     // 二次校验：瞄准期间蓝量可能被其他释放扣掉，释放前必须再看一眼
-    if (_cdRemaining[i] > 0.0f || _mana < SKILL_MANA[i])
+    const float manaCost = SKILL_MANA[i] * GameData::getInstance().spellManaCostMultiplier();
+    if (_cdRemaining[i] > 0.0f || _mana < manaCost)
     {
         _aimingSkill = -1;
         _aimDragging = false;
@@ -4190,7 +4210,7 @@ void MainScene::castSkill(const Vec2& pos)
         _skillHint->setVisible(false);
         return;
     }
-    _mana -= SKILL_MANA[i];
+    _mana -= manaCost;
     _cdRemaining[i] = SKILL_CD[i];
     _aimingSkill    = -1;
     _aimDragging    = false;

@@ -158,6 +158,8 @@ private:
     bool _sandboxInfiniteMana    = false;
     bool _sandboxNoSkillCooldown = false;
     bool _sandboxNoFireCooldown  = false;
+    bool _debugPanelParked       = false;
+    ax::Vec2 _debugPanelSavedPos = ax::Vec2::ZERO;
     int _monsterTuningType       = 0;
     int _monsterTuningDirtyType  = -1;
     DebugPlayerData _sandboxDraft;

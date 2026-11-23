@@ -10,7 +10,6 @@ namespace
 constexpr float PANEL_PADDING         = 24.0f;
 constexpr float SECTION_HEIGHT        = 52.0f;
 constexpr float UPGRADE_BRANCH_HEIGHT = 162.0f;
-constexpr float SKILL_TREE_HEIGHT     = 585.0f;
 constexpr float NODE_RADIUS           = 31.0f;
 constexpr float NODE_TARGET_SIZE      = 78.0f;
 
@@ -34,6 +33,8 @@ std::string valueText(UpgradeId id, float value)
         return StringUtils::format("回蓝 +%.1f/秒", value);
     case UpgradeId::WallArmor:
         return StringUtils::format("减伤 %.0f", value);
+    case UpgradeId::SpellEfficiency:
+        return StringUtils::format("耗蓝 %.0f%%", value * 100.0f);
     default:
         return "";
     }
@@ -115,6 +116,12 @@ void drawUpgradeIcon(DrawNode* graphic, int id, bool skill, float radius, const 
         graphic->drawCircle(Vec2::ZERO, s * 0.8f, 0, 24, false, color, 3);
         graphic->drawSolidCircle(Vec2::ZERO, s * 0.2f, 0, 12, color);
         graphic->drawLine(Vec2(0, s * 0.25f), Vec2(0, s), color, 3);
+        break;
+    case UpgradeId::SpellEfficiency:
+        graphic->drawCircle(Vec2::ZERO, s * 0.85f, 0, 24, false, color, 3);
+        graphic->drawSolidTriangle(Vec2(-s * 0.2f, s * 0.7f), Vec2(s * 0.5f, s * 0.1f),
+                                   Vec2(-s * 0.1f, -s * 0.1f), color, color);
+        graphic->drawLine(Vec2(-s * 0.45f, -s * 0.55f), Vec2(s * 0.45f, -s * 0.55f), color, 3);
         break;
     case UpgradeId::Precision:
         graphic->drawCircle(Vec2::ZERO, s, 0, 24, false, color, 2);
@@ -202,6 +209,7 @@ void UpgradePanel::layout(const Vec2& origin, const Size& visibleSize)
     _lastVisibleSize = visibleSize;
     const float panelW = std::min(650.0f, visibleSize.width * 0.92f);
     const float preferredH = _section == Section::Defense ? 560.0f
+                             : _section == Section::Weapons ? 690.0f
                              : _section == Section::All ? 1080.0f : 920.0f;
     const float panelH = std::min(preferredH, visibleSize.height * 0.90f);
     const Vec2 center(origin.x + visibleSize.width * 0.5f, origin.y + visibleSize.height * 0.5f);
@@ -277,31 +285,41 @@ void UpgradePanel::rebuildTree(float contentWidth)
     _skillRoot      = nullptr;
     _researchConnector = nullptr;
 
-    const bool showResearch = _section == Section::All || _section == Section::Research;
+    const bool showBow = _section == Section::All || _section == Section::Weapons;
+    const bool showMagic = _section == Section::All || _section == Section::Research;
     std::vector<UpgradeId> upgradeIds;
-    if (_section == Section::All || _section == Section::Weapons)
-        upgradeIds = {UpgradeId::ArrowDamage, UpgradeId::FireRate, UpgradeId::MultiShot};
     if (_section == Section::All || _section == Section::Defense)
     {
         upgradeIds.push_back(UpgradeId::WallHealth);
         upgradeIds.push_back(UpgradeId::WallArmor);
     }
     int maxSkillRow = 0;
-    int maxUpgradeRow = 0;
-    if (showResearch)
+    int maxBowRow = 0;
+    int maxMagicRow = 0;
+    if (showMagic)
     {
         for (int i = 0; i < static_cast<int>(SkillId::Count); ++i)
             maxSkillRow = std::max(maxSkillRow, GameData::getInstance()
                 .skillDefinition(static_cast<SkillId>(i)).treeRow);
-        for (int i = 0; i < static_cast<int>(UpgradeId::Count); ++i)
-            maxUpgradeRow = std::max(maxUpgradeRow, GameData::getInstance()
-                .upgradeDefinition(static_cast<UpgradeId>(i)).treeRow);
     }
-    const float extraResearchHeight = std::max(0, maxUpgradeRow - 1) * 160.0f;
-    const float treeHeight = SKILL_TREE_HEIGHT + maxSkillRow * 138.0f + extraResearchHeight;
-    const float sections = showResearch && !upgradeIds.empty() ? 2.0f : 1.0f;
-    const float naturalH = SECTION_HEIGHT * sections +
-        upgradeIds.size() * UPGRADE_BRANCH_HEIGHT + (showResearch ? treeHeight : 0.0f) + 20.0f;
+    if (showBow || showMagic)
+    {
+        for (int i = 0; i < static_cast<int>(UpgradeId::Count); ++i)
+        {
+            const auto& definition = GameData::getInstance().upgradeDefinition(static_cast<UpgradeId>(i));
+            if (definition.track == UpgradeTrack::Bow)
+                maxBowRow = std::max(maxBowRow, definition.treeRow);
+            else if (definition.track == UpgradeTrack::Magic)
+                maxMagicRow = std::max(maxMagicRow, definition.treeRow);
+        }
+    }
+    const float bowHeight = showBow ? SECTION_HEIGHT + (maxBowRow + 1) * 160.0f + 55.0f : 0.0f;
+    const float magicHeight = showMagic ?
+        SECTION_HEIGHT + (maxMagicRow + 1) * 160.0f + 55.0f +
+        SECTION_HEIGHT + 145.0f + maxSkillRow * 138.0f + 100.0f +
+        SECTION_HEIGHT + 100.0f : 0.0f;
+    const float naturalH = (!upgradeIds.empty() ? SECTION_HEIGHT : 0.0f) +
+        upgradeIds.size() * UPGRADE_BRANCH_HEIGHT + bowHeight + magicHeight + 20.0f;
     const float innerH = std::max(_scroll->getContentSize().height, naturalH);
     _scroll->setInnerContainerSize(Size(contentWidth, innerH));
     float y = innerH;
@@ -315,7 +333,7 @@ void UpgradePanel::rebuildTree(float contentWidth)
     };
 
     if (!upgradeIds.empty())
-        addSection(_section == Section::Defense ? "城墙工事" : "弓箭装备");
+        addSection("城墙工事");
     for (const auto id : upgradeIds)
     {
         const auto& definition = GameData::getInstance().upgradeDefinition(id);
@@ -366,46 +384,55 @@ void UpgradePanel::rebuildTree(float contentWidth)
         y -= UPGRADE_BRANCH_HEIGHT;
     }
 
-    if (!showResearch) return;
-    addSection("基础属性");
-    const float skillTop = y;
+    if (!showBow && !showMagic) return;
     _researchConnector = DrawNode::create();
     _scroll->addChild(_researchConnector, 0);
-    const std::array<UpgradeId, 5> researchIds = {
-        UpgradeId::ArrowDamage, UpgradeId::FireRate, UpgradeId::Precision,
-        UpgradeId::HeavyStrike, UpgradeId::ManaFlow};
-    for (size_t i = 0; i < researchIds.size(); ++i)
+    auto addUpgradeTrack = [&](UpgradeTrack track, float top) {
+        for (int i = 0; i < static_cast<int>(UpgradeId::Count); ++i)
+        {
+            const UpgradeId id = static_cast<UpgradeId>(i);
+            const auto& definition = GameData::getInstance().upgradeDefinition(id);
+            if (definition.track != track) continue;
+            const Vec2 position(contentWidth * definition.treeX, top - 95.0f - definition.treeRow * 160.0f);
+            TreeNodeView node;
+            node.id = i;
+            node.graphic = DrawNode::create();
+            node.graphic->setPosition(position);
+            _scroll->addChild(node.graphic, 1);
+            node.title = addText(_scroll, "", 17.0f, Vec2(0.5f, 0.5f), 3);
+            node.title->setPosition(position + Vec2(0, -43));
+            node.status = addText(_scroll, "", 13.0f, Vec2(0.5f, 0.5f), 3);
+            node.status->setPosition(position + Vec2(0, -64));
+            node.detail = addText(_scroll, "", 13.0f, Vec2(0.5f, 0.5f), 3);
+            node.detail->setPosition(position + Vec2(0, -84));
+            node.target = ui::Button::create();
+            node.target->ignoreContentAdaptWithSize(false);
+            node.target->setContentSize(Size(NODE_TARGET_SIZE, NODE_TARGET_SIZE));
+            node.target->setPosition(position);
+            node.target->addClickEventListener([this, id](Object*) { purchaseUpgrade(id); });
+            _scroll->addChild(node.target, 4);
+            _researchNodes.push_back(node);
+        }
+    };
+    if (showBow)
     {
-        const auto& definition = GameData::getInstance().upgradeDefinition(researchIds[i]);
-        const Vec2 position(contentWidth * definition.treeX, skillTop - 95.0f - definition.treeRow * 160.0f);
-        TreeNodeView node;
-        node.id = static_cast<int>(researchIds[i]);
-        node.graphic = DrawNode::create();
-        node.graphic->setPosition(position);
-        _scroll->addChild(node.graphic, 1);
-        node.title = addText(_scroll, "", 17.0f, Vec2(0.5f, 0.5f), 3);
-        node.title->setPosition(position + Vec2(0, -43));
-        node.status = addText(_scroll, "", 13.0f, Vec2(0.5f, 0.5f), 3);
-        node.status->setPosition(position + Vec2(0, -64));
-        node.detail = addText(_scroll, "", 13.0f, Vec2(0.5f, 0.5f), 3);
-        node.detail->setPosition(position + Vec2(0, -84));
-        node.target = ui::Button::create();
-        node.target->ignoreContentAdaptWithSize(false);
-        node.target->setContentSize(Size(NODE_TARGET_SIZE, NODE_TARGET_SIZE));
-        node.target->setPosition(position);
-        const UpgradeId id = researchIds[i];
-        node.target->addClickEventListener([this, id](Object*) { purchaseUpgrade(id); });
-        _scroll->addChild(node.target, 4);
-        _researchNodes.push_back(node);
+        addSection("弓箭基础");
+        const float bowTop = y;
+        addUpgradeTrack(UpgradeTrack::Bow, bowTop);
+        auto* tacticsLabel = addText(_scroll, "箭术专精", 23.0f, Vec2(0, 0.5f));
+        tacticsLabel->setTextColor(Color4B(150, 205, 255, 255));
+        tacticsLabel->setPosition(Vec2(12, bowTop - 207.0f));
+        y -= (maxBowRow + 1) * 160.0f + 55.0f;
     }
-    auto* tacticsLabel = addText(_scroll, "战术专精", 23.0f, Vec2(0, 0.5f));
-    tacticsLabel->setTextColor(Color4B(150, 205, 255, 255));
-    tacticsLabel->setPosition(Vec2(12, skillTop - 207));
-    auto* spellsLabel = addText(_scroll, "法术研习", 23.0f, Vec2(0, 0.5f));
-    spellsLabel->setTextColor(Color4B(150, 205, 255, 255));
-    spellsLabel->setPosition(Vec2(12, skillTop - 373 - extraResearchHeight));
+    if (!showMagic) return;
+    addSection("法力研修");
+    const float magicTop = y;
+    addUpgradeTrack(UpgradeTrack::Magic, magicTop);
+    y -= (maxMagicRow + 1) * 160.0f + 55.0f;
 
-    const Vec2 rootPosition(contentWidth * 0.5f, skillTop - 416.0f - extraResearchHeight);
+    addSection("法术研习");
+    const float skillTop = y;
+    const Vec2 rootPosition(contentWidth * 0.5f, skillTop - 48.0f);
     _skillConnector = DrawNode::create();
     _scroll->addChild(_skillConnector, 0);
     _skillRoot = DrawNode::create();
@@ -422,7 +449,7 @@ void UpgradePanel::rebuildTree(float contentWidth)
     {
         const auto& definition = GameData::getInstance().skillDefinition(static_cast<SkillId>(i));
         const Vec2 position(contentWidth * definition.treeX,
-                            skillTop - 509.0f - extraResearchHeight - definition.treeRow * 138.0f);
+                            skillTop - 145.0f - definition.treeRow * 138.0f);
 
         TreeNodeView node;
         node.id      = i;
@@ -442,6 +469,20 @@ void UpgradePanel::rebuildTree(float contentWidth)
         _scroll->addChild(node.target, 4);
         _skillNodes.push_back(node);
     }
+    y -= 145.0f + maxSkillRow * 138.0f + 100.0f;
+
+    addSection("魔法设施");
+    auto* tower = DrawNode::create();
+    tower->setPosition(Vec2(56.0f, y - 49.0f));
+    tower->drawSolidRect(Vec2(-19, -24), Vec2(19, 14), Color4F(0.20f, 0.25f, 0.32f, 1.0f));
+    tower->drawSolidTriangle(Vec2(-24, 14), Vec2(0, 34), Vec2(24, 14),
+                             Color4F(0.34f, 0.39f, 0.48f, 1.0f), Color4F(0.34f, 0.39f, 0.48f, 1.0f));
+    _scroll->addChild(tower, 1);
+    auto* towerLabel = addText(_scroll, "魔法塔", 19.0f, Vec2(0, 0.5f));
+    towerLabel->setPosition(Vec2(95.0f, y - 42.0f));
+    auto* towerState = addText(_scroll, "待建造", 14.0f, Vec2(0, 0.5f));
+    towerState->setTextColor(Color4B(145, 153, 166, 255));
+    towerState->setPosition(Vec2(95.0f, y - 66.0f));
 }
 
 void UpgradePanel::refresh()

@@ -84,7 +84,15 @@ enum class UpgradeId
     Precision,
     ManaFlow,
     WallArmor,
+    SpellEfficiency,
     Count,
+};
+
+enum class UpgradeTrack
+{
+    None,
+    Bow,
+    Magic,
 };
 
 enum class SkillId
@@ -109,6 +117,7 @@ struct UpgradeDefinition
     int requiredLevel = 0;
     int treeRow = -1;
     float treeX = 0.5f;
+    UpgradeTrack track = UpgradeTrack::None;
 
     int maxLevel() const { return static_cast<int>(costs.size()); }
 };
@@ -249,6 +258,7 @@ public:
     float knockbackDistance() const;
     float criticalChance() const;
     float manaRegenBonus() const;
+    float spellManaCostMultiplier() const;
 
 #if CG_DEBUG_TOOLS
     DebugPlayerData debugPlayerData() const;

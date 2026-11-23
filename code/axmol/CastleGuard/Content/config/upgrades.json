@@ -7,6 +7,7 @@
       "currency": "coins",
       "costs": [8, 18, 34, 58, 90],
       "values": [1, 2, 3, 4, 5, 6],
+      "track": "bow",
       "treeRow": 0,
       "treeX": 0.27
     },
@@ -17,6 +18,7 @@
       "currency": "coins",
       "costs": [10, 22, 40, 65, 100],
       "values": [1.0, 0.9166667, 0.8333333, 0.7611111, 0.6944444, 0.6388889],
+      "track": "bow",
       "treeRow": 0,
       "treeX": 0.73
     },
@@ -26,7 +28,12 @@
       "description": "一次射出更多箭矢",
       "currency": "coins",
       "costs": [45, 120],
-      "values": [1, 2, 3]
+      "values": [1, 2, 3],
+      "requires": "fire_rate",
+      "requiredLevel": 2,
+      "track": "bow",
+      "treeRow": 1,
+      "treeX": 0.83
     },
     {
       "id": "wall_health",
@@ -45,6 +52,7 @@
       "values": [36, 72],
       "requires": "arrow_damage",
       "requiredLevel": 5,
+      "track": "bow",
       "treeRow": 1,
       "treeX": 0.50
     },
@@ -57,6 +65,7 @@
       "values": [0, 0.12],
       "requires": "arrow_damage",
       "requiredLevel": 3,
+      "track": "bow",
       "treeRow": 1,
       "treeX": 0.17
     },
@@ -67,10 +76,9 @@
       "currency": "crystals",
       "costs": [3],
       "values": [0, 1.5],
-      "requires": "fire_rate",
-      "requiredLevel": 3,
-      "treeRow": 1,
-      "treeX": 0.83
+      "track": "magic",
+      "treeRow": 0,
+      "treeX": 0.27
     },
     {
       "id": "wall_armor",
@@ -79,6 +87,17 @@
       "currency": "coins",
       "costs": [20, 45, 80],
       "values": [0, 1, 2, 3]
+    },
+    {
+      "id": "spell_efficiency",
+      "name": "奥术专注",
+      "description": "降低施放法术所需法力",
+      "currency": "coins",
+      "costs": [18, 42, 80],
+      "values": [1.0, 0.9, 0.8, 0.7],
+      "track": "magic",
+      "treeRow": 0,
+      "treeX": 0.73
     }
   ],
   "skills": [

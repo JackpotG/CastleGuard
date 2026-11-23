@@ -27,7 +27,7 @@ constexpr const char* CATALOG_PATH     = "config/upgrades.json";
 
 constexpr std::array<const char*, static_cast<size_t>(UpgradeId::Count)> UPGRADE_KEYS = {
     "arrow_damage", "fire_rate", "multi_shot", "wall_health", "heavy_strike", "precision", "mana_flow",
-    "wall_armor"};
+    "wall_armor", "spell_efficiency"};
 constexpr std::array<const char*, static_cast<size_t>(SkillId::Count)> SKILL_KEYS = {
     "fireball", "freeze", "arrow_rain", "lightning"};
 
@@ -149,21 +149,19 @@ bool validUpgradeTree(const std::array<UpgradeDefinition, static_cast<size_t>(Up
         const auto& node = upgrades[i];
         if (node.id != static_cast<UpgradeId>(i) || !validUpgrade(node))
             return false;
-        const bool inResearch = node.id == UpgradeId::ArrowDamage || node.id == UpgradeId::FireRate ||
-                                node.id == UpgradeId::HeavyStrike || node.id == UpgradeId::Precision ||
-                                node.id == UpgradeId::ManaFlow;
-        const bool basicAttribute = node.id == UpgradeId::ArrowDamage || node.id == UpgradeId::FireRate;
-        if ((inResearch && (node.treeRow < 0 || node.treeRow > 4 ||
-                            !std::isfinite(node.treeX) || node.treeX < 0.12f || node.treeX > 0.88f)) ||
-            (!inResearch && node.treeRow != -1) ||
-            (basicAttribute && node.treeRow != 0) ||
-            (inResearch && !basicAttribute && node.treeRow == 0))
+        const bool inTree = node.track != UpgradeTrack::None;
+        if ((inTree && (node.treeRow < 0 || node.treeRow > 4 ||
+                        !std::isfinite(node.treeX) || node.treeX < 0.12f || node.treeX > 0.88f)) ||
+            (!inTree && node.treeRow != -1) ||
+            (inTree && node.prerequisite == UpgradeId::Count && node.treeRow != 0) ||
+            (inTree && node.prerequisite != UpgradeId::Count && node.treeRow == 0))
             return false;
-        if (inResearch)
+        if (inTree)
         {
             for (size_t j = 0; j < i; ++j)
             {
-                if (node.treeRow == upgrades[j].treeRow && std::abs(node.treeX - upgrades[j].treeX) < 0.18f)
+                if (node.track == upgrades[j].track && node.treeRow == upgrades[j].treeRow &&
+                    std::abs(node.treeX - upgrades[j].treeX) < 0.18f)
                     return false;
             }
         }
@@ -177,7 +175,7 @@ bool validUpgradeTree(const std::array<UpgradeDefinition, static_cast<size_t>(Up
         if (parent >= upgrades.size() || parent == i || node.requiredLevel <= 0 ||
             node.requiredLevel > upgrades[parent].maxLevel())
             return false;
-        if (inResearch && (upgrades[parent].treeRow < 0 || upgrades[parent].treeRow >= node.treeRow))
+        if (inTree && (upgrades[parent].track != node.track || upgrades[parent].treeRow >= node.treeRow))
             return false;
         size_t cursor = parent;
         for (size_t depth = 0; depth < upgrades.size(); ++depth)
@@ -368,6 +366,7 @@ bool ProgressionModel::isSkillUnlocked(SkillId id) const
 bool ProgressionModel::meetsUpgradePrerequisite(const UpgradeDefinition& definition) const
 {
     return definition.prerequisite == UpgradeId::Count ||
+           (definition.id == UpgradeId::MultiShot && upgradeLevel(UpgradeId::MultiShot) > 0) ||
            upgradeLevel(definition.prerequisite) >= definition.requiredLevel;
 }
 
@@ -561,23 +560,26 @@ void GameData::loadCatalog()
 {
     _upgrades = {
         UpgradeDefinition{UpgradeId::ArrowDamage, "arrow_damage", "力量", "提高每支箭的基础伤害", Currency::Coins,
-                          {8, 18, 34, 58, 90}, {1, 2, 3, 4, 5, 6}, UpgradeId::Count, 0, 0, 0.27f},
+                          {8, 18, 34, 58, 90}, {1, 2, 3, 4, 5, 6}, UpgradeId::Count, 0, 0, 0.27f, UpgradeTrack::Bow},
         UpgradeDefinition{UpgradeId::FireRate, "fire_rate", "敏捷", "缩短两次射击的间隔", Currency::Coins,
                           {10, 22, 40, 65, 100},
                           {1.0f, 0.9166667f, 0.8333333f, 0.7611111f, 0.6944444f, 0.6388889f},
-                          UpgradeId::Count, 0, 0, 0.73f},
+                          UpgradeId::Count, 0, 0, 0.73f, UpgradeTrack::Bow},
         UpgradeDefinition{UpgradeId::MultiShot, "multi_shot", "多重箭", "一次射出更多箭矢", Currency::Coins,
-                          {45, 120}, {1, 2, 3}},
+                          {45, 120}, {1, 2, 3}, UpgradeId::FireRate, 2, 1, 0.83f, UpgradeTrack::Bow},
         UpgradeDefinition{UpgradeId::WallHealth, "wall_health", "坚固城墙", "提高每局城墙生命上限", Currency::Coins,
                           {12, 26, 45, 70, 105}, {100, 120, 140, 160, 180, 200}},
         UpgradeDefinition{UpgradeId::HeavyStrike, "heavy_strike", "强力一击", "箭矢击退距离翻倍", Currency::Crystals,
-                          {4}, {36, 72}, UpgradeId::ArrowDamage, 5, 1, 0.50f},
+                          {4}, {36, 72}, UpgradeId::ArrowDamage, 5, 1, 0.50f, UpgradeTrack::Bow},
         UpgradeDefinition{UpgradeId::Precision, "precision", "鹰眼", "箭矢获得暴击概率", Currency::Crystals,
-                          {3}, {0, 0.12f}, UpgradeId::ArrowDamage, 3, 1, 0.17f},
+                          {3}, {0, 0.12f}, UpgradeId::ArrowDamage, 3, 1, 0.17f, UpgradeTrack::Bow},
         UpgradeDefinition{UpgradeId::ManaFlow, "mana_flow", "法力回路", "每秒额外回复法力", Currency::Crystals,
-                          {3}, {0, 1.5f}, UpgradeId::FireRate, 3, 1, 0.83f},
+                          {3}, {0, 1.5f}, UpgradeId::Count, 0, 0, 0.27f, UpgradeTrack::Magic},
         UpgradeDefinition{UpgradeId::WallArmor, "wall_armor", "城墙护甲", "每次受击减少伤害", Currency::Coins,
                           {20, 45, 80}, {0, 1, 2, 3}},
+        UpgradeDefinition{UpgradeId::SpellEfficiency, "spell_efficiency", "奥术专注", "降低施放法术所需法力", Currency::Coins,
+                          {18, 42, 80}, {1.0f, 0.9f, 0.8f, 0.7f}, UpgradeId::Count, 0, 0, 0.73f,
+                          UpgradeTrack::Magic},
     };
     _skills = {
         SkillDefinition{SkillId::Fireball, "fireball", "火球", "范围爆炸伤害", 0, false, 3,
@@ -687,6 +689,21 @@ void GameData::loadCatalog()
                     break;
                 }
                 parsed.treeX = item["treeX"].GetFloat();
+            }
+            if (item.HasMember("track"))
+            {
+                if (!item["track"].IsString())
+                {
+                    valid = false;
+                    break;
+                }
+                const std::string track = item["track"].GetString();
+                if (track != "bow" && track != "magic")
+                {
+                    valid = false;
+                    break;
+                }
+                parsed.track = track == "bow" ? UpgradeTrack::Bow : UpgradeTrack::Magic;
             }
             if (!validUpgrade(parsed))
             {
@@ -967,6 +984,11 @@ float GameData::criticalChance() const
 float GameData::manaRegenBonus() const
 {
     return upgradeValue(UpgradeId::ManaFlow);
+}
+
+float GameData::spellManaCostMultiplier() const
+{
+    return upgradeValue(UpgradeId::SpellEfficiency);
 }
 
 #if CG_DEBUG_TOOLS

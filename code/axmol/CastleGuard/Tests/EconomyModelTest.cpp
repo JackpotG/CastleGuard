@@ -287,14 +287,20 @@ TEST_SUITE("CampaignProgressionModel")
 
 TEST_SUITE("ProductionProgressionCatalog")
 {
-    TEST_CASE("research specialization follows attribute thresholds without early spending")
+    TEST_CASE("bow mastery and magic study have separate upgrade tracks")
     {
         const auto& data = GameData::getInstance();
         const auto& strike = data.upgradeDefinition(UpgradeId::HeavyStrike);
         const auto& precision = data.upgradeDefinition(UpgradeId::Precision);
         const auto& mana = data.upgradeDefinition(UpgradeId::ManaFlow);
+        const auto& multiShot = data.upgradeDefinition(UpgradeId::MultiShot);
+        const auto& efficiency = data.upgradeDefinition(UpgradeId::SpellEfficiency);
         CHECK_EQ(data.upgradeDefinition(UpgradeId::ArrowDamage).name, "力量");
         CHECK_EQ(data.upgradeDefinition(UpgradeId::FireRate).name, "敏捷");
+        CHECK_EQ(data.upgradeDefinition(UpgradeId::ArrowDamage).track, UpgradeTrack::Bow);
+        CHECK_EQ(data.upgradeDefinition(UpgradeId::FireRate).track, UpgradeTrack::Bow);
+        CHECK_EQ(strike.track, UpgradeTrack::Bow);
+        CHECK_EQ(precision.track, UpgradeTrack::Bow);
         CHECK_EQ(strike.prerequisite, UpgradeId::ArrowDamage);
         CHECK_EQ(strike.requiredLevel, 5);
         CHECK_EQ(strike.treeRow, 1);
@@ -303,9 +309,16 @@ TEST_SUITE("ProductionProgressionCatalog")
         CHECK_EQ(precision.prerequisite, UpgradeId::ArrowDamage);
         CHECK_EQ(precision.requiredLevel, 3);
         CHECK_EQ(precision.values[1], doctest::Approx(0.12f));
-        CHECK_EQ(mana.prerequisite, UpgradeId::FireRate);
-        CHECK_EQ(mana.requiredLevel, 3);
+        CHECK_EQ(multiShot.prerequisite, UpgradeId::FireRate);
+        CHECK_EQ(multiShot.requiredLevel, 2);
+        CHECK_EQ(multiShot.track, UpgradeTrack::Bow);
+        CHECK_EQ(mana.prerequisite, UpgradeId::Count);
+        CHECK_EQ(mana.track, UpgradeTrack::Magic);
         CHECK_EQ(mana.values[1], doctest::Approx(1.5f));
+        CHECK_EQ(efficiency.track, UpgradeTrack::Magic);
+        CHECK_EQ(efficiency.values[0], doctest::Approx(1.0f));
+        CHECK_EQ(efficiency.values[3], doctest::Approx(0.7f));
+        CHECK_EQ(data.spellManaCostMultiplier(), doctest::Approx(1.0f));
 
         EconomyModel economy(0, 10);
         ProgressionModel progression;
@@ -314,6 +327,24 @@ TEST_SUITE("ProductionProgressionCatalog")
         progression.setUpgradeLevel(UpgradeId::ArrowDamage, 5);
         CHECK(progression.purchaseUpgrade(economy, strike).purchased());
         CHECK_EQ(economy.totalCrystals(), 6);
+
+        EconomyModel bowEconomy(200, 0);
+        ProgressionModel bowProgression;
+        CHECK_EQ(bowProgression.purchaseUpgrade(bowEconomy, multiShot).status,
+                 PurchaseStatus::PrerequisiteLocked);
+        bowProgression.setUpgradeLevel(UpgradeId::FireRate, 2);
+        CHECK(bowProgression.purchaseUpgrade(bowEconomy, multiShot).purchased());
+
+        ProgressionModel oldSave;
+        oldSave.setUpgradeLevel(UpgradeId::MultiShot, 1);
+        CHECK(oldSave.purchaseUpgrade(bowEconomy, multiShot).purchased());
+        CHECK_EQ(oldSave.upgradeLevel(UpgradeId::MultiShot), 2);
+
+        EconomyModel magicEconomy(100, 10);
+        ProgressionModel magicProgression;
+        CHECK(magicProgression.purchaseUpgrade(magicEconomy, mana).purchased());
+        CHECK(magicProgression.purchaseUpgrade(magicEconomy, efficiency).purchased());
+        CHECK_EQ(magicProgression.upgradeLevel(UpgradeId::SpellEfficiency), 1);
         CHECK_EQ(progression.purchaseUpgrade(economy, strike).status, PurchaseStatus::MaxLevel);
         CHECK_EQ(economy.totalCrystals(), 6);
     }
@@ -341,6 +372,10 @@ TEST_SUITE("ProductionProgressionCatalog")
 
         upgrades[static_cast<size_t>(UpgradeId::ArrowDamage)].prerequisite = UpgradeId::HeavyStrike;
         upgrades[static_cast<size_t>(UpgradeId::ArrowDamage)].requiredLevel = 1;
+        CHECK_FALSE(validUpgradeTree(upgrades));
+        upgrades[static_cast<size_t>(UpgradeId::ArrowDamage)] = data.upgradeDefinition(UpgradeId::ArrowDamage);
+
+        upgrades[static_cast<size_t>(UpgradeId::HeavyStrike)].track = UpgradeTrack::Magic;
         CHECK_FALSE(validUpgradeTree(upgrades));
     }
 
