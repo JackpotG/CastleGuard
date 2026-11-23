@@ -7,7 +7,7 @@ const state = {
   mode: "levels", documents: {}, dirty: {levels: false, tree: false},
   level: 0, wave: 0, group: 0, track: "bow", node: "arrow_damage", search: "",
 };
-const previewState = {open: false, wave: 0, time: 0, speed: 1, playing: false, frame: 0, lastFrame: 0, timeline: null};
+const previewState = {open: false, wave: 0, time: 0, speed: 1, randomize: false, playing: false, frame: 0, lastFrame: 0, timeline: null};
 const trackNames = {bow: "军械所", magic: "研究院", defense: "城防营", spells: "法术研习"};
 const formationNames = {scatter: "散列", row: "横排", column: "长列"};
 const originNames = {spawn: "战场上沿", left: "左侧翼", right: "右侧翼"};
@@ -308,6 +308,7 @@ function openPreview() {
   document.body.classList.add("preview-open");
   $(".app-shell").inert = true;
   $("#level-preview").hidden = false;
+  rebuildPreviewTimeline();
   renderPreview();
   $("#level-preview [data-action=close-preview]").focus();
   previewState.frame = requestAnimationFrame(previewTick);
@@ -322,12 +323,16 @@ function closePreview() {
   $(".app-shell").inert = false;
   $("[data-action=open-preview]")?.focus();
 }
+function rebuildPreviewTimeline() {
+  previewState.timeline = PreviewModel.buildWave(currentLevel().waves[previewState.wave], {
+    randomize: previewState.randomize,
+  });
+}
 function renderPreview() {
   if (!previewState.open) return;
   const level = currentLevel();
   const wave = level.waves[previewState.wave];
-  const timeline = PreviewModel.buildWave(wave);
-  previewState.timeline = timeline;
+  const timeline = previewState.timeline;
   const groups = wave.groups;
   const count = timeline.events.length;
   $("#level-preview").innerHTML = `<div class="preview-panel">
@@ -335,12 +340,13 @@ function renderPreview() {
     <div class="preview-body"><section class="preview-battle"><div class="preview-battle-head"><strong>${escapeHtml(wave.name)}</strong><span id="preview-count">0 / ${count}</span></div>
       <div class="preview-stage" aria-label="12 车道战场示意图"><div class="preview-ground"></div>${Array.from({length: 12}, (_, lane) => `<div class="preview-lane" style="left:${(lane + .5) / 12 * 100}%"><span>${lane + 1}</span></div>`).join("")}
       <div class="preview-spawn-line"></div><div class="preview-wall"><div class="preview-merlons"></div><div class="preview-gate"></div></div>
-      ${timeline.events.map((event, index) => `<div class="preview-monster type-${monsterNames[event.type] ? escapeHtml(event.type) : "other"}" data-event-index="${index}" title="${escapeHtml(monsterNames[event.type] || event.type)} · 第 ${event.groupIndex + 1} 组 · ${event.time.toFixed(1)} 秒" hidden>${escapeHtml((monsterNames[event.type] || event.type).slice(0, 1))}</div>`).join("")}</div>
+      ${timeline.events.map((event, index) => `<div class="preview-monster type-${monsterNames[event.type] ? escapeHtml(event.type) : "other"}" data-event-index="${index}" title="${escapeHtml(monsterNames[event.type] || event.type)} · 第 ${event.groupIndex + 1} 组 · ${event.time.toFixed(1)} 秒 · ${event.lane + 1} 车道 · ${event.configuredSpeed > 0 ? `${event.configuredSpeed} px/s` : `${event.speedFactor.toFixed(2)} 倍个体速度`}" hidden>${escapeHtml((monsterNames[event.type] || event.type).slice(0, 1))}</div>`).join("")}</div>
       <div class="preview-controls"><button class="preview-control" data-action="preview-restart" type="button" title="重新播放" aria-label="重新播放">↺</button><button id="preview-play-button" class="preview-control play" data-action="preview-play" type="button" title="暂停" aria-label="暂停">Ⅱ</button><span id="preview-clock" class="preview-clock">0.0s</span><input id="preview-scrub" type="range" min="0" max="${timeline.duration}" step="0.05" value="${previewState.time}" aria-label="预览时间"><span class="preview-clock">${timeline.duration.toFixed(1)}s</span></div>
-    </section><aside class="preview-detail"><div class="preview-detail-head"><span>波次</span><span>播放速度</span></div><div class="preview-speed">${[1, 2, 4].map((speed) => `<button data-action="preview-speed" data-speed="${speed}" class="${previewState.speed === speed ? "selected" : ""}" type="button">${speed}×</button>`).join("")}</div>
+    </section><aside class="preview-detail"><div class="preview-detail-head"><span>预览设置</span></div><div class="preview-options"><label class="preview-random"><input id="preview-random" type="checkbox" ${previewState.randomize ? "checked" : ""}> 模拟随机</label><div class="preview-speed" aria-label="播放速度">${[1, 2, 4].map((speed) => `<button data-action="preview-speed" data-speed="${speed}" class="${previewState.speed === speed ? "selected" : ""}" type="button">${speed}×</button>`).join("")}</div></div>
+      <div class="preview-detail-head"><span>波次</span><span>${level.waves.length} 波</span></div>
       <div class="preview-wave-list">${level.waves.map((item, index) => `<button data-action="preview-wave" data-index="${index}" class="preview-wave ${index === previewState.wave ? "selected" : ""}" type="button"><span>${String(index + 1).padStart(2, "0")} · ${escapeHtml(item.name)}</span><small>${item.groups.reduce((sum, group) => sum + (group.types?.length || group.count || 0), 0)}</small></button>`).join("")}</div>
       <div class="preview-detail-head group-head"><span>出怪组</span><span>已出 / 总数</span></div><div class="preview-group-list">${groups.map((group, index) => `<div class="preview-group"><div><strong>${String(index + 1).padStart(2, "0")} · ${escapeHtml((group.types || [group.type]).map((type) => monsterNames[type] || type).join(" / "))}</strong><span data-group-index="${index}">0 / ${group.types?.length || group.count || 0}</span></div><small>${formationNames[group.formation || "scatter"]} · 延迟 ${group.delay || 0}s · ${group.useConfiguredSpeed ? `${group.configuredSpeed} px/s` : "默认移速"}</small></div>`).join("")}</div>
-      <p class="preview-caveat" title="下一波会在场上怪物清零且休整结束后出现；随机车道与默认移速在预览中使用固定示意值。">走位示意 · 波次衔接取决于实战清场</p>
+      <p class="preview-caveat" title="下一波会在场上怪物清零且休整结束后出现；个体移速仅表现随机系数，不包含怪物类型倍率。">${previewState.randomize ? "随机抽样" : "固定示意"} · 波次衔接取决于实战清场</p>
     </aside></div></div>`;
   updatePreviewFrame();
 }
@@ -358,15 +364,15 @@ function updatePreviewFrame() {
   $("#level-preview").querySelectorAll(".preview-monster").forEach((marker) => {
     const event = events[Number(marker.dataset.eventIndex)];
     const age = time - event.time;
-    const travel = event.configuredSpeed > 0 ? Math.max(1.5, Math.min(20, 6 * 70 / event.configuredSpeed)) : 6;
+    const travel = PreviewModel.travelDuration(event);
     marker.hidden = age < 0 || age > travel;
     if (!marker.hidden) {
       const progress = Math.max(0, age / travel);
-      const targetX = (event.lane + .5) / 12 * 100;
-      const x = event.from === "left" ? -4 + (targetX + 4) * Math.min(1, progress * 2) :
-        event.from === "right" ? 104 + (targetX - 104) * Math.min(1, progress * 2) : targetX;
-      marker.style.left = `${x}%`;
-      marker.style.top = `${7 + progress * 72}%`;
+      const targetX = (event.lane + .5 + event.jitter) / 12 * 100;
+      const startX = event.from === "left" ? -4 : event.from === "right" ? 104 : targetX;
+      const startY = event.from === "spawn" ? 7 : 18 + event.sideHeight * 44;
+      marker.style.left = `${startX + (targetX - startX) * progress}%`;
+      marker.style.top = `${startY + (79 - startY) * progress}%`;
     }
     if (age >= 0) { spawned++; perGroup[event.groupIndex]++; }
   });
@@ -415,8 +421,11 @@ function handleAction(button) {
   if (action === "close-preview") { closePreview(); return; }
   if (action === "preview-play" || action === "preview-restart") {
     cancelAnimationFrame(previewState.frame);
-    if (action === "preview-restart" || (!previewState.playing && previewState.time >= previewState.timeline.duration))
+    const replay = action === "preview-restart" || (!previewState.playing && previewState.time >= previewState.timeline.duration);
+    if (replay) {
       previewState.time = 0;
+      if (previewState.randomize) { rebuildPreviewTimeline(); renderPreview(); }
+    }
     previewState.playing = action === "preview-restart" || !previewState.playing;
     previewState.lastFrame = 0;
     updatePreviewFrame();
@@ -426,6 +435,7 @@ function handleAction(button) {
   if (action === "preview-wave") {
     cancelAnimationFrame(previewState.frame);
     previewState.wave = index; previewState.time = 0; previewState.playing = false;
+    rebuildPreviewTimeline();
     renderPreview();
     return;
   }
@@ -491,6 +501,14 @@ document.addEventListener("click", (event) => {
 });
 document.addEventListener("change", (event) => {
   const input = event.target;
+  if (input.id === "preview-random") {
+    cancelAnimationFrame(previewState.frame);
+    previewState.randomize = input.checked;
+    previewState.time = 0; previewState.playing = false; previewState.lastFrame = 0;
+    rebuildPreviewTimeline(); renderPreview();
+    $("#preview-random").focus();
+    return;
+  }
   if (input.id === "level-search") { state.search = input.value; renderSidebar(); return; }
   if (input.dataset.scope) { setCurrentField(input); return; }
   if (input.dataset.action === "type-at") { currentGroup().types[Number(input.dataset.index)] = input.value; markDirty(); render(); return; }
