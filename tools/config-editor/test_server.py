@@ -70,6 +70,12 @@ class ConfigEditorServerTest(unittest.TestCase):
         self.assertEqual(status, 422)
         self.assertIn("JSON 格式错误", response["error"])
 
+    def test_preview_model_script_is_served(self):
+        with urlopen(self.url + "/preview-model.js") as response:
+            self.assertEqual(response.status, 200)
+            self.assertIn("javascript", response.headers["Content-Type"])
+            self.assertIn(b"buildWave", response.read())
+
 
 if __name__ == "__main__":
     unittest.main()

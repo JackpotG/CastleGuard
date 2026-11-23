@@ -7,6 +7,7 @@ const state = {
   mode: "levels", documents: {}, dirty: {levels: false, tree: false},
   level: 0, wave: 0, group: 0, track: "bow", node: "arrow_damage", search: "",
 };
+const previewState = {open: false, wave: 0, time: 0, speed: 1, playing: false, frame: 0, lastFrame: 0, timeline: null};
 const trackNames = {bow: "军械所", magic: "研究院", defense: "城防营", spells: "法术研习"};
 const formationNames = {scatter: "散列", row: "横排", column: "长列"};
 const originNames = {spawn: "战场上沿", left: "左侧翼", right: "右侧翼"};
@@ -49,6 +50,7 @@ function markDirty() {
   $("#save-state").classList.toggle("dirty", dirty);
 }
 async function loadAll() {
+  if (previewState.open) closePreview();
   const [levels, tree] = await Promise.all(["levels", "tree"].map(async (kind) => {
     const response = await fetch(`/api/${kind}`);
     if (!response.ok) {
@@ -212,7 +214,7 @@ function renderLevels() {
   const wave = currentWave();
   const count = level.waves.reduce((sum, item) => sum + item.groups.reduce((n, group) => n + (group.types?.length || group.count || 0), 0), 0);
   $("#main-content").innerHTML = `
-    <div class="page-head"><div><p class="eyebrow">CAMPAIGN / ${String(state.level + 1).padStart(2, "0")}</p><h1>${escapeHtml(level.name)}</h1><div class="meta-row"><span><strong>${level.waves.length}</strong> 波次</span><span><strong>${count}</strong> 怪物</span><span><strong>${level.clearCrystals}</strong> 水晶</span></div></div><button class="small-button danger-button" data-action="delete-level" title="删除当前关卡" aria-label="删除当前关卡">×</button></div>
+    <div class="page-head"><div><p class="eyebrow">CAMPAIGN / ${String(state.level + 1).padStart(2, "0")}</p><h1>${escapeHtml(level.name)}</h1><div class="meta-row"><span><strong>${level.waves.length}</strong> 波次</span><span><strong>${count}</strong> 怪物</span><span><strong>${level.clearCrystals}</strong> 水晶</span></div></div><div class="line"><button class="primary-button" data-action="open-preview" type="button">预览关卡</button><button class="small-button danger-button" data-action="delete-level" title="删除当前关卡" aria-label="删除当前关卡">×</button></div></div>
     <div class="field-grid">${field("level", "name", "关卡名称", level.name)}${field("level", "clearCrystals", "通关水晶", level.clearCrystals, "number")}</div>
     <h2 class="section-title">波次 <span class="section-actions"><button class="small-button" data-action="add-wave" title="添加波次" aria-label="添加波次">+</button></span></h2>
     <div class="wave-list">${level.waves.map((item, index) => `<button class="wave-tab ${index === state.wave ? "selected" : ""}" data-action="select-wave" data-index="${index}">${escapeHtml(item.name)}<small>${item.groups.length}</small></button>`).join("")}</div>
@@ -297,6 +299,95 @@ function renderNodeInspector(node) {
   }
   $("#inspector").innerHTML = html + "</div>";
 }
+function openPreview() {
+  previewState.open = true;
+  previewState.wave = state.wave;
+  previewState.time = 0;
+  previewState.playing = true;
+  previewState.lastFrame = 0;
+  document.body.classList.add("preview-open");
+  $(".app-shell").inert = true;
+  $("#level-preview").hidden = false;
+  renderPreview();
+  $("#level-preview [data-action=close-preview]").focus();
+  previewState.frame = requestAnimationFrame(previewTick);
+}
+function closePreview() {
+  previewState.open = false;
+  previewState.playing = false;
+  cancelAnimationFrame(previewState.frame);
+  $("#level-preview").hidden = true;
+  $("#level-preview").innerHTML = "";
+  document.body.classList.remove("preview-open");
+  $(".app-shell").inert = false;
+  $("[data-action=open-preview]")?.focus();
+}
+function renderPreview() {
+  if (!previewState.open) return;
+  const level = currentLevel();
+  const wave = level.waves[previewState.wave];
+  const timeline = PreviewModel.buildWave(wave);
+  previewState.timeline = timeline;
+  const groups = wave.groups;
+  const count = timeline.events.length;
+  $("#level-preview").innerHTML = `<div class="preview-panel">
+    <header class="preview-header"><div><p class="eyebrow">CAMPAIGN / ${String(state.level + 1).padStart(2, "0")}</p><h2>${escapeHtml(level.name)}</h2><p class="preview-subtitle">出怪预览 · ${level.waves.length} 波 · 本波 ${count} 只</p></div><button class="preview-close" data-action="close-preview" type="button" title="关闭预览" aria-label="关闭预览">×</button></header>
+    <div class="preview-body"><section class="preview-battle"><div class="preview-battle-head"><strong>${escapeHtml(wave.name)}</strong><span id="preview-count">0 / ${count}</span></div>
+      <div class="preview-stage" aria-label="12 车道战场示意图"><div class="preview-ground"></div>${Array.from({length: 12}, (_, lane) => `<div class="preview-lane" style="left:${(lane + .5) / 12 * 100}%"><span>${lane + 1}</span></div>`).join("")}
+      <div class="preview-spawn-line"></div><div class="preview-wall"><div class="preview-merlons"></div><div class="preview-gate"></div></div>
+      ${timeline.events.map((event, index) => `<div class="preview-monster type-${monsterNames[event.type] ? escapeHtml(event.type) : "other"}" data-event-index="${index}" title="${escapeHtml(monsterNames[event.type] || event.type)} · 第 ${event.groupIndex + 1} 组 · ${event.time.toFixed(1)} 秒" hidden>${escapeHtml((monsterNames[event.type] || event.type).slice(0, 1))}</div>`).join("")}</div>
+      <div class="preview-controls"><button class="preview-control" data-action="preview-restart" type="button" title="重新播放" aria-label="重新播放">↺</button><button id="preview-play-button" class="preview-control play" data-action="preview-play" type="button" title="暂停" aria-label="暂停">Ⅱ</button><span id="preview-clock" class="preview-clock">0.0s</span><input id="preview-scrub" type="range" min="0" max="${timeline.duration}" step="0.05" value="${previewState.time}" aria-label="预览时间"><span class="preview-clock">${timeline.duration.toFixed(1)}s</span></div>
+    </section><aside class="preview-detail"><div class="preview-detail-head"><span>波次</span><span>播放速度</span></div><div class="preview-speed">${[1, 2, 4].map((speed) => `<button data-action="preview-speed" data-speed="${speed}" class="${previewState.speed === speed ? "selected" : ""}" type="button">${speed}×</button>`).join("")}</div>
+      <div class="preview-wave-list">${level.waves.map((item, index) => `<button data-action="preview-wave" data-index="${index}" class="preview-wave ${index === previewState.wave ? "selected" : ""}" type="button"><span>${String(index + 1).padStart(2, "0")} · ${escapeHtml(item.name)}</span><small>${item.groups.reduce((sum, group) => sum + (group.types?.length || group.count || 0), 0)}</small></button>`).join("")}</div>
+      <div class="preview-detail-head group-head"><span>出怪组</span><span>已出 / 总数</span></div><div class="preview-group-list">${groups.map((group, index) => `<div class="preview-group"><div><strong>${String(index + 1).padStart(2, "0")} · ${escapeHtml((group.types || [group.type]).map((type) => monsterNames[type] || type).join(" / "))}</strong><span data-group-index="${index}">0 / ${group.types?.length || group.count || 0}</span></div><small>${formationNames[group.formation || "scatter"]} · 延迟 ${group.delay || 0}s · ${group.useConfiguredSpeed ? `${group.configuredSpeed} px/s` : "默认移速"}</small></div>`).join("")}</div>
+      <p class="preview-caveat" title="下一波会在场上怪物清零且休整结束后出现；随机车道与默认移速在预览中使用固定示意值。">走位示意 · 波次衔接取决于实战清场</p>
+    </aside></div></div>`;
+  updatePreviewFrame();
+}
+function updatePreviewFrame() {
+  if (!previewState.open || !previewState.timeline) return;
+  const {events, duration} = previewState.timeline;
+  const time = Math.min(previewState.time, duration);
+  $("#preview-clock").textContent = `${time.toFixed(1)}s`;
+  $("#preview-scrub").value = time;
+  const button = $("#preview-play-button");
+  button.textContent = previewState.playing ? "Ⅱ" : "▶";
+  button.title = button.ariaLabel = previewState.playing ? "暂停" : "播放";
+  let spawned = 0;
+  const perGroup = new Array(currentLevel().waves[previewState.wave].groups.length).fill(0);
+  $("#level-preview").querySelectorAll(".preview-monster").forEach((marker) => {
+    const event = events[Number(marker.dataset.eventIndex)];
+    const age = time - event.time;
+    const travel = event.configuredSpeed > 0 ? Math.max(1.5, Math.min(20, 6 * 70 / event.configuredSpeed)) : 6;
+    marker.hidden = age < 0 || age > travel;
+    if (!marker.hidden) {
+      const progress = Math.max(0, age / travel);
+      const targetX = (event.lane + .5) / 12 * 100;
+      const x = event.from === "left" ? -4 + (targetX + 4) * Math.min(1, progress * 2) :
+        event.from === "right" ? 104 + (targetX - 104) * Math.min(1, progress * 2) : targetX;
+      marker.style.left = `${x}%`;
+      marker.style.top = `${7 + progress * 72}%`;
+    }
+    if (age >= 0) { spawned++; perGroup[event.groupIndex]++; }
+  });
+  $("#preview-count").textContent = `${spawned} / ${events.length}`;
+  $("#level-preview").querySelectorAll("[data-group-index]").forEach((element) => {
+    const index = Number(element.dataset.groupIndex);
+    const group = currentLevel().waves[previewState.wave].groups[index];
+    element.textContent = `${perGroup[index]} / ${group.types?.length || group.count || 0}`;
+  });
+}
+function previewTick(timestamp) {
+  if (!previewState.open || !previewState.playing) return;
+  if (previewState.lastFrame) previewState.time += Math.min(.1, (timestamp - previewState.lastFrame) / 1000) * previewState.speed;
+  previewState.lastFrame = timestamp;
+  if (previewState.time >= previewState.timeline.duration) {
+    previewState.time = previewState.timeline.duration;
+    previewState.playing = false;
+  }
+  updatePreviewFrame();
+  if (previewState.playing) previewState.frame = requestAnimationFrame(previewTick);
+}
 function setCurrentField(input) {
   const scope = input.dataset.scope;
   const target = scope === "level" ? currentLevel() : scope === "wave" ? currentWave() :
@@ -320,6 +411,25 @@ function swap(array, first, second) {
 function handleAction(button) {
   const action = button.dataset.action;
   const index = Number(button.dataset.index);
+  if (action === "open-preview") { openPreview(); return; }
+  if (action === "close-preview") { closePreview(); return; }
+  if (action === "preview-play" || action === "preview-restart") {
+    cancelAnimationFrame(previewState.frame);
+    if (action === "preview-restart" || (!previewState.playing && previewState.time >= previewState.timeline.duration))
+      previewState.time = 0;
+    previewState.playing = action === "preview-restart" || !previewState.playing;
+    previewState.lastFrame = 0;
+    updatePreviewFrame();
+    if (previewState.playing) previewState.frame = requestAnimationFrame(previewTick);
+    return;
+  }
+  if (action === "preview-wave") {
+    cancelAnimationFrame(previewState.frame);
+    previewState.wave = index; previewState.time = 0; previewState.playing = false;
+    renderPreview();
+    return;
+  }
+  if (action === "preview-speed") { previewState.speed = Number(button.dataset.speed); renderPreview(); return; }
   if (action === "select-level") { state.level = index; state.wave = 0; state.group = 0; }
   else if (action === "select-wave") { state.wave = index; state.group = 0; }
   else if (action === "select-group") state.group = index;
@@ -375,6 +485,7 @@ function handleAction(button) {
 }
 
 document.addEventListener("click", (event) => {
+  if (event.target.id === "level-preview") { closePreview(); return; }
   const button = event.target.closest("[data-action]");
   if (button && button.tagName === "BUTTON") handleAction(button);
 });
@@ -390,6 +501,10 @@ document.addEventListener("change", (event) => {
 });
 document.addEventListener("input", (event) => {
   if (event.target.id === "level-search") { state.search = event.target.value; renderSidebar(); $("#level-search").focus(); }
+  if (event.target.id === "preview-scrub") { previewState.time = Number(event.target.value); previewState.lastFrame = 0; updatePreviewFrame(); }
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && previewState.open) closePreview();
 });
 $("#mode-levels").addEventListener("click", () => { state.mode = "levels"; render(); });
 $("#mode-tree").addEventListener("click", () => { state.mode = "tree"; render(); });

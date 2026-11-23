@@ -11,6 +11,8 @@ python3 tools/config-editor/server.py
 - `code/axmol/CastleGuard/Content/config/waves.json`
 - `code/axmol/CastleGuard/Content/config/upgrades.json`
 
+关卡页右上角的“预览关卡”会按当前未保存的配置展示整关波次。可播放/暂停、拖动时间轴、切换波次和调节播放速度；横排同帧、长列逐个和各组延迟按配表展开。战场中的随机车道与默认移速使用固定示意值；怪物的击杀时间和下一波开始时机取决于实战，预览不模拟战斗结算。
+
 关卡组的“使用指定移速”对应 `useConfiguredSpeed`。开启后填写 `configuredSpeed`（像素/秒）；整组怪物使用这个绝对速度，关闭时沿用怪物类型倍率和个体随机速度。当前第 7 关的混合横排是示例。
 
 技能树工具编辑既有 ID 的布局、前置关系和数值。新升级/法术 ID 仍需要先在游戏的 C++ 枚举与效果逻辑中接入；编辑器不会凭空创建可运行的新技能。页面提供快速输入检查，保存后仍应运行游戏测试，最终以游戏自己的配置解析结果为准。
@@ -21,4 +23,5 @@ python3 tools/config-editor/server.py
 
 ```bash
 python3 -m unittest discover -s tools/config-editor -p 'test_*.py'
+node --test tools/config-editor/test_preview.cjs
 ```
