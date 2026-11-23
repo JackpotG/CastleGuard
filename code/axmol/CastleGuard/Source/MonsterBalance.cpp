@@ -57,6 +57,13 @@ float MonsterBalance::healthAtStage(MonsterType type, int stage) const
     return std::min(99999.0f, parameters(type).maxHp * (1.0f + 0.20f * (safeStage - 1)));
 }
 
+float MonsterBalance::spawnSpeed(MonsterType type, float random01, float configuredSpeed) const
+{
+    if (configuredSpeed > 0.0f)
+        return configuredSpeed;
+    return _baseSpeed * parameters(type).speedMultiplier * (0.85f + random01 * 0.3f);
+}
+
 float MonsterBalance::resolveKnockbackDistance(MonsterType type, float sourceDistance) const
 {
     return std::max(0.0f, sourceDistance) * parameters(type).knockbackFactor;

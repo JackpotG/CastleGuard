@@ -39,7 +39,9 @@ CastleGuard/
 ├── code/
 │   ├── cocos/                   # 旧 Cocos Creator 路线残留（已弃用，仅留档）
 │   └── axmol/CastleGuard/       # 当前游戏工程（C++，竖屏）
-└── tools/wechat/                # 微信转换工具 + 能力 SDK
+└── tools/
+    ├── config-editor/          # 关卡与技能树配置工具（本机浏览器）
+    └── wechat/                 # 微信转换工具 + 能力 SDK
 ```
 
 ## 铁律（每次想贪多时回来看这三条）

@@ -2,6 +2,7 @@
 
 #include "rapidjson/document.h"
 
+#include <cmath>
 #include <optional>
 #include <utility>
 
@@ -188,6 +189,22 @@ bool CampaignConfig::loadFromJson(const std::string& json, std::string* error)
                         return fail(error, "row and column formations require spawn origin");
                     }
                 }
+                if (groupValue.HasMember("useConfiguredSpeed"))
+                {
+                    if (!groupValue["useConfiguredSpeed"].IsBool())
+                        return fail(error, "group useConfiguredSpeed must be boolean");
+                    group.useConfiguredSpeed = groupValue["useConfiguredSpeed"].GetBool();
+                }
+                if (groupValue.HasMember("configuredSpeed"))
+                {
+                    if (!groupValue["configuredSpeed"].IsNumber() ||
+                        !std::isfinite(groupValue["configuredSpeed"].GetFloat()) ||
+                        groupValue["configuredSpeed"].GetFloat() <= 0.0f)
+                        return fail(error, "group configuredSpeed must be positive");
+                    group.configuredSpeed = groupValue["configuredSpeed"].GetFloat();
+                }
+                if (group.useConfiguredSpeed && group.configuredSpeed <= 0.0f)
+                    return fail(error, "group useConfiguredSpeed requires configuredSpeed");
                 if (group.pattern == SpawnPattern::Row &&
                     (group.count > FORMATION_LANE_COUNT ||
                      (group.lane >= 0 && group.lane > FORMATION_LANE_COUNT - group.count)))

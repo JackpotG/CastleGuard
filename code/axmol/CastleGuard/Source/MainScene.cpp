@@ -2089,7 +2089,8 @@ void MainScene::spawnMinion(MonsterType type, const Vec2& pos)
 
 // 槽位初始化：状态复位 + 类型数值表 + 画皮。spawnMonster（波次出怪）和
 // spawnMinion（战中生怪）共用这一套，差异只在"出生点/目标点怎么算"
-void MainScene::setupMonster(Monster& m, MonsterType type, const Vec2& spawnPos, const Vec2& targetPos)
+void MainScene::setupMonster(Monster& m, MonsterType type, const Vec2& spawnPos, const Vec2& targetPos,
+                             float configuredSpeed)
 {
     m.active        = true;
     m.state         = MonsterState::Walk;
@@ -2114,7 +2115,7 @@ void MainScene::setupMonster(Monster& m, MonsterType type, const Vec2& spawnPos,
     m.maxHp       = m.hp;
     m.coinDrop    = parameters.coinDrop;
     m.actionPower = parameters.actionPower;
-    m.speed       = _monsterBalance.baseSpeed() * parameters.speedMultiplier * (0.85f + r2 * 0.3f);
+    m.speed       = _monsterBalance.spawnSpeed(type, r2, configuredSpeed);
     m.bodyR       = _monsterBalance.baseBodyRadius() * parameters.bodyScale;
     m.breathPhase = breathPhaseSeed * 6.2831853f;
     m.breathSpeed = MONSTER_BREATH_SPEED_MIN +
@@ -2166,7 +2167,8 @@ void MainScene::setupMonster(Monster& m, MonsterType type, const Vec2& spawnPos,
     }
 }
 
-void MainScene::spawnMonster(MonsterType type, int lane, const std::string& from, bool aligned)
+void MainScene::spawnMonster(MonsterType type, int lane, const std::string& from, bool aligned,
+                             float configuredSpeed)
 {
     Monster* m = allocMonster();
     if (!m)
@@ -2192,7 +2194,8 @@ void MainScene::spawnMonster(MonsterType type, int lane, const std::string& from
             jitter = Vec2(0, (r1 - 0.5f) * 24.0f);          // 侧视行进水平 → 上下散开
         }
     }
-    setupMonster(*m, type, groupSpawnPos(from, m->lane) + jitter, laneWallPos(m->lane) + jitter);
+    setupMonster(*m, type, groupSpawnPos(from, m->lane) + jitter, laneWallPos(m->lane) + jitter,
+                 configuredSpeed);
 }
 
 // ---------------------------------------------------------------------------
@@ -2336,6 +2339,9 @@ void MainScene::beginWave(size_t index)
     for (size_t i = 0; i < w.groups.size(); ++i)
     {
         _groupRt[i].timer = -w.groups[i].delay;
+        if (w.groups[i].useConfiguredSpeed)
+            AXLOGI("[Campaign] configured group speed: stage={}, wave={}, group={}, speed={}, count={}",
+                   _levelIndex + 1, index + 1, i + 1, w.groups[i].configuredSpeed, w.groups[i].count);
         if (w.groups[i].pattern == SpawnPattern::Column)
             _groupRt[i].chosenLane = w.groups[i].lane >= 0 ? w.groups[i].lane % laneCount()
                                                                 : rand() % laneCount();
@@ -2392,14 +2398,16 @@ void MainScene::updateWaves(float delta)
                     const int first = cfg.lane >= 0 ? cfg.lane : (laneCount() - batch) / 2;
                     for (int n = 0; n < batch; ++n)
                         spawnMonster(cfg.monsterTypeAt(static_cast<size_t>(rt.spawned + n)),
-                                     first + n, cfg.from, true);
+                                     first + n, cfg.from, true,
+                                     cfg.useConfiguredSpeed ? cfg.configuredSpeed : 0.0f);
                     rt.spawned += batch;
                 }
                 else
                 {
                     const int lane = cfg.pattern == SpawnPattern::Column ? rt.chosenLane : cfg.lane;
                     spawnMonster(cfg.monsterTypeAt(static_cast<size_t>(rt.spawned)), lane, cfg.from,
-                                 cfg.pattern == SpawnPattern::Column);
+                                 cfg.pattern == SpawnPattern::Column,
+                                 cfg.useConfiguredSpeed ? cfg.configuredSpeed : 0.0f);
                     ++rt.spawned;
                 }
             }

@@ -45,6 +45,10 @@ TEST_SUITE("MonsterBalance")
             }
         }
         CHECK_EQ(balance.parameters(MonsterType::Boss).knockbackFactor, doctest::Approx(0.20f));
+        CHECK_EQ(balance.spawnSpeed(MonsterType::Normal, 0.5f), doctest::Approx(70.0f));
+        CHECK_EQ(balance.spawnSpeed(MonsterType::Fast, 0.5f), doctest::Approx(126.0f));
+        CHECK_EQ(balance.spawnSpeed(MonsterType::Normal, 0.0f, 72.0f), doctest::Approx(72.0f));
+        CHECK_EQ(balance.spawnSpeed(MonsterType::Fast, 1.0f, 72.0f), doctest::Approx(72.0f));
         CHECK_EQ(balance.resolveKnockbackDistance(MonsterType::Boss, 40.0f),
                  doctest::Approx(8.0f));
         CHECK_EQ(balance.parameters(MonsterType::Bomber).actionPower, 15);

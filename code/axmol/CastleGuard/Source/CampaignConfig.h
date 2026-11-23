@@ -41,6 +41,8 @@ struct SpawnGroupConfig
     std::string from = "spawn";
     SpawnPattern pattern = SpawnPattern::Scatter;
     std::vector<MonsterType> types;
+    bool useConfiguredSpeed = false;
+    float configuredSpeed = 0.0f;
 
     MonsterType monsterTypeAt(std::size_t spawnIndex) const
     {

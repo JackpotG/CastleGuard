@@ -77,6 +77,9 @@ TEST_SUITE("CampaignConfig")
         CHECK_EQ(mixedRow.monsterTypeAt(3), MonsterType::Ranged);
         CHECK_EQ(mixedRow.monsterTypeAt(5), MonsterType::Shield);
         CHECK_EQ(mixedRow.monsterTypeAt(6), MonsterType::Normal);
+        CHECK(mixedRow.useConfiguredSpeed);
+        CHECK_EQ(mixedRow.configuredSpeed, doctest::Approx(70.0f));
+        CHECK_FALSE(campaign.levels()[0].waves[0].groups[0].useConfiguredSpeed);
     }
 
     TEST_CASE("stage two introduces one fast enemy per flank with staggered arrivals")
@@ -152,6 +155,29 @@ TEST_SUITE("CampaignConfig")
         CHECK_FALSE(campaign.loadFromJson(json, &error));
         CHECK(campaign.empty());
         CHECK_FALSE(error.empty());
+    }
+
+    TEST_CASE("configured group speed validates the switch and positive value")
+    {
+        const std::string prefix = R"({"levels":[{"name":"test","clearCrystals":0,"waves":[{"name":"wave","groups":[{"type":"normal","count":2,)";
+        const std::string suffix = R"(}]}]}]})";
+        CampaignConfig campaign;
+        std::string error;
+        CHECK(campaign.loadFromJson(prefix + R"("useConfiguredSpeed":true,"configuredSpeed":72)" + suffix, &error));
+        CHECK(campaign.levels()[0].waves[0].groups[0].useConfiguredSpeed);
+        CHECK_EQ(campaign.levels()[0].waves[0].groups[0].configuredSpeed, doctest::Approx(72.0f));
+        CHECK(campaign.loadFromJson(prefix + R"("useConfiguredSpeed":false,"configuredSpeed":72)" + suffix, &error));
+        CHECK_FALSE(campaign.levels()[0].waves[0].groups[0].useConfiguredSpeed);
+        CHECK_EQ(campaign.levels()[0].waves[0].groups[0].configuredSpeed, doctest::Approx(72.0f));
+        for (const auto& fields : {R"("useConfiguredSpeed":true)",
+                                   R"("useConfiguredSpeed":true,"configuredSpeed":0)",
+                                   R"("useConfiguredSpeed":"yes","configuredSpeed":70)",
+                                   R"("configuredSpeed":-1)"})
+        {
+            error.clear();
+            CHECK_FALSE(campaign.loadFromJson(prefix + fields + suffix, &error));
+            CHECK_FALSE(error.empty());
+        }
     }
 
     TEST_CASE("mixed group rejects empty, unknown and ambiguous type lists")

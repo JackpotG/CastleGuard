@@ -196,7 +196,7 @@ private:
         bool  ghostHidden    = false;   // 幽灵怪当前是否隐身（隐身时箭打不中，AOE 照吃）
         float breathPhase    = 0.0f;    // 呼吸动画相位；每次出生随机，避免怪群同步起伏
         float breathSpeed    = 2.5f;    // 呼吸相位速度（弧度/秒），出生时随机
-        float speed        = 70.0f;     // 个体速度（类型倍率 × 85%~115% 随机）
+        float speed        = 70.0f;     // 出生时由类型随机速度或出怪组指定速度固化
         float bodyR        = 11.0f;     // 体型半径（随类型缩放，命中判定也用它）
         MonsterType type   = MonsterType::Normal;
         MonsterState state = MonsterState::Walk;
@@ -216,12 +216,14 @@ private:
     };
     void initMonsterPool();
     // 按波次配置放一只怪（lane=-1 随机车道；from=出生方向）
-    void spawnMonster(MonsterType type, int lane, const std::string& from, bool aligned = false);
+    void spawnMonster(MonsterType type, int lane, const std::string& from, bool aligned = false,
+                      float configuredSpeed = 0.0f);
     // 战中生怪入口：分裂怪的子体、召唤怪的召唤物都走这（在指定位置直接激活）
     void spawnMinion(MonsterType type, const ax::Vec2& pos);
     Monster* allocMonster();  // 从池里找一个空槽，找不到返回 nullptr
     // 槽位初始化：类型数值/外观/状态复位全在这里——两个生怪入口共用，不重复写
-    void setupMonster(Monster& m, MonsterType type, const ax::Vec2& spawnPos, const ax::Vec2& targetPos);
+    void setupMonster(Monster& m, MonsterType type, const ax::Vec2& spawnPos, const ax::Vec2& targetPos,
+                      float configuredSpeed = 0.0f);
     void applyMonsterSkin(Monster& m);    // 按类型重画占位外观（槽位与外观分离）
     void updateMonsters(float delta);     // 每帧驱动移动/攻击/死亡
     ax::Vec2 laneSpawnPos(int lane) const;  // 车道 → 出怪位置（按当前布局计算）

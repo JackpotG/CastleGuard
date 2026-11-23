@@ -1,5 +1,5 @@
 {
-  "_comment": "闯关配置共 50 关：前 5 关是已试玩基线，第 6~50 关为分章节配表基线。groups 可用 type+count 表示同类怪物，或用 types 顺序列表表示混合怪物；formation=row 同帧横排、column 同车道逐个出生。怪物生命由基础值乘关卡进度系数计算，不在此表逐关覆盖。",
+  "_comment": "闯关配置共 50 关：前 5 关是已试玩基线，第 6~50 关为分章节配表基线。groups 可用 type+count 表示同类怪物，或用 types 顺序列表表示混合怪物；formation=row 同帧横排、column 同车道逐个出生。useConfiguredSpeed=true 时 configuredSpeed 以像素/秒指定整组统一移速；默认仍按怪物类型和个体随机值计算。怪物生命由基础值乘关卡进度系数计算，不在此表逐关覆盖。",
   "levels": [
     {
       "name": "第 1 关 · 城下试探",
@@ -201,7 +201,7 @@
           "restAfter": 2.5,
           "groups": [
             { "type": "ranged", "count": 3, "interval": 2.2 },
-            { "types": ["normal", "fast", "normal", "ranged", "normal", "shield", "normal"], "delay": 2, "formation": "row" }
+            { "types": ["normal", "fast", "normal", "ranged", "normal", "shield", "normal"], "delay": 2, "formation": "row", "useConfiguredSpeed": true, "configuredSpeed": 70 }
           ]
         },
         {

@@ -34,6 +34,7 @@ public:
     const MonsterParameters& parameters(MonsterType type) const;
     void setParameters(MonsterType type, const MonsterParameters& value);
     float healthAtStage(MonsterType type, int stage) const;
+    float spawnSpeed(MonsterType type, float random01, float configuredSpeed = 0.0f) const;
     float resolveKnockbackDistance(MonsterType type, float sourceDistance) const;
 
     void reset(MonsterType type);
