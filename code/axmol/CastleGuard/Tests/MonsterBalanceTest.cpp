@@ -1,12 +1,52 @@
 #include "MonsterBalance.h"
 
+#include "axmol.h"
 #include "doctest/doctest.h"
+#include "rapidjson/document.h"
+#include "rapidjson/stringbuffer.h"
+#include "rapidjson/writer.h"
+
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+
+namespace
+{
+std::string productionConfig()
+{
+    const auto path = std::filesystem::path(__FILE__).parent_path().parent_path() /
+                      "Content/config/monsters.json";
+    std::ifstream input(path);
+    return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+}
+
+std::string toJson(const rapidjson::Document& document)
+{
+    rapidjson::StringBuffer output;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(output);
+    document.Accept(writer);
+    return output.GetString();
+}
+}  // namespace
 
 TEST_SUITE("MonsterBalance")
 {
+    TEST_CASE("monster config is available through the game resource path")
+    {
+        MonsterBalance balance;
+        const std::string config = ax::FileUtils::getInstance()->getStringFromFile("config/monsters.json");
+        REQUIRE_FALSE(config.empty());
+        CHECK(balance.loadFromJson(config));
+    }
+
     TEST_CASE("production defaults cover every monster type")
     {
         MonsterBalance balance;
+        std::string error;
+        const bool loaded = balance.loadFromJson(productionConfig(), &error);
+        INFO(error);
+        REQUIRE(loaded);
+        CHECK(error.empty());
 
         CHECK_EQ(MonsterBalance::TYPE_COUNT, 13);
         CHECK_EQ(balance.baseSpeed(), doctest::Approx(70.0f));
@@ -59,6 +99,7 @@ TEST_SUITE("MonsterBalance")
     TEST_CASE("debug edits are validated and can be reset")
     {
         MonsterBalance balance;
+        REQUIRE(balance.loadFromJson(productionConfig()));
         MonsterParameters invalid{-10, -2.0f, 20.0f, -3, 0.0f, 0.80f, 0.20f, -5.0f, -4};
 
         balance.setBaseSpeed(900.0f);
@@ -84,8 +125,37 @@ TEST_SUITE("MonsterBalance")
         CHECK_EQ(balance.baseSpeed(), doctest::Approx(500.0f));
 
         balance.resetAll();
-        CHECK_EQ(balance.baseSpeed(), doctest::Approx(MonsterBalance::defaultBaseSpeed()));
-        CHECK_EQ(balance.baseBodyRadius(), doctest::Approx(MonsterBalance::defaultBaseBodyRadius()));
+        CHECK_EQ(balance.baseSpeed(), doctest::Approx(balance.defaultBaseSpeed()));
+        CHECK_EQ(balance.baseBodyRadius(), doctest::Approx(balance.defaultBaseBodyRadius()));
         CHECK_EQ(balance.parameters(MonsterType::Fast).speedMultiplier, doctest::Approx(1.8f));
+    }
+
+    TEST_CASE("invalid config does not replace loaded monster values")
+    {
+        MonsterBalance balance;
+        const std::string original = productionConfig();
+        REQUIRE(balance.loadFromJson(original));
+        rapidjson::Document document;
+        document.Parse(original.c_str());
+        REQUIRE(document.IsObject());
+        document["monsters"]["fast"]["speedMultiplier"].SetFloat(-1.0f);
+
+        std::string error;
+        CHECK_FALSE(balance.loadFromJson(toJson(document), &error));
+        CHECK(error.find("fast") != std::string::npos);
+        CHECK_EQ(balance.spawnSpeed(MonsterType::Fast, 0.5f), doctest::Approx(126.0f));
+
+        document.Parse(original.c_str());
+        document["monsters"].RemoveMember("boss");
+        CHECK_FALSE(balance.loadFromJson(toJson(document), &error));
+        CHECK_EQ(balance.parameters(MonsterType::Boss).maxHp, doctest::Approx(30.0f));
+
+        document.Parse(original.c_str());
+        document["baseSpeed"].SetFloat(140.0f);
+        REQUIRE(balance.loadFromJson(toJson(document), &error));
+        CHECK_EQ(balance.spawnSpeed(MonsterType::Fast, 0.5f), doctest::Approx(252.0f));
+        balance.setBaseSpeed(200.0f);
+        balance.resetAll();
+        CHECK_EQ(balance.baseSpeed(), doctest::Approx(140.0f));
     }
 }

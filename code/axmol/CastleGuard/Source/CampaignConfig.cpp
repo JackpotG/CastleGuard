@@ -2,29 +2,16 @@
 
 #include "rapidjson/document.h"
 
+#include <array>
 #include <cmath>
-#include <optional>
 #include <utility>
 
 namespace
 {
-std::optional<MonsterType> monsterTypeFromString(const std::string& value)
-{
-    if (value == "normal") return MonsterType::Normal;
-    if (value == "fast") return MonsterType::Fast;
-    if (value == "ranged") return MonsterType::Ranged;
-    if (value == "shield") return MonsterType::Shield;
-    if (value == "bomber") return MonsterType::Bomber;
-    if (value == "flyer") return MonsterType::Flyer;
-    if (value == "healer") return MonsterType::Healer;
-    if (value == "splitter") return MonsterType::Splitter;
-    if (value == "rager") return MonsterType::Rager;
-    if (value == "ghost") return MonsterType::Ghost;
-    if (value == "summoner") return MonsterType::Summoner;
-    if (value == "aegis") return MonsterType::Aegis;
-    if (value == "boss") return MonsterType::Boss;
-    return std::nullopt;
-}
+constexpr std::array<std::string_view, static_cast<size_t>(MonsterType::Count)> MONSTER_IDS = {{
+    "normal", "fast", "ranged", "shield", "bomber", "flyer", "healer",
+    "splitter", "rager", "ghost", "summoner", "aegis", "boss",
+}};
 
 bool validSpawnSide(const std::string& value)
 {
@@ -40,6 +27,20 @@ bool fail(std::string* error, const std::string& message)
     return false;
 }
 }  // namespace
+
+std::optional<MonsterType> monsterTypeFromString(std::string_view value)
+{
+    for (size_t i = 0; i < MONSTER_IDS.size(); ++i)
+        if (MONSTER_IDS[i] == value)
+            return static_cast<MonsterType>(i);
+    return std::nullopt;
+}
+
+std::string_view monsterTypeId(MonsterType type)
+{
+    const size_t index = static_cast<size_t>(type);
+    return index < MONSTER_IDS.size() ? MONSTER_IDS[index] : std::string_view{};
+}
 
 int LevelConfig::configuredEnemyCount() const
 {

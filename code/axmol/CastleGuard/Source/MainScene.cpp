@@ -282,6 +282,14 @@ bool MainScene::init()
         return false;
     }
 
+    std::string monsterConfigError;
+    const std::string monsterConfig = FileUtils::getInstance()->getStringFromFile("config/monsters.json");
+    if (!_monsterBalance.loadFromJson(monsterConfig, &monsterConfigError))
+    {
+        AXLOGE("[CampaignBalance] monsters.json load failed: {}", monsterConfigError);
+        return false;
+    }
+
     // 玩家钱包和成长存档在 GameData 构造时加载；新一局从当前城墙上限开始。
     _wallMaxHP = GameData::getInstance().wallMaxHealth();
     _wallHP    = _wallMaxHP;

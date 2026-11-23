@@ -1,7 +1,9 @@
 #pragma once
 
 #include <cstddef>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 enum class MonsterType
@@ -21,6 +23,9 @@ enum class MonsterType
     Boss,
     Count,
 };
+
+std::optional<MonsterType> monsterTypeFromString(std::string_view value);
+std::string_view monsterTypeId(MonsterType type);
 
 enum class SpawnPattern
 {

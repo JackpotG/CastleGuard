@@ -1,34 +1,83 @@
 #include "MonsterBalance.h"
 
+#include "rapidjson/document.h"
+
 #include <algorithm>
 #include <cmath>
 
 namespace
 {
-constexpr float DEFAULT_BASE_SPEED = 70.0f;
-constexpr float DEFAULT_BASE_BODY_RADIUS = 15.0f;
+bool fail(std::string* error, const std::string& message)
+{
+    if (error) *error = message;
+    return false;
+}
 
-const std::array<MonsterParameters, MonsterBalance::TYPE_COUNT> DEFAULT_PARAMETERS = {{
-    // HP, speed, body, power, interval, stop min, stop max, knockback, coins
-    {2, 1.00f, 1.00f, 5, 1.0f, 0.00f, 0.00f, 1.00f, 1},   // Normal
-    {2, 1.80f, 0.80f, 5, 1.0f, 0.00f, 0.00f, 1.15f, 2},   // Fast
-    {3, 0.90f, 1.00f, 4, 1.8f, 0.62f, 0.62f, 1.00f, 2},   // Ranged
-    {5, 0.75f, 1.25f, 5, 1.0f, 0.00f, 0.00f, 0.55f, 3},   // Shield
-    {2, 1.40f, 0.90f, 15, 1.0f, 0.00f, 0.00f, 1.00f, 3},  // Bomber
-    {3, 1.20f, 0.85f, 3, 2.2f, 0.25f, 0.62f, 0.80f, 2},   // Flyer
-    {4, 0.70f, 1.00f, 1, 2.5f, 0.45f, 0.45f, 1.00f, 4},   // Healer
-    {4, 1.00f, 1.15f, 5, 1.0f, 0.00f, 0.00f, 0.85f, 3},   // Splitter
-    {5, 1.10f, 1.00f, 5, 1.0f, 0.00f, 0.00f, 0.80f, 3},   // Rager
-    {3, 1.00f, 1.00f, 5, 1.0f, 0.00f, 0.00f, 1.00f, 3},   // Ghost
-    {6, 0.60f, 1.00f, 1, 4.0f, 0.55f, 0.55f, 0.80f, 5},   // Summoner
-    {3, 1.50f, 0.90f, 5, 1.0f, 0.00f, 0.00f, 0.65f, 4},   // Aegis
-    {30, 0.55f, 2.40f, 4, 3.0f, 0.40f, 0.40f, 0.20f, 15},  // Boss
-}};
+bool readFloat(const rapidjson::Value& object, const char* key, float minimum, float maximum, float& output)
+{
+    auto member = object.FindMember(key);
+    if (member == object.MemberEnd() || !member->value.IsNumber()) return false;
+    const double number = member->value.GetDouble();
+    if (!std::isfinite(number)) return false;
+    output = static_cast<float>(number);
+    return std::isfinite(output) && output >= minimum && output <= maximum;
+}
+
+bool readInt(const rapidjson::Value& object, const char* key, int minimum, int maximum, int& output)
+{
+    auto member = object.FindMember(key);
+    if (member == object.MemberEnd() || !member->value.IsInt()) return false;
+    output = member->value.GetInt();
+    return output >= minimum && output <= maximum;
+}
 }  // namespace
 
-MonsterBalance::MonsterBalance()
+bool MonsterBalance::loadFromJson(const std::string& json, std::string* error)
 {
+    rapidjson::Document document;
+    document.Parse(json.c_str());
+    if (json.empty() || document.HasParseError() || !document.IsObject() ||
+        !document.HasMember("monsters") || !document["monsters"].IsObject())
+        return fail(error, "monsters config must contain a monsters object");
+
+    float baseSpeed = 0.0f;
+    float baseBodyRadius = 0.0f;
+    if (!readFloat(document, "baseSpeed", 1.0f, 500.0f, baseSpeed) ||
+        !readFloat(document, "baseBodyRadius", 4.0f, 48.0f, baseBodyRadius))
+        return fail(error, "monsters config baseSpeed or baseBodyRadius is invalid");
+
+    const auto& monsters = document["monsters"];
+    if (monsters.MemberCount() != TYPE_COUNT)
+        return fail(error, "monsters config must contain every monster type exactly once");
+
+    std::array<MonsterParameters, TYPE_COUNT> parsed{};
+    for (size_t i = 0; i < TYPE_COUNT; ++i)
+    {
+        const std::string id{monsterTypeId(static_cast<MonsterType>(i))};
+        auto member = monsters.FindMember(id.c_str());
+        if (member == monsters.MemberEnd() || !member->value.IsObject())
+            return fail(error, "missing monster type: " + id);
+        const auto& value = member->value;
+        MonsterParameters parameters;
+        if (!readFloat(value, "maxHp", 1.0f, 999.0f, parameters.maxHp) ||
+            !readFloat(value, "speedMultiplier", 0.1f, 10.0f, parameters.speedMultiplier) ||
+            !readFloat(value, "bodyScale", 0.25f, 5.0f, parameters.bodyScale) ||
+            !readInt(value, "actionPower", 0, 999, parameters.actionPower) ||
+            !readFloat(value, "actionInterval", 0.05f, 60.0f, parameters.actionInterval) ||
+            !readFloat(value, "stopRatioMin", 0.0f, 0.95f, parameters.stopRatioMin) ||
+            !readFloat(value, "stopRatioMax", parameters.stopRatioMin, 0.95f, parameters.stopRatioMax) ||
+            !readFloat(value, "knockbackFactor", 0.0f, 2.0f, parameters.knockbackFactor) ||
+            !readInt(value, "coinDrop", 1, 100, parameters.coinDrop))
+            return fail(error, "invalid monster attributes: " + id);
+        parsed[i] = parameters;
+    }
+
+    _defaultBaseSpeed = baseSpeed;
+    _defaultBaseBodyRadius = baseBodyRadius;
+    _defaultParameters = parsed;
     resetAll();
+    if (error) error->clear();
+    return true;
 }
 
 void MonsterBalance::setBaseSpeed(float value)
@@ -71,29 +120,19 @@ float MonsterBalance::resolveKnockbackDistance(MonsterType type, float sourceDis
 
 void MonsterBalance::reset(MonsterType type)
 {
-    _parameters[indexOf(type)] = defaultParameters(type);
+    _parameters[indexOf(type)] = _defaultParameters[indexOf(type)];
 }
 
 void MonsterBalance::resetAll()
 {
-    _baseSpeed      = DEFAULT_BASE_SPEED;
-    _baseBodyRadius = DEFAULT_BASE_BODY_RADIUS;
-    _parameters     = DEFAULT_PARAMETERS;
+    _baseSpeed      = _defaultBaseSpeed;
+    _baseBodyRadius = _defaultBaseBodyRadius;
+    _parameters     = _defaultParameters;
 }
 
-float MonsterBalance::defaultBaseSpeed()
+const MonsterParameters& MonsterBalance::defaultParameters(MonsterType type) const
 {
-    return DEFAULT_BASE_SPEED;
-}
-
-float MonsterBalance::defaultBaseBodyRadius()
-{
-    return DEFAULT_BASE_BODY_RADIUS;
-}
-
-const MonsterParameters& MonsterBalance::defaultParameters(MonsterType type)
-{
-    return DEFAULT_PARAMETERS[indexOf(type)];
+    return _defaultParameters[indexOf(type)];
 }
 
 size_t MonsterBalance::indexOf(MonsterType type)

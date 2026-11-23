@@ -1,8 +1,9 @@
-"""Local editor for the game's two source configuration files."""
+"""Local editor for campaign and progression, with read-only monster balance data."""
 
 import argparse
 import hashlib
 import json
+import math
 import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -15,6 +16,7 @@ CONFIG_PATHS = {
     "levels": Path("code/axmol/CastleGuard/Content/config/waves.json"),
     "tree": Path("code/axmol/CastleGuard/Content/config/upgrades.json"),
 }
+MONSTER_CONFIG_PATH = Path("code/axmol/CastleGuard/Content/config/monsters.json")
 STATIC_FILES = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
@@ -26,6 +28,23 @@ MAX_BODY_BYTES = 4 * 1024 * 1024
 
 def revision(raw):
     return hashlib.sha256(raw).hexdigest()
+
+
+def monster_speeds(project_root):
+    data = json.loads((project_root / MONSTER_CONFIG_PATH).read_text(encoding="utf-8"))
+    base_speed = data["baseSpeed"]
+    monsters = data["monsters"]
+    if (not isinstance(base_speed, (int, float)) or isinstance(base_speed, bool) or
+            not math.isfinite(base_speed) or base_speed <= 0 or not isinstance(monsters, dict)):
+        raise ValueError("Invalid monster speed data")
+    speeds = {}
+    for monster_id, attributes in monsters.items():
+        multiplier = attributes["speedMultiplier"]
+        if (not isinstance(multiplier, (int, float)) or isinstance(multiplier, bool) or
+                not math.isfinite(multiplier) or multiplier <= 0):
+            raise ValueError("Invalid monster speed multiplier")
+        speeds[monster_id] = round(base_speed * multiplier, 4)
+    return {"baseSpeed": base_speed, "types": speeds}
 
 
 def make_handler(project_root=PROJECT_ROOT):
@@ -44,6 +63,13 @@ def make_handler(project_root=PROJECT_ROOT):
             return project_root / CONFIG_PATHS[name] if name in CONFIG_PATHS else None
 
         def do_GET(self):
+            if self.path == "/api/monster-speeds":
+                try:
+                    self.send_json(200, monster_speeds(project_root))
+                except (ValueError, TypeError, KeyError, OSError) as error:
+                    self.log_error("monster speeds unavailable: %s", error)
+                    self.send_json(422, {"error": "怪物属性配置缺失或无效"})
+                return
             target = self.target()
             if target is not None:
                 raw = target.read_bytes()

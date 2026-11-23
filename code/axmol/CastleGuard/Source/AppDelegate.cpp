@@ -85,6 +85,11 @@ bool AppDelegate::applicationDidFinishLaunching()
 #if !_AX_TESTS
     // create a scene. it's an autorelease object
     auto scene = utils::createInstance<MainScene>();
+    if (!scene)
+    {
+        AXLOGE("[CampaignBalance] main scene initialization failed");
+        return false;
+    }
 
     // run
     director->runWithScene(scene);

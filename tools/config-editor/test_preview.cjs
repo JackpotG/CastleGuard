@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const {buildWave} = require("./preview-model.js");
+const {buildWave, travelDuration} = require("./preview-model.js");
 
 test("row spawns mixed types together in adjacent lanes", () => {
   const wave = buildWave({groups: [{types: ["normal", "fast", "shield"], formation: "row", lane: 4, delay: 2, interval: 9}]});
@@ -45,12 +45,24 @@ test("random scatter redraws lane, lateral jitter, and individual speed", () => 
 test("random column shares a lane while fixed speed bypasses speed variance", () => {
   const samples = [.9];
   const wave = buildWave({groups: [{types: ["normal", "fast"], formation: "column", interval: 1,
-    useConfiguredSpeed: true, configuredSpeed: 35}]}, {randomize: true, random: () => samples.shift()});
+    useConfiguredSpeed: true, configuredSpeed: 35}]}, {randomize: true, random: () => samples.shift(), baseSpeed: 70});
   assert.deepEqual(wave.events.map(({lane, jitter, speedFactor}) => [lane, jitter, speedFactor]), [
     [10, 0, 1], [10, 0, 1],
   ]);
   assert.equal(wave.duration, 13);
   assert.equal(samples.length, 0);
+});
+
+test("type baseline speeds change travel time without changing spawn timing", () => {
+  const wave = buildWave({groups: [{types: ["normal", "fast"], formation: "row"}]}, {
+    baseSpeed: 70, monsterSpeeds: {normal: 70, fast: 126},
+  });
+  assert.deepEqual(wave.events.map(({time}) => time), [0, 0]);
+  assert.equal(wave.events[0].baselineSpeed, 70);
+  assert.equal(wave.events[1].baselineSpeed, 126);
+  assert.equal(wave.duration, 6);
+  assert.equal(travelDuration(wave.events[0]), 6);
+  assert.ok(Math.abs(travelDuration(wave.events[1]) - 10 / 3) < .001);
 });
 
 test("side entrance samples its height separately for each monster", () => {

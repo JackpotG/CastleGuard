@@ -18,13 +18,13 @@ struct MonsterParameters
     int coinDrop             = 1;
 };
 
-// 怪物战斗数值的唯一来源。正式玩法读取默认值，开发者工具只通过公开接口改当前进程值。
+// 游戏从 monsters.json 加载默认值；开发者工具只修改当前进程，重置恢复配表值。
 class MonsterBalance
 {
 public:
     static constexpr size_t TYPE_COUNT = static_cast<size_t>(MonsterType::Count);
 
-    MonsterBalance();
+    bool loadFromJson(const std::string& json, std::string* error = nullptr);
 
     float baseSpeed() const { return _baseSpeed; }
     void setBaseSpeed(float value);
@@ -40,15 +40,18 @@ public:
     void reset(MonsterType type);
     void resetAll();
 
-    static float defaultBaseSpeed();
-    static float defaultBaseBodyRadius();
-    static const MonsterParameters& defaultParameters(MonsterType type);
+    float defaultBaseSpeed() const { return _defaultBaseSpeed; }
+    float defaultBaseBodyRadius() const { return _defaultBaseBodyRadius; }
+    const MonsterParameters& defaultParameters(MonsterType type) const;
 
 private:
     static size_t indexOf(MonsterType type);
     static MonsterParameters sanitize(const MonsterParameters& value);
 
-    float _baseSpeed = 70.0f;
-    float _baseBodyRadius = 15.0f;
-    std::array<MonsterParameters, TYPE_COUNT> _parameters;
+    float _baseSpeed = 0.0f;
+    float _baseBodyRadius = 0.0f;
+    std::array<MonsterParameters, TYPE_COUNT> _parameters{};
+    float _defaultBaseSpeed = 0.0f;
+    float _defaultBaseBodyRadius = 0.0f;
+    std::array<MonsterParameters, TYPE_COUNT> _defaultParameters{};
 };

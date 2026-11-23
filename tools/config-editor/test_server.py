@@ -7,7 +7,7 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from server import CONFIG_PATHS, make_handler
+from server import CONFIG_PATHS, MONSTER_CONFIG_PATH, PROJECT_ROOT, make_handler
 
 
 class ConfigEditorServerTest(unittest.TestCase):
@@ -19,6 +19,9 @@ class ConfigEditorServerTest(unittest.TestCase):
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(json.dumps({"levels": []} if kind == "levels" else
                                          {"upgrades": [], "skills": []}), encoding="utf-8")
+        monster_target = self.root / MONSTER_CONFIG_PATH
+        monster_target.parent.mkdir(parents=True, exist_ok=True)
+        monster_target.write_bytes((PROJECT_ROOT / MONSTER_CONFIG_PATH).read_bytes())
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(self.root))
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -75,6 +78,19 @@ class ConfigEditorServerTest(unittest.TestCase):
             self.assertEqual(response.status, 200)
             self.assertIn("javascript", response.headers["Content-Type"])
             self.assertIn(b"buildWave", response.read())
+
+    def test_monster_speeds_come_from_shared_config(self):
+        status, response = self.request("/api/monster-speeds")
+        self.assertEqual(status, 200)
+        self.assertEqual(len(response["types"]), 13)
+        self.assertEqual(response["types"]["normal"], 70)
+        self.assertEqual(response["types"]["fast"], 126)
+        self.assertEqual(response["types"]["shield"], 52.5)
+        monster_target = self.root / MONSTER_CONFIG_PATH
+        config = json.loads(monster_target.read_text(encoding="utf-8"))
+        config["monsters"]["fast"]["speedMultiplier"] = 2.0
+        monster_target.write_text(json.dumps(config), encoding="utf-8")
+        self.assertEqual(self.request("/api/monster-speeds")[1]["types"]["fast"], 140)
 
 
 if __name__ == "__main__":

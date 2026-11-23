@@ -3,11 +3,12 @@ const PreviewModel = (() => {
   const laneCount = 12;
 
   function travelDuration(event) {
-    return event.configuredSpeed > 0 ? Math.max(1.5, Math.min(20, 6 * 70 / event.configuredSpeed)) :
+    const speed = event.configuredSpeed > 0 ? event.configuredSpeed : event.baselineSpeed * event.speedFactor;
+    return speed > 0 && event.referenceSpeed > 0 ? Math.max(1.5, Math.min(20, 6 * event.referenceSpeed / speed)) :
       6 / event.speedFactor;
   }
 
-  function buildWave(wave, {randomize = false, random = Math.random} = {}) {
+  function buildWave(wave, {randomize = false, random = Math.random, baseSpeed = 0, monsterSpeeds = {}} = {}) {
     const events = [];
     wave.groups.forEach((group, groupIndex) => {
       const types = group.types || Array.from({length: Math.max(0, group.count || 0)}, () => group.type);
@@ -30,6 +31,7 @@ const PreviewModel = (() => {
         events.push({
           time: delay + (formation === "row" ? batch : index) * interval,
           type, lane, from, groupIndex, jitter, sideHeight, configuredSpeed,
+          referenceSpeed: baseSpeed, baselineSpeed: monsterSpeeds[type] || 0,
           speedFactor: configuredSpeed > 0 || !randomize ? 1 : .85 + random() * .3,
         });
       });

@@ -6,6 +6,7 @@ const clone = (value) => structuredClone(value);
 const state = {
   mode: "levels", documents: {}, dirty: {levels: false, tree: false},
   level: 0, wave: 0, group: 0, track: "bow", node: "arrow_damage", search: "",
+  monsterSpeeds: {}, baseMonsterSpeed: 0,
 };
 const previewState = {open: false, wave: 0, time: 0, speed: 1, randomize: false, playing: false, frame: 0, lastFrame: 0, timeline: null};
 const trackNames = {bow: "军械所", magic: "研究院", defense: "城防营", spells: "法术研习"};
@@ -36,6 +37,15 @@ function monsterTypes() {
         for (const type of group.types || [group.type]) types.add(type);
   return [...types].filter(Boolean).sort();
 }
+function speedReferences(group) {
+  return [...new Set(group.types || [group.type])].map((type) => ({
+    type, speed: state.monsterSpeeds[type],
+  })).filter(({speed}) => positive(speed));
+}
+function groupSpeedLabel(group) {
+  return group.useConfiguredSpeed ?
+    positive(group.configuredSpeed) ? `${group.configuredSpeed} 像素/秒` : "指定移速待填写" : "类型速度";
+}
 function showToast(message, error = false) {
   const toast = $("#toast");
   toast.textContent = message;
@@ -51,15 +61,24 @@ function markDirty() {
 }
 async function loadAll() {
   if (previewState.open) closePreview();
-  const [levels, tree] = await Promise.all(["levels", "tree"].map(async (kind) => {
-    const response = await fetch(`/api/${kind}`);
-    if (!response.ok) {
-      const problem = await response.json().catch(() => ({}));
-      throw new Error(problem.error || `${kind} 加载失败`);
-    }
-    return response.json();
-  }));
+  const [levels, tree, speeds] = await Promise.all([
+    ...["levels", "tree"].map(async (kind) => {
+      const response = await fetch(`/api/${kind}`);
+      if (!response.ok) {
+        const problem = await response.json().catch(() => ({}));
+        throw new Error(problem.error || `${kind} 加载失败`);
+      }
+      return response.json();
+    }),
+    fetch("/api/monster-speeds").then(async (response) => {
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "基准速度加载失败");
+      return result;
+    }).catch((error) => { showToast(error.message, true); return {types: {}, baseSpeed: 0}; }),
+  ]);
   state.documents = {levels, tree};
+  state.monsterSpeeds = speeds.types;
+  state.baseMonsterSpeed = speeds.baseSpeed;
   state.dirty = {levels: false, tree: false};
   state.level = 0; state.wave = 0; state.group = 0;
   state.track = "bow"; state.node = tree.data.upgrades.find((item) => trackOf(item) === "bow")?.id;
@@ -228,9 +247,9 @@ function renderLevels() {
 function renderFormationPreview(group) {
   const types = group.types || Array.from({length: Math.min(group.count || 0, 12)}, () => group.type);
   const formation = group.formation || "scatter";
-  if (formation === "column") return `<div class="preview"><div class="muted">第 ${group.lane >= 0 ? group.lane + 1 : "随机"} 车道 · 间隔 ${group.interval ?? 1}s</div><div class="column-preview">${types.map((type, index) => `<span class="column-token">${escapeHtml(monsterNames[type] || type)}</span>${index < types.length - 1 ? '<span class="arrow">→</span>' : ""}`).join("")}</div></div>`;
+  if (formation === "column") return `<div class="preview"><div class="muted">第 ${group.lane >= 0 ? group.lane + 1 : "随机"} 车道 · 间隔 ${group.interval ?? 1}s · ${groupSpeedLabel(group)}</div><div class="column-preview">${types.map((type, index) => `<span class="column-token">${escapeHtml(monsterNames[type] || type)}</span>${index < types.length - 1 ? '<span class="arrow">→</span>' : ""}`).join("")}</div></div>`;
   const start = group.lane >= 0 ? group.lane : Math.floor((12 - types.length) / 2);
-  return `<div class="preview"><div class="muted">${formation === "row" ? "同帧横排" : "散列出生"} · ${group.useConfiguredSpeed ? `${group.configuredSpeed} 像素/秒` : "类型速度"}</div><div class="lane-grid">${Array.from({length: 12}, (_, lane) => {
+  return `<div class="preview"><div class="muted">${formation === "row" ? "同帧横排" : "散列出生"} · ${groupSpeedLabel(group)}</div><div class="lane-grid">${Array.from({length: 12}, (_, lane) => {
     const index = formation === "row" ? lane - start : -1;
     return `<div><div class="lane ${index >= 0 && index < types.length ? "occupied" : ""}">${index >= 0 && index < types.length ? escapeHtml((monsterNames[types[index]] || types[index]).slice(0, 2)) : ""}</div><div class="lane-number">${lane + 1}</div></div>`;
   }).join("")}</div></div>`;
@@ -239,11 +258,13 @@ function renderGroupInspector() {
   const group = currentGroup();
   const mixed = Array.isArray(group.types);
   const typeOptions = monsterTypes();
+  const references = speedReferences(group);
+  const speedReference = references.length ? `<div class="speed-reference"><span>怪物基准移速 · 像素/秒</span><div>${references.map(({type, speed}) => `<span>${escapeHtml(monsterNames[type] || type)} <strong>${speed}</strong></span>`).join("")}</div></div>` : '<p class="info-note">怪物基准移速暂不可用</p>';
   $("#inspector").innerHTML = `<div class="line"><h2 class="grow">出怪组 ${state.group + 1}</h2><button class="small-button" data-action="move-group-up" title="出怪组上移" aria-label="出怪组上移">↑</button><button class="small-button" data-action="move-group-down" title="出怪组下移" aria-label="出怪组下移">↓</button><button class="small-button" data-action="copy-group" title="复制出怪组" aria-label="复制出怪组">⧉</button><button class="small-button danger-button" data-action="delete-group" title="删除出怪组" aria-label="删除出怪组">×</button></div>
     <div class="stack"><div class="field"><label>怪物构成</label><div class="segment"><button data-action="composition-single" class="${mixed ? "" : "active"}">同类</button><button data-action="composition-mixed" class="${mixed ? "active" : ""}">混合</button></div></div>
     ${mixed ? `<div class="field"><label>出场顺序</label><div class="chip-list">${group.types.map((type, index) => `<div class="token"><select data-action="type-at" data-index="${index}">${options(typeOptions, type, monsterNames)}</select><button data-action="remove-type" data-index="${index}" title="移除怪物" aria-label="移除怪物">×</button></div>`).join("")}</div><button class="secondary-button" data-action="add-type">+ 添加怪物</button></div>` : `<div class="field-grid">${field("group", "type", "怪物类型", options(typeOptions, group.type, monsterNames), "select")}${field("group", "count", "数量", group.count, "number")}</div>`}
     <div class="divider"></div><div class="field-grid">${field("group", "formation", "出怪形式", options(Object.keys(formationNames), group.formation || "scatter", formationNames), "select")}${field("group", "from", "进入方向", options(Object.keys(originNames), group.from || "spawn", originNames), "select")}${field("group", "lane", "起始车道 · -1 随机", group.lane ?? -1, "number")}${field("group", "delay", "延迟 · 秒", group.delay ?? 0, "number")}${field("group", "interval", "间隔 · 秒", group.interval ?? 1, "number")}</div>
-    <div class="divider"></div><div class="field"><label class="line"><input data-scope="group" data-field="useConfiguredSpeed" type="checkbox" ${group.useConfiguredSpeed ? "checked" : ""}> 使用指定移速</label></div>${group.useConfiguredSpeed ? field("group", "configuredSpeed", "整组移速 · 像素/秒", group.configuredSpeed || 70, "number") : ""}
+    <div class="divider"></div>${speedReference}<div class="field"><label class="line"><input data-scope="group" data-field="useConfiguredSpeed" type="checkbox" ${group.useConfiguredSpeed ? "checked" : ""}> 使用指定移速</label></div>${group.useConfiguredSpeed ? field("group", "configuredSpeed", "整组移速 · 像素/秒", group.configuredSpeed ?? "", "number") : ""}
     </div>`;
 }
 function nodesForTrack() {
@@ -326,6 +347,8 @@ function closePreview() {
 function rebuildPreviewTimeline() {
   previewState.timeline = PreviewModel.buildWave(currentLevel().waves[previewState.wave], {
     randomize: previewState.randomize,
+    baseSpeed: state.baseMonsterSpeed,
+    monsterSpeeds: state.monsterSpeeds,
   });
 }
 function renderPreview() {
@@ -340,13 +363,13 @@ function renderPreview() {
     <div class="preview-body"><section class="preview-battle"><div class="preview-battle-head"><strong>${escapeHtml(wave.name)}</strong><span id="preview-count">0 / ${count}</span></div>
       <div class="preview-stage" aria-label="12 车道战场示意图"><div class="preview-ground"></div>${Array.from({length: 12}, (_, lane) => `<div class="preview-lane" style="left:${(lane + .5) / 12 * 100}%"><span>${lane + 1}</span></div>`).join("")}
       <div class="preview-spawn-line"></div><div class="preview-wall"><div class="preview-merlons"></div><div class="preview-gate"></div></div>
-      ${timeline.events.map((event, index) => `<div class="preview-monster type-${monsterNames[event.type] ? escapeHtml(event.type) : "other"}" data-event-index="${index}" title="${escapeHtml(monsterNames[event.type] || event.type)} · 第 ${event.groupIndex + 1} 组 · ${event.time.toFixed(1)} 秒 · ${event.lane + 1} 车道 · ${event.configuredSpeed > 0 ? `${event.configuredSpeed} px/s` : `${event.speedFactor.toFixed(2)} 倍个体速度`}" hidden>${escapeHtml((monsterNames[event.type] || event.type).slice(0, 1))}</div>`).join("")}</div>
+      ${timeline.events.map((event, index) => `<div class="preview-monster type-${monsterNames[event.type] ? escapeHtml(event.type) : "other"}" data-event-index="${index}" title="${escapeHtml(monsterNames[event.type] || event.type)} · 第 ${event.groupIndex + 1} 组 · ${event.time.toFixed(1)} 秒 · ${event.lane + 1} 车道 · ${event.configuredSpeed > 0 ? `${event.configuredSpeed} px/s` : event.baselineSpeed > 0 ? `${(event.baselineSpeed * event.speedFactor).toFixed(1)} px/s` : `${event.speedFactor.toFixed(2)} 倍个体速度`}" hidden>${escapeHtml((monsterNames[event.type] || event.type).slice(0, 1))}</div>`).join("")}</div>
       <div class="preview-controls"><button class="preview-control" data-action="preview-restart" type="button" title="重新播放" aria-label="重新播放">↺</button><button id="preview-play-button" class="preview-control play" data-action="preview-play" type="button" title="暂停" aria-label="暂停">Ⅱ</button><span id="preview-clock" class="preview-clock">0.0s</span><input id="preview-scrub" type="range" min="0" max="${timeline.duration}" step="0.05" value="${previewState.time}" aria-label="预览时间"><span class="preview-clock">${timeline.duration.toFixed(1)}s</span></div>
     </section><aside class="preview-detail"><div class="preview-detail-head"><span>预览设置</span></div><div class="preview-options"><label class="preview-random"><input id="preview-random" type="checkbox" ${previewState.randomize ? "checked" : ""}> 模拟随机</label><div class="preview-speed" aria-label="播放速度">${[1, 2, 4].map((speed) => `<button data-action="preview-speed" data-speed="${speed}" class="${previewState.speed === speed ? "selected" : ""}" type="button">${speed}×</button>`).join("")}</div></div>
       <div class="preview-detail-head"><span>波次</span><span>${level.waves.length} 波</span></div>
       <div class="preview-wave-list">${level.waves.map((item, index) => `<button data-action="preview-wave" data-index="${index}" class="preview-wave ${index === previewState.wave ? "selected" : ""}" type="button"><span>${String(index + 1).padStart(2, "0")} · ${escapeHtml(item.name)}</span><small>${item.groups.reduce((sum, group) => sum + (group.types?.length || group.count || 0), 0)}</small></button>`).join("")}</div>
-      <div class="preview-detail-head group-head"><span>出怪组</span><span>已出 / 总数</span></div><div class="preview-group-list">${groups.map((group, index) => `<div class="preview-group"><div><strong>${String(index + 1).padStart(2, "0")} · ${escapeHtml((group.types || [group.type]).map((type) => monsterNames[type] || type).join(" / "))}</strong><span data-group-index="${index}">0 / ${group.types?.length || group.count || 0}</span></div><small>${formationNames[group.formation || "scatter"]} · 延迟 ${group.delay || 0}s · ${group.useConfiguredSpeed ? `${group.configuredSpeed} px/s` : "默认移速"}</small></div>`).join("")}</div>
-      <p class="preview-caveat" title="下一波会在场上怪物清零且休整结束后出现；个体移速仅表现随机系数，不包含怪物类型倍率。">${previewState.randomize ? "随机抽样" : "固定示意"} · 波次衔接取决于实战清场</p>
+      <div class="preview-detail-head group-head"><span>出怪组</span><span>已出 / 总数</span></div><div class="preview-group-list">${groups.map((group, index) => `<div class="preview-group"><div><strong>${String(index + 1).padStart(2, "0")} · ${escapeHtml((group.types || [group.type]).map((type) => monsterNames[type] || type).join(" / "))}</strong><span data-group-index="${index}">0 / ${group.types?.length || group.count || 0}</span></div><small>${formationNames[group.formation || "scatter"]} · 延迟 ${group.delay || 0}s · ${groupSpeedLabel(group)}</small></div>`).join("")}</div>
+      <p class="preview-caveat" title="下一波会在场上怪物清零且休整结束后出现；预览使用怪物属性表的默认移速，战斗中的停步和游荡不在此模拟。">${previewState.randomize ? "随机抽样" : "固定示意"} · 波次衔接取决于实战清场</p>
     </aside></div></div>`;
   updatePreviewFrame();
 }
@@ -402,8 +425,11 @@ function setCurrentField(input) {
   let value = input.type === "checkbox" ? input.checked : input.type === "number" || input.type === "range" ? Number(input.value) : input.value;
   if (input.type === "number" && input.value.trim() === "") value = NaN;
   target[input.dataset.field] = value;
-  if (scope === "group" && input.dataset.field === "useConfiguredSpeed" && value && !positive(target.configuredSpeed))
-    target.configuredSpeed = 70;
+  if (scope === "group" && input.dataset.field === "useConfiguredSpeed" && value && !positive(target.configuredSpeed)) {
+    const references = speedReferences(target);
+    if (references.length === 1) target.configuredSpeed = references[0].speed;
+    else delete target.configuredSpeed;
+  }
   if (scope === "group" && input.dataset.field === "formation" && value !== "scatter")
     target.from = "spawn";
   markDirty();

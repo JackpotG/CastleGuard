@@ -1,0 +1,20 @@
+{
+  "_comment": "怪物基础属性的唯一配表。baseSpeed 乘各类型 speedMultiplier 得到默认基准移速；个体出生时再乘 0.85~1.15。调试面板的重置操作恢复此表数值。",
+  "baseSpeed": 70,
+  "baseBodyRadius": 15,
+  "monsters": {
+    "normal": {"maxHp": 2, "speedMultiplier": 1.0, "bodyScale": 1.0, "actionPower": 5, "actionInterval": 1.0, "stopRatioMin": 0.0, "stopRatioMax": 0.0, "knockbackFactor": 1.0, "coinDrop": 1},
+    "fast": {"maxHp": 2, "speedMultiplier": 1.8, "bodyScale": 0.8, "actionPower": 5, "actionInterval": 1.0, "stopRatioMin": 0.0, "stopRatioMax": 0.0, "knockbackFactor": 1.15, "coinDrop": 2},
+    "ranged": {"maxHp": 3, "speedMultiplier": 0.9, "bodyScale": 1.0, "actionPower": 4, "actionInterval": 1.8, "stopRatioMin": 0.62, "stopRatioMax": 0.62, "knockbackFactor": 1.0, "coinDrop": 2},
+    "shield": {"maxHp": 5, "speedMultiplier": 0.75, "bodyScale": 1.25, "actionPower": 5, "actionInterval": 1.0, "stopRatioMin": 0.0, "stopRatioMax": 0.0, "knockbackFactor": 0.55, "coinDrop": 3},
+    "bomber": {"maxHp": 2, "speedMultiplier": 1.4, "bodyScale": 0.9, "actionPower": 15, "actionInterval": 1.0, "stopRatioMin": 0.0, "stopRatioMax": 0.0, "knockbackFactor": 1.0, "coinDrop": 3},
+    "flyer": {"maxHp": 3, "speedMultiplier": 1.2, "bodyScale": 0.85, "actionPower": 3, "actionInterval": 2.2, "stopRatioMin": 0.25, "stopRatioMax": 0.62, "knockbackFactor": 0.8, "coinDrop": 2},
+    "healer": {"maxHp": 4, "speedMultiplier": 0.7, "bodyScale": 1.0, "actionPower": 1, "actionInterval": 2.5, "stopRatioMin": 0.45, "stopRatioMax": 0.45, "knockbackFactor": 1.0, "coinDrop": 4},
+    "splitter": {"maxHp": 4, "speedMultiplier": 1.0, "bodyScale": 1.15, "actionPower": 5, "actionInterval": 1.0, "stopRatioMin": 0.0, "stopRatioMax": 0.0, "knockbackFactor": 0.85, "coinDrop": 3},
+    "rager": {"maxHp": 5, "speedMultiplier": 1.1, "bodyScale": 1.0, "actionPower": 5, "actionInterval": 1.0, "stopRatioMin": 0.0, "stopRatioMax": 0.0, "knockbackFactor": 0.8, "coinDrop": 3},
+    "ghost": {"maxHp": 3, "speedMultiplier": 1.0, "bodyScale": 1.0, "actionPower": 5, "actionInterval": 1.0, "stopRatioMin": 0.0, "stopRatioMax": 0.0, "knockbackFactor": 1.0, "coinDrop": 3},
+    "summoner": {"maxHp": 6, "speedMultiplier": 0.6, "bodyScale": 1.0, "actionPower": 1, "actionInterval": 4.0, "stopRatioMin": 0.55, "stopRatioMax": 0.55, "knockbackFactor": 0.8, "coinDrop": 5},
+    "aegis": {"maxHp": 3, "speedMultiplier": 1.5, "bodyScale": 0.9, "actionPower": 5, "actionInterval": 1.0, "stopRatioMin": 0.0, "stopRatioMax": 0.0, "knockbackFactor": 0.65, "coinDrop": 4},
+    "boss": {"maxHp": 30, "speedMultiplier": 0.55, "bodyScale": 2.4, "actionPower": 4, "actionInterval": 3.0, "stopRatioMin": 0.4, "stopRatioMax": 0.4, "knockbackFactor": 0.2, "coinDrop": 15}
+  }
+}
