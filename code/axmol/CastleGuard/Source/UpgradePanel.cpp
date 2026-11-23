@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 
 using namespace ax;
 
@@ -417,12 +418,13 @@ void UpgradePanel::rebuildTree(float contentWidth)
             node.graphic = DrawNode::create();
             node.graphic->setPosition(position);
             _scroll->addChild(node.graphic, 1);
+            const bool bowRoot = track == UpgradeTrack::Bow && definition.treeRow == 0;
             node.title = addText(_scroll, "", 17.0f, Vec2(0.5f, 0.5f), 3);
-            node.title->setPosition(position + Vec2(0, -43));
+            node.title->setPosition(position + Vec2(0, bowRoot ? 90.0f : -43.0f));
             node.status = addText(_scroll, "", 13.0f, Vec2(0.5f, 0.5f), 3);
-            node.status->setPosition(position + Vec2(0, -64));
+            node.status->setPosition(position + Vec2(0, bowRoot ? 68.0f : -64.0f));
             node.detail = addText(_scroll, "", 13.0f, Vec2(0.5f, 0.5f), 3);
-            node.detail->setPosition(position + Vec2(0, -84));
+            node.detail->setPosition(position + Vec2(0, bowRoot ? 46.0f : -84.0f));
             node.target = ui::Button::create();
             node.target->ignoreContentAdaptWithSize(false);
             node.target->setContentSize(Size(NODE_TARGET_SIZE, NODE_TARGET_SIZE));
@@ -434,12 +436,9 @@ void UpgradePanel::rebuildTree(float contentWidth)
     };
     if (showBow)
     {
-        addSection("弓箭基础");
+        addSection("弓箭研修");
         const float bowTop = y;
         addUpgradeTrack(UpgradeTrack::Bow, bowTop);
-        auto* tacticsLabel = addText(_scroll, "箭术专精", 23.0f, Vec2(0, 0.5f));
-        tacticsLabel->setTextColor(Color4B(150, 205, 255, 255));
-        tacticsLabel->setPosition(Vec2(12, bowTop - 207.0f));
         y -= (maxBowRow + 1) * 160.0f + 55.0f;
     }
     if (!showMagic) return;
@@ -509,9 +508,23 @@ void UpgradePanel::refresh()
             });
         if (parent == _researchNodes.end()) continue;
         const bool ready = GameData::getInstance().upgradePrerequisiteMet(static_cast<UpgradeId>(node.id));
-        _researchConnector->drawLine(parent->graphic->getPosition(), node.graphic->getPosition(),
-                                     ready ? Color4F(0.24f, 0.69f, 0.92f, 1.0f)
-                                           : Color4F(0.30f, 0.38f, 0.49f, 1.0f), 3);
+        const Color4F color = ready ? Color4F(0.24f, 0.69f, 0.92f, 1.0f)
+                                    : Color4F(0.30f, 0.38f, 0.49f, 1.0f);
+        const Vec2 start = parent->graphic->getPosition() + Vec2(0, -parent->radius);
+        const Vec2 end = node.graphic->getPosition() + Vec2(0, node.radius);
+        if (std::abs(start.x - end.x) < 1.0f)
+        {
+            _researchConnector->drawLine(start, end, color, 3);
+        }
+        else
+        {
+            const float junctionY = (start.y + end.y) * 0.5f;
+            const Vec2 firstTurn(start.x, junctionY);
+            const Vec2 secondTurn(end.x, junctionY);
+            _researchConnector->drawLine(start, firstTurn, color, 3);
+            _researchConnector->drawLine(firstTurn, secondTurn, color, 3);
+            _researchConnector->drawLine(secondTurn, end, color, 3);
+        }
     }
     if (_skillConnector)
     {

@@ -304,7 +304,7 @@ TEST_SUITE("ProductionProgressionCatalog")
         CHECK_EQ(strike.prerequisite, UpgradeId::ArrowDamage);
         CHECK_EQ(strike.requiredLevel, 5);
         CHECK_EQ(strike.treeRow, 1);
-        CHECK_EQ(strike.treeX, doctest::Approx(0.50f));
+        CHECK_EQ(strike.treeX, doctest::Approx(0.45f));
         CHECK_EQ(strike.values[1], doctest::Approx(72.0f));
         CHECK_EQ(precision.prerequisite, UpgradeId::ArrowDamage);
         CHECK_EQ(precision.requiredLevel, 3);
