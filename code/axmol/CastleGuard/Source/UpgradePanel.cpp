@@ -14,6 +14,31 @@ constexpr float UPGRADE_BRANCH_HEIGHT = 162.0f;
 constexpr float NODE_RADIUS           = 31.0f;
 constexpr float NODE_TARGET_SIZE      = 78.0f;
 
+void drawTreeConnector(DrawNode* graphic, const Vec2& parent, float parentRadius,
+                       const Vec2& child, float childRadius, const Color4F& color)
+{
+    if (std::abs(parent.y - child.y) < 1.0f)
+    {
+        graphic->drawLine(parent + Vec2(parentRadius, 0), child - Vec2(childRadius, 0), color, 3.0f);
+        return;
+    }
+
+    const Vec2 start = parent - Vec2(0, parentRadius);
+    const Vec2 end = child + Vec2(0, childRadius);
+    if (std::abs(start.x - end.x) < 1.0f)
+    {
+        graphic->drawLine(start, end, color, 3.0f);
+        return;
+    }
+
+    const float junctionY = (start.y + end.y) * 0.5f;
+    const Vec2 firstTurn(start.x, junctionY);
+    const Vec2 secondTurn(end.x, junctionY);
+    graphic->drawLine(start, firstTurn, color, 3.0f);
+    graphic->drawLine(firstTurn, secondTurn, color, 3.0f);
+    graphic->drawLine(secondTurn, end, color, 3.0f);
+}
+
 std::string valueText(UpgradeId id, float value)
 {
     switch (id)
@@ -474,10 +499,13 @@ void UpgradePanel::rebuildTree(float contentWidth)
         node.graphic = DrawNode::create();
         node.graphic->setPosition(position);
         _scroll->addChild(node.graphic, 1);
-        node.title = addText(_scroll, "", 17.0f, Vec2(0.5f, 0.5f), 3);
-        node.title->setPosition(position + Vec2(0, -43));
-        node.status = addText(_scroll, "", 13.0f, Vec2(0.5f, 0.5f), 3);
-        node.status->setPosition(position + Vec2(0.0f, -65.0f));
+        const bool labelOnLeft = definition.treeX > 0.66f;
+        const Vec2 labelAnchor(labelOnLeft ? 1.0f : 0.0f, 0.5f);
+        const float labelX = labelOnLeft ? -NODE_RADIUS - 13.0f : NODE_RADIUS + 13.0f;
+        node.title = addText(_scroll, "", 17.0f, labelAnchor, 3);
+        node.title->setPosition(position + Vec2(labelX, 10.0f));
+        node.status = addText(_scroll, "", 13.0f, labelAnchor, 3);
+        node.status->setPosition(position + Vec2(labelX, -12.0f));
         node.target = ui::Button::create();
         node.target->ignoreContentAdaptWithSize(false);
         node.target->setContentSize(Size(NODE_TARGET_SIZE, NODE_TARGET_SIZE));
@@ -510,21 +538,8 @@ void UpgradePanel::refresh()
         const bool ready = GameData::getInstance().upgradePrerequisiteMet(static_cast<UpgradeId>(node.id));
         const Color4F color = ready ? Color4F(0.24f, 0.69f, 0.92f, 1.0f)
                                     : Color4F(0.30f, 0.38f, 0.49f, 1.0f);
-        const Vec2 start = parent->graphic->getPosition() + Vec2(0, -parent->radius);
-        const Vec2 end = node.graphic->getPosition() + Vec2(0, node.radius);
-        if (std::abs(start.x - end.x) < 1.0f)
-        {
-            _researchConnector->drawLine(start, end, color, 3);
-        }
-        else
-        {
-            const float junctionY = (start.y + end.y) * 0.5f;
-            const Vec2 firstTurn(start.x, junctionY);
-            const Vec2 secondTurn(end.x, junctionY);
-            _researchConnector->drawLine(start, firstTurn, color, 3);
-            _researchConnector->drawLine(firstTurn, secondTurn, color, 3);
-            _researchConnector->drawLine(secondTurn, end, color, 3);
-        }
+        drawTreeConnector(_researchConnector, parent->graphic->getPosition(), parent->radius,
+                          node.graphic->getPosition(), node.radius, color);
     }
     if (_skillConnector)
     {
@@ -546,15 +561,21 @@ void UpgradePanel::refresh()
         if (_skillConnector && _skillRoot)
         {
             Vec2 parentPosition = _skillRoot->getPosition();
+            float parentRadius = 24.0f;
             if (definition.prerequisite != SkillId::Count)
             {
                 const auto parent = std::find_if(_skillNodes.begin(), _skillNodes.end(),
                     [&](const TreeNodeView& candidate) {
                         return candidate.id == static_cast<int>(definition.prerequisite);
                     });
-                if (parent != _skillNodes.end()) parentPosition = parent->graphic->getPosition();
+                if (parent != _skillNodes.end())
+                {
+                    parentPosition = parent->graphic->getPosition();
+                    parentRadius = parent->radius;
+                }
             }
-            _skillConnector->drawLine(parentPosition, node.graphic->getPosition(), color, 3.0f);
+            drawTreeConnector(_skillConnector, parentPosition, parentRadius,
+                              node.graphic->getPosition(), node.radius, color);
         }
     }
 }
@@ -586,8 +607,9 @@ void UpgradePanel::refreshUpgradeBranch(UpgradeBranchView& branch)
                               : targetLevel == level + 1
                                   ? Color4F(0.24f, 0.69f, 0.92f, 1.0f)
                                   : Color4F(0.28f, 0.32f, 0.39f, 1.0f);
-        branch.connector->drawLine(branch.nodes[i - 1].graphic->getPosition(),
-                                   branch.nodes[i].graphic->getPosition(), color);
+        drawTreeConnector(branch.connector, branch.nodes[i - 1].graphic->getPosition(),
+                          branch.nodes[i - 1].radius, branch.nodes[i].graphic->getPosition(),
+                          branch.nodes[i].radius, color);
     }
 
     const auto& economy = data.economy();
