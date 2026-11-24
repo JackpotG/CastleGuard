@@ -5,7 +5,8 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (character
 const clone = (value) => structuredClone(value);
 const state = {
   mode: "levels", documents: {}, dirty: {levels: false, tree: false, monsters: false},
-  level: 0, wave: 0, group: 0, track: "bow", node: "arrow_damage", monster: "normal", search: "",
+  level: 0, wave: 0, group: 0, track: "bow", node: "arrow_damage", monster: "normal",
+  balanceCategory: "monsters", baseUpgrade: "arrow_damage", search: "",
 };
 const previewState = {open: false, wave: 0, time: 0, speed: 1, randomize: false, playing: false, frame: 0, lastFrame: 0, timeline: null};
 const trackNames = {bow: "军械所", magic: "研究院", defense: "城防营", spells: "法术研习"};
@@ -18,7 +19,8 @@ const monsterNames = {
 };
 let toastTimer;
 
-function documentData() { return state.documents[state.mode]?.data; }
+function activeDocumentKind() { return state.mode === "balance" ? state.balanceCategory : state.mode; }
+function documentData() { return state.documents[activeDocumentKind()]?.data; }
 function currentLevel() { return state.documents.levels.data.levels[state.level]; }
 function currentWave() { return currentLevel().waves[state.wave]; }
 function currentGroup() { return currentWave().groups[state.group]; }
@@ -27,6 +29,9 @@ function currentNode() {
   const data = state.documents.tree.data;
   const list = state.track === "spells" ? data.skills : data.upgrades;
   return list.find((entry) => entry.id === state.node);
+}
+function currentBaseUpgrade() {
+  return state.documents.tree.data.upgrades.find((entry) => entry.id === state.baseUpgrade);
 }
 function monsterSpeeds() {
   const data = state.documents.monsters.data;
@@ -59,7 +64,7 @@ function showToast(message, error = false) {
   toastTimer = setTimeout(() => { toast.className = "toast"; }, 3500);
 }
 function markDirty() {
-  state.dirty[state.mode] = true;
+  state.dirty[activeDocumentKind()] = true;
   const dirty = Object.values(state.dirty).some(Boolean);
   $("#save-state").textContent = dirty ? "有未保存修改" : "已同步";
   $("#save-state").classList.toggle("dirty", dirty);
@@ -80,7 +85,7 @@ async function loadAll() {
   state.dirty = {levels: false, tree: false, monsters: false};
   state.level = 0; state.wave = 0; state.group = 0;
   state.track = "bow"; state.node = tree.data.upgrades.find((item) => trackOf(item) === "bow")?.id;
-  state.monster = "normal";
+  state.monster = "normal"; state.balanceCategory = "monsters"; state.baseUpgrade = "arrow_damage";
   markClean();
   render();
 }
@@ -92,7 +97,7 @@ function markClean() {
 async function saveCurrent() {
   const errors = validateDraft();
   if (errors.length) { showToast(errors[0], true); return; }
-  const kind = state.mode;
+  const kind = activeDocumentKind();
   const document = state.documents[kind];
   try {
     const response = await fetch(`/api/${kind}`, {
@@ -110,8 +115,8 @@ async function saveCurrent() {
 function positive(value) { return typeof value === "number" && Number.isFinite(value) && value > 0; }
 function validateDraft() {
   const data = documentData();
-  if (state.mode === "monsters") return [];
-  if (state.mode === "levels") {
+  if (activeDocumentKind() === "monsters") return [];
+  if (activeDocumentKind() === "levels") {
     if (!data.levels.length) return ["至少需要一关"];
     for (const [li, level] of data.levels.entries()) {
       const prefix = `第 ${li + 1} 关`;
@@ -208,12 +213,12 @@ function monsterField(scope, name, label, value, minimum, maximum, step = "any")
 function render() {
   $("#mode-levels").classList.toggle("active", state.mode === "levels");
   $("#mode-tree").classList.toggle("active", state.mode === "tree");
-  $("#mode-monsters").classList.toggle("active", state.mode === "monsters");
+  $("#mode-balance").classList.toggle("active", state.mode === "balance");
   if (!documentData()) return;
   renderSidebar();
   if (state.mode === "levels") renderLevels();
   else if (state.mode === "tree") renderTree();
-  else renderMonsters();
+  else renderBalance();
 }
 function renderSidebar() {
   const head = $("#sidebar-head");
@@ -228,11 +233,15 @@ function renderSidebar() {
     }).join("");
     return;
   }
-  if (state.mode === "monsters") {
-    const monsters = documentData().monsters;
-    const speeds = monsterSpeeds();
-    head.innerHTML = `<p class="sidebar-title">怪物类型 · ${Object.keys(monsters).length}</p>`;
-    list.innerHTML = Object.entries(monsterNames).map(([id, name]) => `<button class="sidebar-item ${id === state.monster ? "selected" : ""}" data-action="select-monster" data-id="${id}"><strong>${name}</strong><small>${id} · ${speeds[id]} 像素/秒</small></button>`).join("");
+  if (state.mode === "balance") {
+    head.innerHTML = `<p class="sidebar-title">基础数值</p><div class="segment"><button data-action="select-balance-category" data-category="monsters" class="${state.balanceCategory === "monsters" ? "active" : ""}">怪物</button><button data-action="select-balance-category" data-category="tree" class="${state.balanceCategory === "tree" ? "active" : ""}">成长初始值</button></div>`;
+    if (state.balanceCategory === "monsters") {
+      const speeds = monsterSpeeds();
+      list.innerHTML = Object.entries(monsterNames).map(([id, name]) => `<button class="sidebar-item ${id === state.monster ? "selected" : ""}" data-action="select-monster" data-id="${id}"><strong>${name}</strong><small>${id} · ${speeds[id]} 像素/秒</small></button>`).join("");
+    } else {
+      const upgrades = documentData().upgrades;
+      list.innerHTML = ["bow", "magic", "defense"].map((track) => `<p class="sidebar-group-title">${trackNames[track]}</p>${upgrades.filter((entry) => trackOf(entry) === track).map((entry) => `<button class="sidebar-item ${entry.id === state.baseUpgrade ? "selected" : ""}" data-action="select-base-upgrade" data-id="${escapeHtml(entry.id)}"><strong>${escapeHtml(entry.name)}</strong><small>初始 ${escapeHtml(entry.values[0])}</small></button>`).join("")}`).join("");
+    }
     return;
   }
   const data = documentData();
@@ -290,11 +299,23 @@ function renderTree() {
   $("#main-content").innerHTML = `<div class="page-head"><div><p class="eyebrow">PROGRESSION / ${state.track.toUpperCase()}</p><h1>${trackNames[state.track]}</h1><div class="meta-row"><span><strong>${nodes.length}</strong> 节点</span></div></div></div><h2 class="section-title">节点关系</h2>${renderGraph(nodes)}<h2 class="section-title">成长数值</h2>${state.track === "spells" ? `<p class="info-note">法术按关卡里程碑或水晶购买解锁。</p>` : `<p class="info-note">升级等级由价格与效果数组共同决定；每个价格对应下一等级。</p>`}`;
   renderNodeInspector(selected);
 }
+function renderBalance() {
+  if (state.balanceCategory === "monsters") renderMonsters();
+  else renderBaseUpgrades();
+}
+function renderBaseUpgrades() {
+  const upgrades = documentData().upgrades;
+  const ordered = ["bow", "magic", "defense"].flatMap((track) => upgrades.filter((entry) => trackOf(entry) === track));
+  const selected = currentBaseUpgrade();
+  $("#main-content").innerHTML = `<div class="page-head"><div><p class="eyebrow">BASE VALUES / PROGRESSION</p><h1>成长初始值</h1><div class="meta-row"><span><strong>${upgrades.length}</strong> 属性</span></div></div></div>
+    <div class="monster-table-wrap"><table class="monster-table"><thead><tr><th>属性</th><th>所属</th><th>初始值</th><th>首次升级</th></tr></thead><tbody>${ordered.map((entry) => `<tr class="${entry.id === state.baseUpgrade ? "selected" : ""}"><th scope="row"><button data-action="select-base-upgrade" data-id="${escapeHtml(entry.id)}">${escapeHtml(entry.name)}<small>${escapeHtml(entry.id)}</small></button></th><td>${trackNames[trackOf(entry)]}</td><td>${escapeHtml(entry.values[0])}</td><td>${escapeHtml(entry.values[1])}</td></tr>`).join("")}</tbody></table></div>`;
+  $("#inspector").innerHTML = `<p class="eyebrow">BASE / ${escapeHtml(selected.id)}</p><h2>${escapeHtml(selected.name)}</h2><div class="stack"><p class="info-note">${escapeHtml(selected.description)}</p>${field("base-upgrade", "baseValue", "初始值", selected.values[0], "number")}<div class="speed-reference"><span>首次升级后</span><div><strong>${escapeHtml(selected.values[1])}</strong></div></div></div>`;
+}
 function renderMonsters() {
   const data = documentData();
   const speeds = monsterSpeeds();
   const entries = Object.entries(monsterNames);
-  $("#main-content").innerHTML = `<div class="page-head"><div><p class="eyebrow">MONSTER BALANCE</p><h1>怪物基础数值</h1><div class="meta-row"><span><strong>${entries.length}</strong> 类型</span><span>关卡血量按基础生命随关卡增长</span></div></div></div>
+  $("#main-content").innerHTML = `<div class="page-head"><div><p class="eyebrow">BASE VALUES / MONSTERS</p><h1>怪物基础数值</h1><div class="meta-row"><span><strong>${entries.length}</strong> 类型</span><span>关卡血量按基础生命随关卡增长</span></div></div></div>
     <h2 class="section-title">全局基准</h2><div class="field-grid monster-global">${monsterField("monster-global", "baseSpeed", "基础移速 · 像素/秒", data.baseSpeed, 1, 500)}${monsterField("monster-global", "baseBodyRadius", "基础体型 · 半径像素", data.baseBodyRadius, 4, 48)}</div>
     <h2 class="section-title">类型对照</h2><div class="monster-table-wrap"><table class="monster-table"><thead><tr><th>怪物</th><th>生命</th><th>移速</th><th>攻击</th><th>间隔</th><th>金币</th></tr></thead><tbody>${entries.map(([id, name]) => { const value = data.monsters[id]; return `<tr class="${id === state.monster ? "selected" : ""}" data-monster-row="${id}"><th scope="row"><button data-action="select-monster" data-id="${id}">${name}<small>${id}</small></button></th><td>${value.maxHp}</td><td>${speeds[id]}</td><td>${value.actionPower}</td><td>${value.actionInterval}s</td><td>${value.coinDrop}</td></tr>`; }).join("")}</tbody></table></div>`;
   const monster = data.monsters[state.monster];
@@ -446,11 +467,13 @@ function setCurrentField(input) {
   const scope = input.dataset.scope;
   const target = scope === "level" ? currentLevel() : scope === "wave" ? currentWave() :
     scope === "group" ? currentGroup() : scope === "monster-global" ? documentData() :
-      scope === "monster" ? documentData().monsters[state.monster] : currentNode();
+      scope === "monster" ? documentData().monsters[state.monster] :
+        scope === "base-upgrade" ? currentBaseUpgrade() : currentNode();
   if (!target) return;
   let value = input.type === "checkbox" ? input.checked : input.type === "number" || input.type === "range" ? Number(input.value) : input.value;
   if (input.type === "number" && input.value.trim() === "") value = NaN;
-  target[input.dataset.field] = value;
+  if (scope === "base-upgrade") target.values[0] = value;
+  else target[input.dataset.field] = value;
   if (scope === "group" && input.dataset.field === "useConfiguredSpeed" && value && !positive(target.configuredSpeed)) {
     const references = speedReferences(target);
     if (references.length === 1) target.configuredSpeed = references[0].speed;
@@ -497,6 +520,8 @@ function handleAction(button) {
   else if (action === "select-group") state.group = index;
   else if (action === "select-track") { state.track = button.dataset.track; state.node = nodesForTrack()[0]?.id; }
   else if (action === "select-node") state.node = button.dataset.id;
+  else if (action === "select-balance-category") state.balanceCategory = button.dataset.category;
+  else if (action === "select-base-upgrade") state.baseUpgrade = button.dataset.id;
   else if (action === "select-monster") state.monster = button.dataset.id;
   else if (action === "add-level") {
     const copy = clone(currentLevel()); copy.name = "新关卡";
@@ -579,7 +604,7 @@ document.addEventListener("keydown", (event) => {
 });
 $("#mode-levels").addEventListener("click", () => { state.mode = "levels"; render(); });
 $("#mode-tree").addEventListener("click", () => { state.mode = "tree"; render(); });
-$("#mode-monsters").addEventListener("click", () => { state.mode = "monsters"; render(); });
+$("#mode-balance").addEventListener("click", () => { state.mode = "balance"; render(); });
 $("#save-button").addEventListener("click", saveCurrent);
 $("#reload-button").addEventListener("click", () => {
   if (Object.values(state.dirty).some(Boolean) && !confirm("放弃未保存的修改并重新载入？")) return;
