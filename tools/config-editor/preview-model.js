@@ -1,11 +1,24 @@
 // Mirrors the spawn-only random choices from MainScene; combat still determines wave completion.
 const PreviewModel = (() => {
   const laneCount = 12;
+  const stageWidth = 720;
+  const stageHeight = 1280;
+
+  function position(event) {
+    const targetX = (event.lane + .5 + event.jitter) / laneCount;
+    return {
+      startX: event.from === "left" ? -20 / stageWidth : event.from === "right" ? 1 + 20 / stageWidth : targetX,
+      startY: event.from === "spawn" ? .04 : .77 - event.sideHeight * .68,
+      targetX,
+      targetY: .82,
+    };
+  }
 
   function travelDuration(event) {
     const speed = event.configuredSpeed > 0 ? event.configuredSpeed : event.baselineSpeed * event.speedFactor;
-    return speed > 0 && event.referenceSpeed > 0 ? Math.max(1.5, Math.min(20, 6 * event.referenceSpeed / speed)) :
-      6 / event.speedFactor;
+    if (!(speed > 0)) return 6 / event.speedFactor;
+    const {startX, startY, targetX, targetY} = position(event);
+    return Math.hypot((targetX - startX) * stageWidth, (targetY - startY) * stageHeight) / speed;
   }
 
   function buildWave(wave, {randomize = false, random = Math.random, baseSpeed = 0, monsterSpeeds = {}} = {}) {
@@ -31,7 +44,7 @@ const PreviewModel = (() => {
         events.push({
           time: delay + (formation === "row" ? batch : index) * interval,
           type, lane, from, groupIndex, jitter, sideHeight, configuredSpeed,
-          referenceSpeed: baseSpeed, baselineSpeed: monsterSpeeds[type] || 0,
+          baselineSpeed: monsterSpeeds[type] || baseSpeed,
           speedFactor: configuredSpeed > 0 || !randomize ? 1 : .85 + random() * .3,
         });
       });
@@ -40,6 +53,6 @@ const PreviewModel = (() => {
     return {events, duration: Math.max(6, ...events.map((event) => event.time + travelDuration(event)))};
   }
 
-  return {buildWave, travelDuration};
+  return {buildWave, position, travelDuration};
 })();
 if (typeof module !== "undefined") module.exports = PreviewModel;

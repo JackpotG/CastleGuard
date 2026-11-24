@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const {buildWave, travelDuration} = require("./preview-model.js");
+const {buildWave, position, travelDuration} = require("./preview-model.js");
 
 test("row spawns mixed types together in adjacent lanes", () => {
   const wave = buildWave({groups: [{types: ["normal", "fast", "shield"], formation: "row", lane: 4, delay: 2, interval: 9}]});
@@ -49,7 +49,7 @@ test("random column shares a lane while fixed speed bypasses speed variance", ()
   assert.deepEqual(wave.events.map(({lane, jitter, speedFactor}) => [lane, jitter, speedFactor]), [
     [10, 0, 1], [10, 0, 1],
   ]);
-  assert.equal(wave.duration, 13);
+  assert.ok(Math.abs(wave.duration - (1 + 998.4 / 35)) < .001);
   assert.equal(samples.length, 0);
 });
 
@@ -60,9 +60,12 @@ test("type baseline speeds change travel time without changing spawn timing", ()
   assert.deepEqual(wave.events.map(({time}) => time), [0, 0]);
   assert.equal(wave.events[0].baselineSpeed, 70);
   assert.equal(wave.events[1].baselineSpeed, 126);
-  assert.equal(wave.duration, 6);
-  assert.equal(travelDuration(wave.events[0]), 6);
-  assert.ok(Math.abs(travelDuration(wave.events[1]) - 10 / 3) < .001);
+  assert.ok(Math.abs(wave.duration - 998.4 / 70) < .001);
+  assert.ok(Math.abs(travelDuration(wave.events[0]) - 998.4 / 70) < .001);
+  assert.ok(Math.abs(travelDuration(wave.events[1]) - 998.4 / 126) < .001);
+  assert.deepEqual(position(wave.events[0]), {
+    startX: 5.5 / 12, startY: .04, targetX: 5.5 / 12, targetY: .82,
+  });
 });
 
 test("side entrance samples its height separately for each monster", () => {
@@ -74,4 +77,6 @@ test("side entrance samples its height separately for each monster", () => {
     [lane, jitter, sideHeight, Number(speedFactor.toFixed(2))]), [
     [0, 0, .2, .97], [6, 0, .8, 1.03],
   ]);
+  assert.ok(Math.abs(position(wave.events[0]).startY - .634) < .001);
+  assert.ok(travelDuration({...wave.events[0], baselineSpeed: 70}) > 0);
 });

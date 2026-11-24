@@ -4,9 +4,8 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (character
 })[character]);
 const clone = (value) => structuredClone(value);
 const state = {
-  mode: "levels", documents: {}, dirty: {levels: false, tree: false},
-  level: 0, wave: 0, group: 0, track: "bow", node: "arrow_damage", search: "",
-  monsterSpeeds: {}, baseMonsterSpeed: 0,
+  mode: "levels", documents: {}, dirty: {levels: false, tree: false, monsters: false},
+  level: 0, wave: 0, group: 0, track: "bow", node: "arrow_damage", monster: "normal", search: "",
 };
 const previewState = {open: false, wave: 0, time: 0, speed: 1, randomize: false, playing: false, frame: 0, lastFrame: 0, timeline: null};
 const trackNames = {bow: "军械所", magic: "研究院", defense: "城防营", spells: "法术研习"};
@@ -29,6 +28,11 @@ function currentNode() {
   const list = state.track === "spells" ? data.skills : data.upgrades;
   return list.find((entry) => entry.id === state.node);
 }
+function monsterSpeeds() {
+  const data = state.documents.monsters.data;
+  return Object.fromEntries(Object.entries(data.monsters).map(([type, attributes]) =>
+    [type, Math.round(data.baseSpeed * attributes.speedMultiplier * 10000) / 10000]));
+}
 function monsterTypes() {
   const types = new Set();
   for (const level of state.documents.levels.data.levels)
@@ -38,8 +42,9 @@ function monsterTypes() {
   return [...types].filter(Boolean).sort();
 }
 function speedReferences(group) {
+  const speeds = monsterSpeeds();
   return [...new Set(group.types || [group.type])].map((type) => ({
-    type, speed: state.monsterSpeeds[type],
+    type, speed: speeds[type],
   })).filter(({speed}) => positive(speed));
 }
 function groupSpeedLabel(group) {
@@ -61,8 +66,8 @@ function markDirty() {
 }
 async function loadAll() {
   if (previewState.open) closePreview();
-  const [levels, tree, speeds] = await Promise.all([
-    ...["levels", "tree"].map(async (kind) => {
+  const [levels, tree, monsters] = await Promise.all(
+    ["levels", "tree", "monsters"].map(async (kind) => {
       const response = await fetch(`/api/${kind}`);
       if (!response.ok) {
         const problem = await response.json().catch(() => ({}));
@@ -70,18 +75,12 @@ async function loadAll() {
       }
       return response.json();
     }),
-    fetch("/api/monster-speeds").then(async (response) => {
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "基准速度加载失败");
-      return result;
-    }).catch((error) => { showToast(error.message, true); return {types: {}, baseSpeed: 0}; }),
-  ]);
-  state.documents = {levels, tree};
-  state.monsterSpeeds = speeds.types;
-  state.baseMonsterSpeed = speeds.baseSpeed;
-  state.dirty = {levels: false, tree: false};
+  );
+  state.documents = {levels, tree, monsters};
+  state.dirty = {levels: false, tree: false, monsters: false};
   state.level = 0; state.wave = 0; state.group = 0;
   state.track = "bow"; state.node = tree.data.upgrades.find((item) => trackOf(item) === "bow")?.id;
+  state.monster = "normal";
   markClean();
   render();
 }
@@ -111,6 +110,7 @@ async function saveCurrent() {
 function positive(value) { return typeof value === "number" && Number.isFinite(value) && value > 0; }
 function validateDraft() {
   const data = documentData();
+  if (state.mode === "monsters") return [];
   if (state.mode === "levels") {
     if (!data.levels.length) return ["至少需要一关"];
     for (const [li, level] of data.levels.entries()) {
@@ -202,13 +202,18 @@ function field(scope, name, label, value, type = "text", extra = "") {
   if (type === "select") return `<div class="field ${extra}"><label>${label}</label><select ${attribute}>${value}</select></div>`;
   return `<div class="field ${extra}"><label>${label}</label><input ${attribute} type="${type}" value="${escapeHtml(value)}" ${type === "number" ? 'step="any"' : ""}></div>`;
 }
+function monsterField(scope, name, label, value, minimum, maximum, step = "any") {
+  return `<div class="field"><label for="monster-${scope}-${name}">${label}</label><input id="monster-${scope}-${name}" data-scope="${scope}" data-field="${name}" type="number" value="${escapeHtml(value)}" min="${minimum}" max="${maximum}" step="${step}" title="允许范围：${minimum}–${maximum}"></div>`;
+}
 function render() {
   $("#mode-levels").classList.toggle("active", state.mode === "levels");
   $("#mode-tree").classList.toggle("active", state.mode === "tree");
+  $("#mode-monsters").classList.toggle("active", state.mode === "monsters");
   if (!documentData()) return;
   renderSidebar();
   if (state.mode === "levels") renderLevels();
-  else renderTree();
+  else if (state.mode === "tree") renderTree();
+  else renderMonsters();
 }
 function renderSidebar() {
   const head = $("#sidebar-head");
@@ -221,6 +226,13 @@ function renderSidebar() {
       const count = level.waves.reduce((sum, wave) => sum + wave.groups.reduce((part, group) => part + (group.types?.length || group.count || 0), 0), 0);
       return `<button class="sidebar-item ${index === state.level ? "selected" : ""}" data-action="select-level" data-index="${index}"><strong>${String(index + 1).padStart(2, "0")} · ${escapeHtml(level.name)}</strong><small>${level.waves.length} 波 · ${count} 怪</small></button>`;
     }).join("");
+    return;
+  }
+  if (state.mode === "monsters") {
+    const monsters = documentData().monsters;
+    const speeds = monsterSpeeds();
+    head.innerHTML = `<p class="sidebar-title">怪物类型 · ${Object.keys(monsters).length}</p>`;
+    list.innerHTML = Object.entries(monsterNames).map(([id, name]) => `<button class="sidebar-item ${id === state.monster ? "selected" : ""}" data-action="select-monster" data-id="${id}"><strong>${name}</strong><small>${id} · ${speeds[id]} 像素/秒</small></button>`).join("");
     return;
   }
   const data = documentData();
@@ -277,6 +289,20 @@ function renderTree() {
   if (selected) state.node = selected.id;
   $("#main-content").innerHTML = `<div class="page-head"><div><p class="eyebrow">PROGRESSION / ${state.track.toUpperCase()}</p><h1>${trackNames[state.track]}</h1><div class="meta-row"><span><strong>${nodes.length}</strong> 节点</span></div></div></div><h2 class="section-title">节点关系</h2>${renderGraph(nodes)}<h2 class="section-title">成长数值</h2>${state.track === "spells" ? `<p class="info-note">法术按关卡里程碑或水晶购买解锁。</p>` : `<p class="info-note">升级等级由价格与效果数组共同决定；每个价格对应下一等级。</p>`}`;
   renderNodeInspector(selected);
+}
+function renderMonsters() {
+  const data = documentData();
+  const speeds = monsterSpeeds();
+  const entries = Object.entries(monsterNames);
+  $("#main-content").innerHTML = `<div class="page-head"><div><p class="eyebrow">MONSTER BALANCE</p><h1>怪物基础数值</h1><div class="meta-row"><span><strong>${entries.length}</strong> 类型</span><span>关卡血量按基础生命随关卡增长</span></div></div></div>
+    <h2 class="section-title">全局基准</h2><div class="field-grid monster-global">${monsterField("monster-global", "baseSpeed", "基础移速 · 像素/秒", data.baseSpeed, 1, 500)}${monsterField("monster-global", "baseBodyRadius", "基础体型 · 半径像素", data.baseBodyRadius, 4, 48)}</div>
+    <h2 class="section-title">类型对照</h2><div class="monster-table-wrap"><table class="monster-table"><thead><tr><th>怪物</th><th>生命</th><th>移速</th><th>攻击</th><th>间隔</th><th>金币</th></tr></thead><tbody>${entries.map(([id, name]) => { const value = data.monsters[id]; return `<tr class="${id === state.monster ? "selected" : ""}" data-monster-row="${id}"><th scope="row"><button data-action="select-monster" data-id="${id}">${name}<small>${id}</small></button></th><td>${value.maxHp}</td><td>${speeds[id]}</td><td>${value.actionPower}</td><td>${value.actionInterval}s</td><td>${value.coinDrop}</td></tr>`; }).join("")}</tbody></table></div>`;
+  const monster = data.monsters[state.monster];
+  $("#inspector").innerHTML = `<p class="eyebrow">MONSTER / ${escapeHtml(state.monster)}</p><h2>${monsterNames[state.monster]}</h2><div class="stack">
+    <h3>战斗与掉落</h3><div class="field-grid">${monsterField("monster", "maxHp", "基础生命", monster.maxHp, 1, 999)}${monsterField("monster", "coinDrop", "击杀金币", monster.coinDrop, 1, 100, 1)}${monsterField("monster", "actionPower", "行动强度", monster.actionPower, 0, 999, 1)}${monsterField("monster", "actionInterval", "行动间隔 · 秒", monster.actionInterval, 0.05, 60)}</div>
+    <div class="divider"></div><h3>移动与体型</h3><div class="field-grid">${monsterField("monster", "speedMultiplier", "移速倍率", monster.speedMultiplier, 0.1, 10)}${monsterField("monster", "bodyScale", "体型倍率", monster.bodyScale, 0.25, 5)}</div><div class="speed-reference"><span>当前基准移速</span><div><strong>${speeds[state.monster]} 像素/秒</strong></div></div>
+    <div class="divider"></div><h3>行为</h3><div class="field-grid">${monsterField("monster", "stopRatioMin", "驻足位置下限", monster.stopRatioMin, 0, 0.95)}${monsterField("monster", "stopRatioMax", "驻足位置上限", monster.stopRatioMax, 0, 0.95)}${monsterField("monster", "knockbackFactor", "受击退倍率", monster.knockbackFactor, 0, 2)}</div>
+    </div>`;
 }
 function renderGraph(nodes) {
   if (!nodes.length) return '<div class="tree-graph"><p class="empty">暂无节点</p></div>';
@@ -345,10 +371,11 @@ function closePreview() {
   $("[data-action=open-preview]")?.focus();
 }
 function rebuildPreviewTimeline() {
+  const data = state.documents.monsters.data;
   previewState.timeline = PreviewModel.buildWave(currentLevel().waves[previewState.wave], {
     randomize: previewState.randomize,
-    baseSpeed: state.baseMonsterSpeed,
-    monsterSpeeds: state.monsterSpeeds,
+    baseSpeed: data.baseSpeed,
+    monsterSpeeds: monsterSpeeds(),
   });
 }
 function renderPreview() {
@@ -391,11 +418,9 @@ function updatePreviewFrame() {
     marker.hidden = age < 0 || age > travel;
     if (!marker.hidden) {
       const progress = Math.max(0, age / travel);
-      const targetX = (event.lane + .5 + event.jitter) / 12 * 100;
-      const startX = event.from === "left" ? -4 : event.from === "right" ? 104 : targetX;
-      const startY = event.from === "spawn" ? 7 : 18 + event.sideHeight * 44;
-      marker.style.left = `${startX + (targetX - startX) * progress}%`;
-      marker.style.top = `${startY + (79 - startY) * progress}%`;
+      const {startX, startY, targetX, targetY} = PreviewModel.position(event);
+      marker.style.left = `${(startX + (targetX - startX) * progress) * 100}%`;
+      marker.style.top = `${(startY + (targetY - startY) * progress) * 100}%`;
     }
     if (age >= 0) { spawned++; perGroup[event.groupIndex]++; }
   });
@@ -420,7 +445,8 @@ function previewTick(timestamp) {
 function setCurrentField(input) {
   const scope = input.dataset.scope;
   const target = scope === "level" ? currentLevel() : scope === "wave" ? currentWave() :
-    scope === "group" ? currentGroup() : currentNode();
+    scope === "group" ? currentGroup() : scope === "monster-global" ? documentData() :
+      scope === "monster" ? documentData().monsters[state.monster] : currentNode();
   if (!target) return;
   let value = input.type === "checkbox" ? input.checked : input.type === "number" || input.type === "range" ? Number(input.value) : input.value;
   if (input.type === "number" && input.value.trim() === "") value = NaN;
@@ -471,6 +497,7 @@ function handleAction(button) {
   else if (action === "select-group") state.group = index;
   else if (action === "select-track") { state.track = button.dataset.track; state.node = nodesForTrack()[0]?.id; }
   else if (action === "select-node") state.node = button.dataset.id;
+  else if (action === "select-monster") state.monster = button.dataset.id;
   else if (action === "add-level") {
     const copy = clone(currentLevel()); copy.name = "新关卡";
     state.documents.levels.data.levels.splice(++state.level, 0, copy);
@@ -552,6 +579,7 @@ document.addEventListener("keydown", (event) => {
 });
 $("#mode-levels").addEventListener("click", () => { state.mode = "levels"; render(); });
 $("#mode-tree").addEventListener("click", () => { state.mode = "tree"; render(); });
+$("#mode-monsters").addEventListener("click", () => { state.mode = "monsters"; render(); });
 $("#save-button").addEventListener("click", saveCurrent);
 $("#reload-button").addEventListener("click", () => {
   if (Object.values(state.dirty).some(Boolean) && !confirm("放弃未保存的修改并重新载入？")) return;

@@ -17,11 +17,11 @@ class ConfigEditorServerTest(unittest.TestCase):
         for kind, relative in CONFIG_PATHS.items():
             target = self.root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(json.dumps({"levels": []} if kind == "levels" else
-                                         {"upgrades": [], "skills": []}), encoding="utf-8")
-        monster_target = self.root / MONSTER_CONFIG_PATH
-        monster_target.parent.mkdir(parents=True, exist_ok=True)
-        monster_target.write_bytes((PROJECT_ROOT / MONSTER_CONFIG_PATH).read_bytes())
+            if kind == "monsters":
+                target.write_bytes((PROJECT_ROOT / MONSTER_CONFIG_PATH).read_bytes())
+            else:
+                target.write_text(json.dumps({"levels": []} if kind == "levels" else
+                                             {"upgrades": [], "skills": []}), encoding="utf-8")
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(self.root))
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -91,6 +91,46 @@ class ConfigEditorServerTest(unittest.TestCase):
         config["monsters"]["fast"]["speedMultiplier"] = 2.0
         monster_target.write_text(json.dumps(config), encoding="utf-8")
         self.assertEqual(self.request("/api/monster-speeds")[1]["types"]["fast"], 140)
+
+    def test_monster_config_roundtrip_and_conflict(self):
+        loaded = self.request("/api/monsters")[1]
+        changed = loaded["data"]
+        changed["baseSpeed"] = 80
+        changed["monsters"]["fast"]["speedMultiplier"] = 2.0
+        status, saved = self.request("/api/monsters", {"revision": loaded["revision"], "data": changed})
+        self.assertEqual(status, 200)
+        self.assertNotEqual(saved["revision"], loaded["revision"])
+        self.assertEqual(self.request("/api/monster-speeds")[1]["types"]["fast"], 160)
+        self.assertEqual(self.request("/api/monsters")[1]["data"], changed)
+        self.assertEqual(self.request("/api/monsters", {"revision": loaded["revision"], "data": changed})[0], 409)
+
+    def test_monster_config_rejects_values_game_cannot_load(self):
+        loaded = self.request("/api/monsters")[1]
+        cases = [
+            ("baseSpeed", 0),
+            ("baseSpeed", 10 ** 1000),
+            ("baseBodyRadius", 49),
+            ("maxHp", 0),
+            ("speedMultiplier", 10.1),
+            ("actionPower", 1.5),
+            ("coinDrop", 101),
+            ("stopRatioMax", -1),
+        ]
+        for field, value in cases:
+            with self.subTest(field=field):
+                data = json.loads(json.dumps(loaded["data"]))
+                if field in ("baseSpeed", "baseBodyRadius"):
+                    data[field] = value
+                else:
+                    data["monsters"]["normal"][field] = value
+                self.assertEqual(self.request("/api/monsters", {"revision": loaded["revision"], "data": data})[0], 400)
+        data = json.loads(json.dumps(loaded["data"]))
+        data["monsters"]["normal"]["stopRatioMin"] = 0.5
+        self.assertEqual(self.request("/api/monsters", {"revision": loaded["revision"], "data": data})[0], 400)
+        data = json.loads(json.dumps(loaded["data"]))
+        del data["monsters"]["fast"]
+        self.assertEqual(self.request("/api/monsters", {"revision": loaded["revision"], "data": data})[0], 400)
+        self.assertEqual(self.request("/api/monsters")[1], loaded)
 
 
 if __name__ == "__main__":

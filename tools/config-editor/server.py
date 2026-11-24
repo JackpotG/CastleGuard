@@ -1,4 +1,4 @@
-"""Local editor for campaign and progression, with read-only monster balance data."""
+"""Local editor for campaign, progression, and monster balance tables."""
 
 import argparse
 import hashlib
@@ -15,8 +15,24 @@ PROJECT_ROOT = EDITOR_DIR.parent.parent
 CONFIG_PATHS = {
     "levels": Path("code/axmol/CastleGuard/Content/config/waves.json"),
     "tree": Path("code/axmol/CastleGuard/Content/config/upgrades.json"),
+    "monsters": Path("code/axmol/CastleGuard/Content/config/monsters.json"),
 }
-MONSTER_CONFIG_PATH = Path("code/axmol/CastleGuard/Content/config/monsters.json")
+MONSTER_CONFIG_PATH = CONFIG_PATHS["monsters"]
+MONSTER_TYPES = frozenset((
+    "normal", "fast", "ranged", "shield", "bomber", "flyer", "healer",
+    "splitter", "rager", "ghost", "summoner", "aegis", "boss",
+))
+MONSTER_FIELD_LIMITS = {
+    "maxHp": (1, 999, False),
+    "speedMultiplier": (0.1, 10, False),
+    "bodyScale": (0.25, 5, False),
+    "actionPower": (0, 999, True),
+    "actionInterval": (0.05, 60, False),
+    "stopRatioMin": (0, 0.95, False),
+    "stopRatioMax": (0, 0.95, False),
+    "knockbackFactor": (0, 2, False),
+    "coinDrop": (1, 100, True),
+}
 STATIC_FILES = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
@@ -28,6 +44,31 @@ MAX_BODY_BYTES = 4 * 1024 * 1024
 
 def revision(raw):
     return hashlib.sha256(raw).hexdigest()
+
+
+def valid_number(value, minimum, maximum, integer=False):
+    if integer:
+        return type(value) is int and minimum <= value <= maximum
+    return (type(value) in (int, float) and minimum <= value <= maximum and
+            math.isfinite(value))
+
+
+def validate_monsters(data):
+    if not valid_number(data.get("baseSpeed"), 1, 500):
+        raise ValueError("基础移速须在 1–500 之间")
+    if not valid_number(data.get("baseBodyRadius"), 4, 48):
+        raise ValueError("基础体型半径须在 4–48 之间")
+    monsters = data.get("monsters")
+    if not isinstance(monsters, dict) or set(monsters) != MONSTER_TYPES:
+        raise ValueError("怪物类型必须与游戏内的 13 种类型完全一致")
+    for monster_id, attributes in monsters.items():
+        if not isinstance(attributes, dict):
+            raise ValueError(f"{monster_id} 属性格式无效")
+        for field, limits in MONSTER_FIELD_LIMITS.items():
+            if not valid_number(attributes.get(field), *limits):
+                raise ValueError(f"{monster_id} 的 {field} 超出游戏允许范围")
+        if attributes["stopRatioMax"] < attributes["stopRatioMin"]:
+            raise ValueError(f"{monster_id} 的驻足上限不能小于下限")
 
 
 def monster_speeds(project_root):
@@ -119,6 +160,8 @@ def make_handler(project_root=PROJECT_ROOT):
                     not isinstance(data.get("upgrades"), list) or not isinstance(data.get("skills"), list)
                 ):
                     raise ValueError("Missing upgrades or skills")
+                if self.path == "/api/monsters":
+                    validate_monsters(data)
                 body = (json.dumps(data, ensure_ascii=False, indent=2, allow_nan=False) + "\n").encode("utf-8")
             except (ValueError, KeyError, TypeError, json.JSONDecodeError) as error:
                 self.send_json(400, {"error": str(error)})
