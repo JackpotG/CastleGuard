@@ -28,6 +28,8 @@ python3 tools/config-editor/server.py
 
 技能树工具编辑既有 ID 的布局、前置关系和数值。新升级/法术 ID 仍需要先在游戏的 C++ 枚举与效果逻辑中接入；编辑器不会凭空创建可运行的新技能。页面提供快速输入检查，保存后仍应运行游戏测试，最终以游戏自己的配置解析结果为准。
 
+节点位置可直接填写层级与横向坐标，也可选择位置预设：基于直接子节点的最左与最右位置居中、同层节点按当前左右顺序在可用宽度内平均分配、对齐前置节点，或放到画布中央。预设会立即更新关系图，仍需点击“保存配置”写入配表；若位置超界或与同层节点小于最小间距，预设不会修改草稿。
+
 服务只监听本机 `127.0.0.1`。保存采用文件版本比对和原子替换：如果配置被别处修改，页面会要求重新载入，避免覆盖新内容。未保存状态按三个源文件分别记录；保存按钮保存当前分类对应的源文件。
 
 服务测试：
@@ -35,4 +37,5 @@ python3 tools/config-editor/server.py
 ```bash
 python3 -m unittest discover -s tools/config-editor -p 'test_*.py'
 node --test tools/config-editor/test_preview.cjs
+node --test tools/config-editor/test_tree_position.cjs
 ```

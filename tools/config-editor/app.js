@@ -365,7 +365,8 @@ function renderNodeInspector(node) {
     }
   }
   if (isSkill || node.track) {
-    html += `<div class="field-grid">${field("node", "treeRow", "树层级 · 从 0 开始", node.treeRow, "number")}${field("node", "treeX", "横向位置 · 0–1", node.treeX, "number")}</div><div class="field"><input data-scope="node" data-field="treeX" type="range" min="0.12" max="0.88" step="0.01" value="${escapeHtml(node.treeX)}" aria-label="横向位置"></div>`;
+    html += `<div class="field-grid">${field("node", "treeRow", "树层级 · 从 0 开始", node.treeRow, "number")}${field("node", "treeX", "横向位置 · 0–1", node.treeX, "number")}</div><div class="field"><input data-scope="node" data-field="treeX" type="range" min="0.12" max="0.88" step="0.01" value="${escapeHtml(node.treeX)}" aria-label="横向位置"></div>
+      <div class="field"><label for="tree-position-preset">位置预设</label><select id="tree-position-preset" data-action="position-preset"><option value="">选择位置预设</option><option value="children-center" ${nodesForTrack().some((item) => item.requires === node.id) ? "" : "disabled"}>基于子节点居中</option><option value="row-distribute">同层级平均分配</option><option value="parent-align" ${node.requires ? "" : "disabled"}>与前置节点对齐</option><option value="canvas-center">画布居中</option></select></div>`;
   }
   if (!isSkill) {
     html += `<div class="divider"></div><div class="line"><h3 class="grow">等级数值</h3><button class="small-button" data-action="add-upgrade-level" title="增加一级" aria-label="增加一级">+</button><button class="small-button danger-button" data-action="remove-upgrade-level" title="移除末级" aria-label="移除末级" ${node.costs.length <= 1 ? "disabled" : ""}>×</button></div>`;
@@ -490,6 +491,15 @@ function setCurrentField(input) {
   markDirty();
   render();
 }
+function applyPositionPreset(preset) {
+  if (!preset) return;
+  const nodes = nodesForTrack();
+  const result = TreePosition.plan(nodes, currentNode(), preset);
+  if (result.error) { showToast(result.error, true); return; }
+  for (const [id, x] of result.updates) nodes.find((node) => node.id === id).treeX = x;
+  if (result.updates.length) markDirty();
+  render();
+}
 function swap(array, first, second) {
   if (second < 0 || second >= array.length) return false;
   [array[first], array[second]] = [array[second], array[first]];
@@ -596,6 +606,7 @@ document.addEventListener("change", (event) => {
     return;
   }
   if (input.id === "level-search") { state.search = input.value; renderSidebar(); return; }
+  if (input.dataset.action === "position-preset") { applyPositionPreset(input.value); return; }
   if (input.dataset.scope) { setCurrentField(input); return; }
   if (input.dataset.action === "type-at") { currentGroup().types[Number(input.dataset.index)] = input.value; markDirty(); render(); return; }
   if (input.dataset.action === "edit-array") {

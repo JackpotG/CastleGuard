@@ -82,6 +82,10 @@ class ConfigEditorServerTest(unittest.TestCase):
             self.assertEqual(response.status, 200)
             self.assertIn("javascript", response.headers["Content-Type"])
             self.assertIn(b"MonsterVisual", response.read())
+        with urlopen(self.url + "/tree-position.js") as response:
+            self.assertEqual(response.status, 200)
+            self.assertIn("javascript", response.headers["Content-Type"])
+            self.assertIn(b"TreePosition", response.read())
 
     def test_monster_speeds_come_from_shared_config(self):
         status, response = self.request("/api/monster-speeds")

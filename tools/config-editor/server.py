@@ -38,6 +38,7 @@ STATIC_FILES = {
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/preview-model.js": ("preview-model.js", "text/javascript; charset=utf-8"),
     "/monster-visual.js": ("monster-visual.js", "text/javascript; charset=utf-8"),
+    "/tree-position.js": ("tree-position.js", "text/javascript; charset=utf-8"),
     "/style.css": ("style.css", "text/css; charset=utf-8"),
 }
 MAX_BODY_BYTES = 4 * 1024 * 1024
