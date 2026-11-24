@@ -317,13 +317,19 @@ function renderMonsters() {
   const entries = Object.entries(monsterNames);
   $("#main-content").innerHTML = `<div class="page-head"><div><p class="eyebrow">BASE VALUES / MONSTERS</p><h1>怪物基础数值</h1><div class="meta-row"><span><strong>${entries.length}</strong> 类型</span><span>关卡血量按基础生命随关卡增长</span></div></div></div>
     <h2 class="section-title">全局基准</h2><div class="field-grid monster-global">${monsterField("monster-global", "baseSpeed", "基础移速 · 像素/秒", data.baseSpeed, 1, 500)}${monsterField("monster-global", "baseBodyRadius", "基础体型 · 半径像素", data.baseBodyRadius, 4, 48)}</div>
-    <h2 class="section-title">类型对照</h2><div class="monster-table-wrap"><table class="monster-table"><thead><tr><th>怪物</th><th>生命</th><th>移速</th><th>攻击</th><th>间隔</th><th>金币</th></tr></thead><tbody>${entries.map(([id, name]) => { const value = data.monsters[id]; return `<tr class="${id === state.monster ? "selected" : ""}" data-monster-row="${id}"><th scope="row"><button data-action="select-monster" data-id="${id}">${name}<small>${id}</small></button></th><td>${value.maxHp}</td><td>${speeds[id]}</td><td>${value.actionPower}</td><td>${value.actionInterval}s</td><td>${value.coinDrop}</td></tr>`; }).join("")}</tbody></table></div>`;
+    <div class="monster-mobile-portrait"><strong>${monsterNames[state.monster]}</strong><canvas data-monster-art="${state.monster}" data-detail="true" width="256" height="180" role="img" aria-label="${monsterNames[state.monster]}怪物外形"></canvas></div>
+    <h2 class="section-title">类型对照</h2><div class="monster-table-wrap"><table class="monster-table"><thead><tr><th>怪物</th><th>生命</th><th>移速</th><th>攻击</th><th>间隔</th><th>金币</th></tr></thead><tbody>${entries.map(([id, name]) => { const value = data.monsters[id]; return `<tr class="${id === state.monster ? "selected" : ""}" data-monster-row="${id}"><th scope="row"><button class="monster-name" data-action="select-monster" data-id="${id}"><canvas class="monster-thumb" data-monster-art="${id}" width="48" height="48" aria-hidden="true"></canvas><span>${name}<small>${id}</small></span></button></th><td>${value.maxHp}</td><td>${speeds[id]}</td><td>${value.actionPower}</td><td>${value.actionInterval}s</td><td>${value.coinDrop}</td></tr>`; }).join("")}</tbody></table></div>`;
   const monster = data.monsters[state.monster];
-  $("#inspector").innerHTML = `<p class="eyebrow">MONSTER / ${escapeHtml(state.monster)}</p><h2>${monsterNames[state.monster]}</h2><div class="stack">
+  $("#inspector").innerHTML = `<p class="eyebrow">MONSTER / ${escapeHtml(state.monster)}</p><h2>${monsterNames[state.monster]}</h2><div class="monster-portrait-stage"><canvas data-monster-art="${state.monster}" data-detail="true" width="256" height="180" role="img" aria-label="${monsterNames[state.monster]}怪物外形"></canvas></div><div class="stack">
     <h3>战斗与掉落</h3><div class="field-grid">${monsterField("monster", "maxHp", "基础生命", monster.maxHp, 1, 999)}${monsterField("monster", "coinDrop", "击杀金币", monster.coinDrop, 1, 100, 1)}${monsterField("monster", "actionPower", "行动强度", monster.actionPower, 0, 999, 1)}${monsterField("monster", "actionInterval", "行动间隔 · 秒", monster.actionInterval, 0.05, 60)}</div>
     <div class="divider"></div><h3>移动与体型</h3><div class="field-grid">${monsterField("monster", "speedMultiplier", "移速倍率", monster.speedMultiplier, 0.1, 10)}${monsterField("monster", "bodyScale", "体型倍率", monster.bodyScale, 0.25, 5)}</div><div class="speed-reference"><span>当前基准移速</span><div><strong>${speeds[state.monster]} 像素/秒</strong></div></div>
     <div class="divider"></div><h3>行为</h3><div class="field-grid">${monsterField("monster", "stopRatioMin", "驻足位置下限", monster.stopRatioMin, 0, 0.95)}${monsterField("monster", "stopRatioMax", "驻足位置上限", monster.stopRatioMax, 0, 0.95)}${monsterField("monster", "knockbackFactor", "受击退倍率", monster.knockbackFactor, 0, 2)}</div>
     </div>`;
+  document.querySelectorAll("[data-monster-art]").forEach((canvas) => {
+    const attributes = data.monsters[canvas.dataset.monsterArt];
+    MonsterVisual.draw(canvas, canvas.dataset.monsterArt, data.baseBodyRadius,
+      attributes.bodyScale, canvas.dataset.detail === "true");
+  });
 }
 function renderGraph(nodes) {
   if (!nodes.length) return '<div class="tree-graph"><p class="empty">暂无节点</p></div>';
@@ -570,6 +576,8 @@ function handleAction(button) {
     node.costs.pop(); node.values.pop(); markDirty();
   } else return;
   render();
+  if (action === "select-monster" && matchMedia("(max-width: 850px)").matches)
+    $(".monster-mobile-portrait").scrollIntoView({behavior: "smooth", block: "start"});
 }
 
 document.addEventListener("click", (event) => {
