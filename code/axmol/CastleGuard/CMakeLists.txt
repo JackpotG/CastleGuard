@@ -164,3 +164,14 @@ if(MACOSX AND CMAKE_GENERATOR MATCHES "Ninja" AND AX_ENABLE_AUDIO AND ALSOFT_OSX
     cg_package_macos_audio(${TEST_TARGET_NAME})
   endif()
 endif()
+
+# Resource-only edits do not relink the executable, so POST_BUILD signing does
+# not run. The planner uses this target to seal the bundle after all copies finish.
+if(MACOSX)
+  add_custom_target(${APP_NAME}_prepare
+    COMMAND /usr/bin/codesign --force --deep --sign - "$<TARGET_BUNDLE_DIR:${APP_NAME}>"
+    COMMAND /usr/bin/codesign --verify --deep --strict "$<TARGET_BUNDLE_DIR:${APP_NAME}>"
+    DEPENDS ${APP_NAME}
+    COMMENT "Preparing signed ${APP_NAME} with saved configuration"
+    VERBATIM)
+endif()

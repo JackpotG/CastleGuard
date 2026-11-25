@@ -8,6 +8,7 @@ import os
 import subprocess
 import signal
 from build_tree_router import runtime_path
+from game_launcher import GameLauncher, GameLaunchError
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -97,7 +98,9 @@ def monster_speeds(project_root):
     return {"baseSpeed": base_speed, "types": speeds}
 
 
-def make_handler(project_root=PROJECT_ROOT):
+def make_handler(project_root=PROJECT_ROOT, game_launcher=None):
+    launcher = game_launcher if game_launcher is not None else GameLauncher(project_root)
+
     class EditorHandler(BaseHTTPRequestHandler):
         def send_json(self, status, payload):
             body = json.dumps(payload, ensure_ascii=False, allow_nan=False).encode("utf-8")
@@ -111,6 +114,31 @@ def make_handler(project_root=PROJECT_ROOT):
         def target(self):
             name = self.path.removeprefix("/api/")
             return project_root / CONFIG_PATHS[name] if name in CONFIG_PATHS else None
+
+        def do_POST(self):
+            if self.path != "/api/game/launch":
+                self.send_json(404, {"error": "Unknown action"})
+                return
+            # A game launch is a local user action; reject cross-site requests.
+            origin = self.headers.get("Origin")
+            if origin and origin != f"http://{self.headers.get('Host')}":
+                self.send_json(403, {"error": "只允许从当前配置工具打开游戏"})
+                return
+            if self.headers.get("Content-Type", "").split(";", 1)[0] != "application/json":
+                self.send_json(400, {"error": "打开游戏的请求格式不正确"})
+                return
+            try:
+                size = int(self.headers.get("Content-Length", "0"))
+                if not 0 < size <= 1024 or json.loads(self.rfile.read(size)) != {}:
+                    raise ValueError("Invalid launch request")
+            except (ValueError, UnicodeError):
+                self.send_json(400, {"error": "打开游戏的请求格式不正确"})
+                return
+            try:
+                self.send_json(200, launcher.launch())
+            except GameLaunchError as error:
+                self.log_error("[PlannerGame] %s", error)
+                self.send_json(error.status, {"error": str(error)})
 
         def do_GET(self):
             if self.path == "/tree-router-runtime.js":
@@ -229,7 +257,8 @@ def main():
     parser.add_argument("--port", type=int, default=8780)
     parser.add_argument("--ready-file", type=Path, help="Write the bound address for the desktop app")
     args = parser.parse_args()
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler())
+    launcher = GameLauncher(PROJECT_ROOT)
+    server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(game_launcher=launcher))
 
     def stop_server(_signal, _frame):
         raise KeyboardInterrupt
@@ -252,6 +281,7 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        launcher.close()
         server.server_close()
         if args.ready_file:
             args.ready_file.unlink(missing_ok=True)

@@ -2,12 +2,14 @@ import json
 import tempfile
 import threading
 import unittest
+from unittest.mock import Mock
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from server import CONFIG_PATHS, MONSTER_CONFIG_PATH, PROJECT_ROOT, make_handler
+from game_launcher import GameLaunchError
 
 
 class ConfigEditorServerTest(unittest.TestCase):
@@ -24,7 +26,9 @@ class ConfigEditorServerTest(unittest.TestCase):
                                              {"upgrades": [], "skills": []}), encoding="utf-8")
         schema = Path("code/axmol/CastleGuard/Content/config/upgrade-attributes.json")
         (self.root / schema).write_bytes((PROJECT_ROOT / schema).read_bytes())
-        self.server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(self.root))
+        self.launcher = Mock()
+        self.launcher.launch.return_value = {"message": "游戏正在打开"}
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(self.root, self.launcher))
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.url = f"http://127.0.0.1:{self.server.server_port}"
@@ -35,16 +39,37 @@ class ConfigEditorServerTest(unittest.TestCase):
         self.thread.join()
         self.directory.cleanup()
 
-    def request(self, path, data=None, content_type="application/json"):
+    def request(self, path, data=None, content_type="application/json", method=None, origin=None):
         payload = None if data is None else json.dumps(data).encode("utf-8")
-        request = Request(self.url + path, data=payload,
-                          headers={"Content-Type": content_type},
-                          method="PUT" if data is not None else "GET")
+        headers = {"Content-Type": content_type}
+        if origin:
+            headers["Origin"] = origin
+        request = Request(self.url + path, data=payload, headers=headers,
+                          method=method or ("PUT" if data is not None else "GET"))
         try:
             with urlopen(request) as response:
                 return response.status, json.load(response)
         except HTTPError as error:
             return error.code, json.load(error)
+
+    def test_game_launch_uses_fixed_action_and_reports_failures(self):
+        status, result = self.request("/api/game/launch", {}, method="POST", origin=self.url)
+        self.assertEqual(status, 200)
+        self.assertIn("游戏", result["message"])
+        self.launcher.launch.assert_called_once_with()
+        self.launcher.launch.side_effect = GameLaunchError(409, "游戏已经打开")
+        status, result = self.request("/api/game/launch", {}, method="POST")
+        self.assertEqual(status, 409)
+        self.assertIn("已经打开", result["error"])
+
+    def test_game_launch_rejects_cross_site_and_arbitrary_arguments(self):
+        self.assertEqual(self.request("/api/game/launch", {}, method="POST",
+                                      origin="http://other-site.invalid")[0], 403)
+        self.assertEqual(self.request("/api/game/launch", {}, method="POST", content_type="text/plain")[0], 400)
+        self.assertEqual(self.request("/api/game/launch", {"command": "other"}, method="POST")[0], 400)
+        self.assertEqual(self.request("/api/game/launch", method="POST")[0], 400)
+        self.assertEqual(self.request("/api/game/other", {}, method="POST")[0], 404)
+        self.launcher.launch.assert_not_called()
 
     def test_roundtrip_and_stale_revision(self):
         status, loaded = self.request("/api/levels")

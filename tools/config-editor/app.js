@@ -90,6 +90,7 @@ async function loadAll() {
   state.monster = "normal"; state.balanceCategory = "monsters"; state.baseUpgrade = "arrow_damage";
   markClean();
   applyLocation();
+  $("#open-game-button").disabled = false;
 }
 function navigate(mode, track, updateHash = true) {
   if (!["home", "levels", "tree", "balance"].includes(mode) || !state.documents.tree) return;
@@ -132,6 +133,33 @@ async function saveCurrent() {
 function saveFocused() {
   document.activeElement?.blur();
   if (state.mode !== "home" && documentData()) saveCurrent();
+}
+async function openGame() {
+  document.activeElement?.blur();
+  const button = $("#open-game-button");
+  if (button.disabled) return;
+  if (Object.values(state.dirty).some(Boolean)) {
+    showToast("请先保存所有修改，再打开游戏", true);
+    return;
+  }
+  button.disabled = true;
+  button.textContent = "正在准备游戏…";
+  button.setAttribute("aria-busy", "true");
+  try {
+    const response = await fetch("/api/game/launch", {
+      method: "POST", headers: {"Content-Type": "application/json"}, body: "{}",
+    });
+    if (response.status === 501 && !response.headers.get("Content-Type")?.includes("application/json"))
+      throw new Error("请先保存配置，再关闭并重新打开配置工具以启用打开游戏");
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "游戏未能打开，请稍后重试");
+    showToast(result.message);
+  } catch (error) { showToast(error.message, true); }
+  finally {
+    button.disabled = false;
+    button.textContent = "打开游戏";
+    button.removeAttribute("aria-busy");
+  }
 }
 function positive(value) { return typeof value === "number" && Number.isFinite(value) && value > 0; }
 function validateDraft() {
@@ -734,6 +762,7 @@ document.addEventListener("keydown", (event) => {
 for (const mode of ["home", "levels", "tree", "balance"])
   $(`#mode-${mode}`).addEventListener("click", () => navigate(mode));
 $("#save-button").addEventListener("click", saveCurrent);
+$("#open-game-button").addEventListener("click", openGame);
 $("#reload-button").addEventListener("click", () => {
   if (Object.values(state.dirty).some(Boolean) && !confirm("放弃未保存的修改并重新载入？")) return;
   // Reload scripts and the shared router too; fetching configs leaves old code in memory.
