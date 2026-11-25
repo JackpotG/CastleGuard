@@ -53,6 +53,23 @@ void clearPaths(const std::vector<Rect>& nodes,const std::vector<Rect>& labels,c
 }
 TEST_SUITE("TreeConnectionRouter")
 {
+    TEST_CASE("four siblings with mixed parents share the adjacent-layer bus")
+    {
+        const std::vector<Rect> nodes{{154,31,200,77},{464,31,510,77},{61,140,107,186},
+                                      {245,140,291,186},{351,140,397,186},{464,140,510,186}};
+        const std::vector<Rect> labels{{209,46,233,62},{430,46,454,62},{116,155,140,171},
+                                       {300,155,348,171},{317,155,341,171},{407,155,455,171}};
+        const std::vector<Edge> edges{{0,2},{0,3},{1,5},{0,4},{1,4}};
+        const auto paths=route(nodes,edges,labels,{8,8,550,260});
+        clearPaths(nodes,labels,edges,paths);
+        for(const auto& path:paths)
+        {
+            CHECK(path.strokes.size()==1);
+            for(size_t i=1;i<path.points.size();++i)
+                if(std::abs(path.points[i-1].y-path.points[i].y)<.01f)
+                    CHECK(path.points[i].y==108.5f);
+        }
+    }
     TEST_CASE("a third-row multi-parent node uses the same outgoing and incoming layer buses")
     {
         const std::vector<Rect> nodes{{125,25,175,75},{365,25,415,75},

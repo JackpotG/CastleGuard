@@ -39,6 +39,22 @@ test("aligns with a parent and rejects collisions without changing nodes", () =>
   assert.match(plan(nodes, nodes[1], "canvas-center").error, /过近/);
 });
 
+test("four- and five-node presets stay within saveable bounds and preserve spacing", () => {
+  for (const count of [4, 5]) {
+    const nodes = Array.from({length: count}, (_, index) => ({id: String(index), treeRow: 1, treeX: .2 + index * .1}));
+    const result = plan(nodes, nodes[1], "row-distribute");
+    assert.equal(result.error, undefined);
+    const positions = new Map(result.updates);
+    const xs = nodes.map((node) => positions.get(node.id) ?? node.treeX);
+    assert.equal(xs[0], .12);
+    assert.equal(xs.at(-1), .88);
+    assert.ok(xs.every((x) => x >= .12 && x <= .88));
+    assert.ok(xs.slice(1).every((x, index) => Math.abs(x - xs[index] - .76 / (count - 1)) <= 1e-6));
+    const placed = nodes.map((node, index) => ({...node, treeX: xs[index]}));
+    assert.deepEqual(plan(placed, placed[1], "row-distribute"), {updates: []});
+  }
+});
+
 test("rejects unavailable relations and rows too crowded to distribute", () => {
   const nodes = Array.from({length: 6}, (_, index) => ({id: String(index), treeRow: 0, treeX: .12 + index * .15}));
   assert.match(plan(nodes, nodes[0], "children-center").error, /没有直接子节点/);

@@ -736,7 +736,9 @@ for (const mode of ["home", "levels", "tree", "balance"])
 $("#save-button").addEventListener("click", saveCurrent);
 $("#reload-button").addEventListener("click", () => {
   if (Object.values(state.dirty).some(Boolean) && !confirm("放弃未保存的修改并重新载入？")) return;
-  loadAll().catch((error) => showToast(error.message, true));
+  // Reload scripts and the shared router too; fetching configs leaves old code in memory.
+  for (const kind of Object.keys(state.dirty)) state.dirty[kind] = false;
+  location.reload();
 });
 window.addEventListener("beforeunload", (event) => {
   if (Object.values(state.dirty).some(Boolean)) event.preventDefault();

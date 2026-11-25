@@ -24,8 +24,9 @@ const TreePosition = (() => {
         .sort((a, b) => a.node.treeX - b.node.treeX || a.index - b.index);
       if (row.length > 1 && (MAX_X - MIN_X) / (row.length - 1) < MIN_GAP)
         return {error: "本层节点过多，无法保持最小间距"};
+      // Round generated positions so floating-point error cannot push an endpoint past MAX_X.
       positions = new Map(row.map(({node}, index) => [node.id,
-        row.length === 1 ? .5 : MIN_X + index * (MAX_X - MIN_X) / (row.length - 1)]));
+        row.length === 1 ? .5 : Number((MIN_X + index * (MAX_X - MIN_X) / (row.length - 1)).toFixed(6))]));
     } else return {error: "未知位置预设"};
 
     const row = nodes.filter((node) => node.treeRow === selected.treeRow)
