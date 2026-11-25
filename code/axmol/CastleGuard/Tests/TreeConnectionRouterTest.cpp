@@ -62,7 +62,7 @@ void clearPaths(const std::vector<Rect>& nodes,const std::vector<Rect>& labels,c
 }
 TEST_SUITE("TreeConnectionRouter")
 {
-    TEST_CASE("same-parent branches share trunks while mixed-parent inputs stay separate")
+    TEST_CASE("same-layer branches align while mixed-parent inputs stay separate")
     {
         const std::vector<Rect> nodes{{154,31,200,77},{464,31,510,77},{61,140,107,186},
                                       {245,140,291,186},{351,140,397,186},{464,140,510,186}};
@@ -77,7 +77,10 @@ TEST_SUITE("TreeConnectionRouter")
         }
         CHECK(paths[0].points[1].y==paths[1].points[1].y);
         CHECK(paths[0].points[1].y==paths[3].points[1].y);
-        CHECK(paths[0].points[1].y!=paths[4].points[1].y);
+        CHECK(paths[0].points[1].y==paths[4].points[1].y);
+        for(const auto& path:paths) for(size_t i=1;i<path.points.size();++i)
+            if(std::abs(path.points[i-1].y-path.points[i].y)<.01f)
+                CHECK(path.points[i].y==108.5f);
         CHECK(paths[3].points.back().x!=paths[4].points.back().x);
     }
     TEST_CASE("a long prerequisite preserves its source bus and gets an independent target port")

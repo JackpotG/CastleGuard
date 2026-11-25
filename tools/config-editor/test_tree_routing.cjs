@@ -47,7 +47,7 @@ test('a long prerequisite keeps its source bus and a separate incoming port',()=
  independentInputs(paths,[[0,2],[0,3],[1,4],[4,5],[0,5]]);
  for(let i=1;i<link.points.length;i++) for(const rect of nodes) assert.ok(avoids(rect,link.points[i-1],link.points[i]));
 });
-test('four siblings share outgoing trunks but keep mixed-parent inputs separate',()=>{
+test('four siblings align their trunks while mixed-parent inputs stay separate',()=>{
  const nodes=[[154,31,200,77],[464,31,510,77],[61,140,107,186],
               [245,140,291,186],[351,140,397,186],[464,140,510,186]];
  const labels=[[209,46,233,62],[430,46,454,62],[116,155,140,171],
@@ -63,7 +63,9 @@ test('four siblings share outgoing trunks but keep mixed-parent inputs separate'
  }
  assert.equal(paths[0].points[1][1],paths[1].points[1][1]);
  assert.equal(paths[0].points[1][1],paths[3].points[1][1]);
- assert.notEqual(paths[0].points[1][1],paths[4].points[1][1]);
+ assert.equal(paths[0].points[1][1],paths[4].points[1][1]);
+ for(const route of paths) for(let i=1;i<route.points.length;i++)
+  if(Math.abs(route.points[i-1][1]-route.points[i][1])<.01) assert.equal(route.points[i][1],108.5);
  independentInputs(paths,edges);
 });
 test('browser uses the game router to bypass intermediate nodes and labels',()=>{
