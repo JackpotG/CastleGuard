@@ -64,3 +64,51 @@ body.preview-open{overflow:hidden}
 .prerequisite-row select { min-width: 0; width: 100%; }
 .prerequisite-level { display: flex; align-items: center; gap: 5px; }
 .prerequisite-level input { min-width: 0; width: 58px; }
+
+/* The workbench is another view of the same editor, so switching never unloads drafts. */
+body[data-mode=home] .workspace{display:block;background:#f3f6f0}
+body[data-mode=home] .sidebar,body[data-mode=home] .inspector{display:none}
+body[data-mode=home] .main-content{max-height:calc(100vh - 64px);padding:0;background:transparent}
+.planner-home{max-width:1250px;margin:0 auto;padding:56px 48px 32px}
+.planner-heading{display:flex;justify-content:space-between;gap:24px;align-items:flex-start;margin-bottom:48px}
+.planner-heading .eyebrow{letter-spacing:1.6px;font-size:11px;margin-bottom:16px}
+.planner-heading h1{font-size:34px;letter-spacing:-1.1px;line-height:1.3;color:#223b30;margin:0 0 15px;font-weight:650}
+.planner-intro{color:#718174;font-size:14px;line-height:1.8;margin:0}
+.project-status{display:flex;align-items:center;gap:8px;flex:none;border:1px solid #d6e2d6;background:#edf4e9;color:#5a765a;font-size:11px;padding:9px 12px;margin-top:6px}
+.project-status i{width:6px;height:6px;border-radius:50%;background:#6d9c62}
+.planner-section-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:15px}
+.planner-section-head h2{font-size:14px;letter-spacing:.5px;font-weight:650;margin:0;color:#324e3f}
+.planner-section-head>span{font-size:11px;color:#839084}
+.tool-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}
+.tool-card{display:flex;flex-direction:column;text-align:left;min-width:0;padding:25px 23px 0;background:#fcfdf9;border:1px solid #d0ddcf;color:#2e4b3c;transition:transform .15s,border-color .15s,box-shadow .15s}
+.tool-card:hover{transform:translateY(-3px);border-color:#84ab91;box-shadow:0 9px 22px #345a3f0c}
+.tool-card:focus-visible,.planner-shortcut:focus-visible{outline:3px solid #26896f;outline-offset:4px}
+.tool-card-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:25px}
+.tool-icon{display:grid;place-items:center;width:64px;height:64px;background:#e7efe0;color:#557b4b}
+.tool-icon svg{width:39px;height:39px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.tool-tree .tool-icon{background:#e6ecee;color:#5e7b8d}.tool-balance .tool-icon{background:#f2ebd9;color:#a18343}
+.tool-index{align-self:flex-start;color:#a5b4a4;font-size:11px;letter-spacing:2px}
+.tool-card>strong{font-size:21px;font-weight:650;letter-spacing:-.3px;margin-bottom:11px}
+.tool-copy{color:#718275;font-size:12px;line-height:1.9;min-height:46px;max-width:250px}
+.tool-tags{display:flex;flex-wrap:wrap;gap:6px;margin:18px 0 24px}
+.tool-tags>span{font-size:10px;padding:4px 7px;background:#f0f4ec;color:#7d8c79}
+.tool-card-bottom{display:flex;justify-content:space-between;align-items:center;gap:9px;border-top:1px solid #e1e8db;margin-top:auto;padding:17px 0;width:100%;font-size:10px;color:#8a9786}
+.tool-card-bottom b{color:#587851;font-size:14px;font-weight:650;margin-right:2px}
+.tool-open{display:flex;align-items:center;gap:10px;color:#527b5c;white-space:nowrap;font-weight:600}
+.tool-open>span{font-size:17px;font-weight:400}
+.draft-dot{display:inline-block;width:6px;height:6px;background:#bf9142;border-radius:50%;margin-right:6px}
+.shortcut-heading{margin-top:37px}
+.shortcut-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border:1px solid #d7e1d2;background:#f9fbf5}
+.planner-shortcut{display:flex;align-items:center;gap:12px;min-width:0;padding:21px 17px;text-align:left;border:0;border-right:1px solid #e0e7d9;background:transparent;color:#4a6550}
+.planner-shortcut:last-child{border-right:0}.planner-shortcut:hover{background:#eaf2e5}
+.shortcut-glyph{display:grid;place-items:center;width:33px;height:33px;flex:none;border:1px solid #d4dfca;color:#769069;font-size:14px;font-family:serif}
+.planner-shortcut strong{display:block;font-weight:600;font-size:12px;margin-bottom:5px;white-space:nowrap}
+.planner-shortcut small{display:block;font-size:10px;color:#8a9981;white-space:nowrap}
+.shortcut-arrow{margin-left:auto;color:#a5b39a;font-size:14px}
+.planner-footnote{display:flex;gap:12px;align-items:flex-start;margin-top:36px;padding-top:24px;border-top:1px solid #dde5d6;color:#8b9a81}
+.planner-footnote-mark{display:grid;place-items:center;border:1px solid #ccd9c2;width:20px;height:20px;font-size:11px;flex:none}
+.planner-footnote p{display:flex;flex-direction:column;gap:5px;margin:0;line-height:1.6;font-size:11px}
+.planner-footnote strong{font-weight:500;color:#6e8466}
+@media(max-width:1150px){.topbar{gap:18px;padding:0 18px}.brand-sub{display:none}.planner-home{padding:40px 30px 24px}.tool-card{padding:22px 18px 0}.planner-shortcut{padding:18px 12px;gap:8px}.shortcut-arrow{display:none}}
+@media(max-width:850px){body[data-mode=home] .main-content{max-height:none}.planner-home{padding:30px 22px}.planner-heading{margin-bottom:32px}.planner-heading h1{font-size:28px}.tool-grid{gap:12px}.tool-card{padding:18px 14px 0}.tool-card>strong{font-size:18px}.tool-card-bottom{align-items:flex-start;flex-direction:column;gap:10px}.shortcut-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.planner-shortcut:nth-child(2){border-right:0}.planner-shortcut:nth-child(-n+2){border-bottom:1px solid #e0e7d9}.project-status{display:none}}
+@media(max-width:560px){.planner-home{padding:26px 18px}.planner-heading h1{font-size:25px}.planner-intro{font-size:12px}.tool-grid{grid-template-columns:1fr}.tool-card{padding:20px 22px 0}.tool-card-top{margin-bottom:17px}.tool-copy{min-height:0;max-width:none}.tool-tags{margin:12px 0 18px}.tool-card-bottom{flex-direction:row;align-items:center}.planner-section-head>span{display:none}.planner-heading .eyebrow{font-size:10px}.mode-switch{max-width:100%;margin-left:0}.topbar{height:auto;padding:12px 16px}.brand{font-size:15px}.top-actions{width:auto;gap:6px}.top-actions .save-state{font-size:10px}.top-actions .primary-button{font-size:12px;padding:0 9px}}

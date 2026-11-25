@@ -36,3 +36,7 @@ code/axmol/*/wechat-build/
 # ---- 临时与日志 ----
 *.log
 tmp/
+
+# ---- 策划配置桌面应用（由 tools/planner-app/build.py 生成）----
+/游戏策划配置.app/
+tools/planner-app/build/

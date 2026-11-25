@@ -6,6 +6,7 @@ import json
 import math
 import os
 import subprocess
+import signal
 from build_tree_router import runtime_path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -36,6 +37,8 @@ MONSTER_FIELD_LIMITS = {
     "coinDrop": (1, 100, True),
 }
 STATIC_FILES = {
+    "/planner": ("index.html", "text/html; charset=utf-8"),
+    "/planner-home.js": ("planner-home.js", "text/javascript; charset=utf-8"),
     "/tree-routing.js": ("tree-routing.js", "text/javascript; charset=utf-8"),
     "/": ("index.html", "text/html; charset=utf-8"),
     "/upgrade-editor.js": ("upgrade-editor.js", "text/javascript; charset=utf-8"),
@@ -224,15 +227,34 @@ def make_handler(project_root=PROJECT_ROOT):
 def main():
     parser = argparse.ArgumentParser(description="CastleGuard config editor")
     parser.add_argument("--port", type=int, default=8780)
+    parser.add_argument("--ready-file", type=Path, help="Write the bound address for the desktop app")
     args = parser.parse_args()
     server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler())
-    print(f"CastleGuard config editor: http://127.0.0.1:{server.server_port}", flush=True)
+
+    def stop_server(_signal, _frame):
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, stop_server)
     try:
+        # Port 0 lets the OS choose a free port without a probe/bind race.
+        if args.ready_file:
+            temporary = None
+            try:
+                with NamedTemporaryFile(dir=args.ready_file.parent, mode="w", encoding="utf-8", delete=False) as output:
+                    temporary = Path(output.name)
+                    json.dump({"port": server.server_port, "pid": os.getpid()}, output)
+                os.replace(temporary, args.ready_file)
+            finally:
+                if temporary and temporary.exists():
+                    temporary.unlink()
+        print(f"CastleGuard config editor: http://127.0.0.1:{server.server_port}", flush=True)
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
         server.server_close()
+        if args.ready_file:
+            args.ready_file.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

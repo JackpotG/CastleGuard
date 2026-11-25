@@ -6,7 +6,7 @@ const clone = (value) => structuredClone(value);
 const state = {
   mode: "levels", documents: {}, dirty: {levels: false, tree: false, monsters: false},
   level: 0, wave: 0, group: 0, track: "bow", node: "arrow_damage", monster: "normal",
-  balanceCategory: "monsters", baseUpgrade: "arrow_damage", search: "",
+  balanceCategory: "monsters", baseUpgrade: "arrow_damage", search: "", routerReady: false,
 };
 const previewState = {open: false, wave: 0, time: 0, speed: 1, randomize: false, playing: false, frame: 0, lastFrame: 0, timeline: null};
 const trackNames = {bow: "军械所", magic: "研究院", defense: "城防营", spells: "法术研习"};
@@ -81,7 +81,6 @@ async function loadAll() {
       return response.json();
     }),
   );
-  await TreeRouting.ready();
   UpgradeEditor.normalize(tree.data);
   state.attributes = attributes.data.attributes;
   state.documents = {levels, tree, monsters};
@@ -90,7 +89,22 @@ async function loadAll() {
   state.track = "bow"; state.node = tree.data.upgrades.find((item) => trackOf(item) === "bow")?.id;
   state.monster = "normal"; state.balanceCategory = "monsters"; state.baseUpgrade = "arrow_damage";
   markClean();
+  applyLocation();
+}
+function navigate(mode, track, updateHash = true) {
+  if (!["home", "levels", "tree", "balance"].includes(mode) || !state.documents.tree) return;
+  if (previewState.open) closePreview();
+  state.mode = mode;
+  if (mode === "tree" && track && Object.hasOwn(trackNames, track)) {
+    state.track = track;
+    state.node = nodesForTrack()[0]?.id;
+  }
+  if (updateHash) history.replaceState(null, "", `#${mode}${mode === "tree" ? `/${state.track}` : ""}`);
   render();
+}
+function applyLocation() {
+  const [mode, track] = location.hash.slice(1).split("/");
+  navigate(["home", "levels", "tree", "balance"].includes(mode) ? mode : location.pathname === "/planner" ? "home" : "levels", track, false);
 }
 function markClean() {
   const dirty = Object.values(state.dirty).some(Boolean);
@@ -114,6 +128,10 @@ async function saveCurrent() {
     markClean();
     showToast("配置已保存");
   } catch (error) { showToast(error.message, true); }
+}
+function saveFocused() {
+  document.activeElement?.blur();
+  if (state.mode !== "home" && documentData()) saveCurrent();
 }
 function positive(value) { return typeof value === "number" && Number.isFinite(value) && value > 0; }
 function validateDraft() {
@@ -192,9 +210,17 @@ function monsterField(scope, name, label, value, minimum, maximum, step = "any")
   return `<div class="field"><label for="monster-${scope}-${name}">${label}</label><input id="monster-${scope}-${name}" data-scope="${scope}" data-field="${name}" type="number" value="${escapeHtml(value)}" min="${minimum}" max="${maximum}" step="${step}" title="允许范围：${minimum}–${maximum}"></div>`;
 }
 function render() {
+  document.body.dataset.mode = state.mode;
+  for (const button of document.querySelectorAll(".mode-button")) button.disabled = false;
+  $("#mode-home").classList.toggle("active", state.mode === "home");
   $("#mode-levels").classList.toggle("active", state.mode === "levels");
   $("#mode-tree").classList.toggle("active", state.mode === "tree");
   $("#mode-balance").classList.toggle("active", state.mode === "balance");
+  $("#save-button").hidden = state.mode === "home";
+  if (state.mode === "home") {
+    $("#main-content").innerHTML = PlannerHome.render(state.documents, state.dirty);
+    return;
+  }
   if (!documentData()) return;
   renderSidebar();
   if (state.mode === "levels") renderLevels();
@@ -331,7 +357,7 @@ function renderGraph(nodes) {
 }
 function drawTreeConnections() {
   const graph = $(".tree-graph"), svg = graph?.querySelector("svg");
-  if (!svg || state.mode !== "tree" || !state.documents.tree) return;
+  if (!svg || state.mode !== "tree" || !state.documents.tree || !state.routerReady) return;
   const nodes = nodesForTrack(), origin = svg.getBoundingClientRect();
   const buttons = [...graph.querySelectorAll(".tree-node")];
   const rect = (box) => [box.left - origin.left, box.top - origin.top, box.right - origin.left, box.bottom - origin.top];
@@ -654,6 +680,7 @@ function handleAction(button) {
 document.addEventListener("click", (event) => {
   if (event.target.id === "level-preview") { closePreview(); return; }
   const button = event.target.closest("[data-action]");
+  if (button?.dataset.action === "open-tool") { navigate(button.dataset.mode, button.dataset.track); return; }
   if (button && button.tagName === "BUTTON") handleAction(button);
 });
 document.addEventListener("change", (event) => {
@@ -699,10 +726,13 @@ document.addEventListener("input", (event) => {
 });
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && previewState.open) closePreview();
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+    event.preventDefault();
+    saveFocused();
+  }
 });
-$("#mode-levels").addEventListener("click", () => { state.mode = "levels"; render(); });
-$("#mode-tree").addEventListener("click", () => { state.mode = "tree"; render(); });
-$("#mode-balance").addEventListener("click", () => { state.mode = "balance"; render(); });
+for (const mode of ["home", "levels", "tree", "balance"])
+  $(`#mode-${mode}`).addEventListener("click", () => navigate(mode));
 $("#save-button").addEventListener("click", saveCurrent);
 $("#reload-button").addEventListener("click", () => {
   if (Object.values(state.dirty).some(Boolean) && !confirm("放弃未保存的修改并重新载入？")) return;
@@ -711,7 +741,20 @@ $("#reload-button").addEventListener("click", () => {
 window.addEventListener("beforeunload", (event) => {
   if (Object.values(state.dirty).some(Boolean)) event.preventDefault();
 });
-loadAll().catch((error) => showToast(error.message, true));
+window.addEventListener("hashchange", () => { if (state.documents.tree) applyLocation(); });
+window.PlannerApp = {
+  hasUnsavedChanges: () => Object.values(state.dirty).some(Boolean),
+  navigate,
+  save: saveFocused,
+};
+loadAll().catch((error) => {
+  $("#main-content").innerHTML = `<p role="alert">${escapeHtml(error.message)}。请点击右上角重新载入。</p>`;
+  showToast(error.message, true);
+});
+TreeRouting.ready().then(() => {
+  state.routerReady = true;
+  if (state.mode === "tree") drawTreeConnections();
+}).catch(() => showToast("技能连线加载失败，请重新打开配置工具。其他配置仍可使用。", true));
 
 let treeResizeFrame;
 new ResizeObserver(() => {

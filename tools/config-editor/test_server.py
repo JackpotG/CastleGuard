@@ -97,6 +97,13 @@ class ConfigEditorServerTest(unittest.TestCase):
                 self.assertIn("javascript", response.headers["Content-Type"])
                 self.assertIn(marker, response.read())
 
+    def test_planner_entry_and_home_asset_are_served(self):
+        for asset, marker in [("/planner", "游戏策划配置".encode()),
+                              ("/planner-home.js", b"PlannerHome")]:
+            with urlopen(self.url + asset) as response:
+                self.assertEqual(response.status, 200)
+                self.assertIn(marker, response.read())
+
     def test_upgrade_attribute_schema_is_shared_and_read_only(self):
         status, response = self.request("/api/attributes")
         self.assertEqual(status, 200)

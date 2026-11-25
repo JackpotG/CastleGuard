@@ -41,6 +41,7 @@ CastleGuard/
 │   ├── cocos/                   # 旧 Cocos Creator 路线残留（已弃用，仅留档）
 │   └── axmol/CastleGuard/       # 当前游戏工程（C++，竖屏）
 └── tools/
+    ├── planner-app/            # macOS 游戏策划配置应用的窗口与构建脚本
     ├── config-editor/          # 关卡与技能树配置工具（本机浏览器）
     └── wechat/                 # 微信转换工具 + 能力 SDK
 ```
@@ -52,6 +53,8 @@ CastleGuard/
 3. **发布即验收**：每站以"真实发布"为终点（小游戏上线 / 安卓包给朋友装 / UE 可玩 Demo），不做永远只差一点的半成品。
 
 ## 当前状态
+
+策划配置：双击根目录 **游戏策划配置.app** 进入统一工作台。首次拉取后双击 **游戏策划配置.command** 生成应用。使用说明见 `tools/planner-app/README.md`。
 
 - [x] 项目立项、上下文文档沉淀（2026-11-13）
 - [x] 第一站里程碑 M0：Axmol 战斗原型手感确认（2026-11-17，桌面/微信/iPhone 真机验证）

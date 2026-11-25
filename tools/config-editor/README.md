@@ -1,5 +1,7 @@
 # CastleGuard 配置工具
 
+推荐双击仓库根目录的 **游戏策划配置.app**，通过独立窗口工作台进入各个工具。首次拉取后可双击 **游戏策划配置.command** 自动生成并打开应用。桌面应用的构建和退出行为见 `../planner-app/README.md`。
+
 在仓库根目录运行：
 
 ```bash
@@ -11,6 +13,8 @@ python3 tools/config-editor/server.py
 - `code/axmol/CastleGuard/Content/config/waves.json`
 - `code/axmol/CastleGuard/Content/config/upgrades.json`
 - `code/axmol/CastleGuard/Content/config/monsters.json`
+
+`http://127.0.0.1:8780/planner` 是统一工作台入口，`#levels`、`#tree/bow`、`#tree/magic`、`#tree/defense`、`#tree/spells`、`#balance` 可以直接进入相应工具。返回工作台和切换工具保留当前草稿，`⌘S` / `Ctrl+S` 保存当前工具。
 
 “基础数值”页先按现有配表分为“怪物”和“成长初始值”。怪物分类可编辑全局基础移速、基础体型半径，以及每种怪物的生命、移速倍率、体型倍率、行动强度与间隔、驻足范围、击退倍率和金币掉落；保存到 `monsters.json`。类型对照表中的移速由全局基础移速乘以类型倍率计算。未保存的移速修改也会立即反映到关卡配置页的参考值和预览器；保存接口按游戏 `MonsterBalance` 的范围规则检查输入。
 
