@@ -1329,7 +1329,7 @@ void MainScene::drawSandboxTab()
     {
         const auto id      = static_cast<UpgradeId>(i);
         const int maxLevel = data.upgradeDefinition(id).maxLevel();
-        const std::string label = data.upgradeDefinition(id).name + "进度";
+        const std::string label = data.upgradeDefinition(id).name + "进度##" + data.upgradeDefinition(id).key;
         ImGui::SliderInt(label.c_str(), &_sandboxDraft.upgradeLevels[i], 0, maxLevel);
     }
 

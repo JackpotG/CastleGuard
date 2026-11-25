@@ -74,8 +74,10 @@ enum class Currency
     Crystals,
 };
 
+// 节点句柄按目录生成；前九个名字仅保留旧目录与战斗属性的兼容入口。存档始终使用 key。
 enum class UpgradeId
 {
+    None = -1,
     ArrowDamage = 0,
     FireRate,
     MultiShot,
@@ -104,6 +106,22 @@ enum class SkillId
     Count,
 };
 
+struct UpgradeEffect
+{
+    std::string attribute;
+    std::string operation = "add";
+    std::vector<float> values;
+};
+
+struct UpgradeAttribute
+{
+    std::string key;
+    std::string name;
+    float baseValue = 0;
+    float minimum = 0;
+    float maximum = 0;
+};
+
 struct UpgradeDefinition
 {
     UpgradeId id = UpgradeId::ArrowDamage;
@@ -112,12 +130,15 @@ struct UpgradeDefinition
     std::string description;
     Currency currency = Currency::Coins;
     std::vector<int> costs;       // costs[level] 是从当前等级升一级的价格
-    std::vector<float> values;    // values[level] 是等级效果；疾射使用相对基础间隔的倍率
-    UpgradeId prerequisite = UpgradeId::Count;
+    std::vector<float> values;    // 旧构造接口及首个效果的兼容快照；实际战斗统一读取 effects
+    UpgradeId prerequisite = UpgradeId::None;
     int requiredLevel = 0;
     int treeRow = -1;
     float treeX = 0.5f;
     UpgradeTrack track = UpgradeTrack::None;
+
+    std::vector<UpgradeEffect> effects;
+    int unlockStage = 0;
 
     int maxLevel() const { return static_cast<int>(costs.size()); }
 };
@@ -137,7 +158,17 @@ struct SkillDefinition
 };
 
 bool validResearchTree(const std::array<SkillDefinition, static_cast<size_t>(SkillId::Count)>& skills);
-bool validUpgradeTree(const std::array<UpgradeDefinition, static_cast<size_t>(UpgradeId::Count)>& upgrades);
+bool validUpgradeTree(const std::vector<UpgradeDefinition>& upgrades);
+inline bool validUpgradeTree(const std::array<UpgradeDefinition, static_cast<size_t>(UpgradeId::Count)>& upgrades)
+{
+    return validUpgradeTree(std::vector<UpgradeDefinition>(upgrades.begin(), upgrades.end()));
+}
+std::vector<UpgradeAttribute> defaultUpgradeAttributes();
+bool parseUpgradeCatalog(const std::string& json, std::vector<UpgradeDefinition>& upgrades, std::string* error = nullptr,
+                         const std::vector<UpgradeAttribute>& attributes = defaultUpgradeAttributes());
+bool parseUpgradeAttributes(const std::string& json, std::vector<UpgradeAttribute>& attributes);
+float evaluateUpgradeAttribute(const UpgradeAttribute& attribute, const std::vector<UpgradeDefinition>& upgrades,
+                               const class ProgressionModel& progression);
 int wallDamageAfterArmor(int rawDamage, int armor);
 
 enum class PurchaseStatus
@@ -165,18 +196,18 @@ class ProgressionModel
 public:
     int upgradeLevel(UpgradeId id) const;
     bool isSkillUnlocked(SkillId id) const;
-    bool meetsUpgradePrerequisite(const UpgradeDefinition& definition) const;
+    bool meetsUpgradePrerequisite(const UpgradeDefinition& definition, int stage = 1) const;
     void setUpgradeLevel(UpgradeId id, int level);
     void setSkillUnlocked(SkillId id, bool unlocked);
 
-    PurchaseResult purchaseUpgrade(EconomyModel& economy, const UpgradeDefinition& definition);
+    PurchaseResult purchaseUpgrade(EconomyModel& economy, const UpgradeDefinition& definition, int stage = 1);
     PurchaseResult unlockSkill(EconomyModel& economy, const SkillDefinition& definition);
     bool grantUpgradeLevel(const UpgradeDefinition& definition);
     std::vector<SkillId> unlockSkillsForStage(
         int stage, const std::array<SkillDefinition, static_cast<size_t>(SkillId::Count)>& definitions);
 
 private:
-    std::array<int, static_cast<size_t>(UpgradeId::Count)> _levels{};
+    std::vector<int> _levels = std::vector<int>(static_cast<size_t>(UpgradeId::Count), 0);
     std::array<bool, static_cast<size_t>(SkillId::Count)> _unlocked{};
 };
 
@@ -210,7 +241,7 @@ struct DebugPlayerData
     int highestRewardedStage = 0;
     int wallKitStock = 0;
     int manaCharmStock = 0;
-    std::array<int, static_cast<size_t>(UpgradeId::Count)> upgradeLevels{};
+    std::vector<int> upgradeLevels;
     std::array<bool, static_cast<size_t>(SkillId::Count)> skillUnlocked{};
 };
 #endif
@@ -242,6 +273,8 @@ public:
     int wallKitStock() const { return _wallKitStock; }
     int manaCharmStock() const { return _manaCharmStock; }
 
+    const std::vector<UpgradeDefinition>& upgradeDefinitions() const { return _upgrades; }
+    const std::vector<UpgradeAttribute>& upgradeAttributes() const { return _attributes; }
     const UpgradeDefinition& upgradeDefinition(UpgradeId id) const;
     const SkillDefinition& skillDefinition(SkillId id) const;
     int upgradeLevel(UpgradeId id) const;
@@ -281,6 +314,7 @@ private:
     CampaignProgressionModel _campaign;
     int _wallKitStock = 0;
     int _manaCharmStock = 0;
-    std::array<UpgradeDefinition, static_cast<size_t>(UpgradeId::Count)> _upgrades;
+    std::vector<UpgradeDefinition> _upgrades;
+    std::vector<UpgradeAttribute> _attributes;
     std::array<SkillDefinition, static_cast<size_t>(SkillId::Count)> _skills;
 };

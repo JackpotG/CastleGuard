@@ -25,9 +25,6 @@ constexpr const char* KEY_WALL_KIT_STOCK = "cg.save.campaign.wallKitStock";
 constexpr const char* KEY_MANA_CHARM_STOCK = "cg.save.campaign.manaCharmStock";
 constexpr const char* CATALOG_PATH     = "config/upgrades.json";
 
-constexpr std::array<const char*, static_cast<size_t>(UpgradeId::Count)> UPGRADE_KEYS = {
-    "arrow_damage", "fire_rate", "multi_shot", "wall_health", "heavy_strike", "precision", "mana_flow",
-    "wall_armor", "spell_efficiency"};
 constexpr std::array<const char*, static_cast<size_t>(SkillId::Count)> SKILL_KEYS = {
     "fireball", "freeze", "arrow_rain", "lightning"};
 
@@ -97,18 +94,6 @@ std::string skillStorageKey(const char* key)
     return std::string("cg.save.skill.") + key;
 }
 
-UpgradeId upgradeIdFromKey(const char* key)
-{
-    for (size_t i = 0; i < UPGRADE_KEYS.size(); ++i)
-    {
-        if (std::string(key) == UPGRADE_KEYS[i])
-        {
-            return static_cast<UpgradeId>(i);
-        }
-    }
-    return UpgradeId::Count;
-}
-
 SkillId skillIdFromKey(const char* key)
 {
     for (size_t i = 0; i < SKILL_KEYS.size(); ++i)
@@ -128,66 +113,62 @@ Currency currencyFromString(const char* value)
 
 bool validUpgrade(const UpgradeDefinition& definition)
 {
-    if (definition.key.empty() || definition.name.empty() || definition.costs.empty() ||
-        definition.values.size() != definition.costs.size() + 1)
-    {
+    if (definition.key.empty() || definition.name.empty() || definition.costs.empty() || definition.costs.size() > 50)
         return false;
+    if (!std::all_of(definition.costs.begin(), definition.costs.end(), [](int cost) { return cost > 0; }))
+        return false;
+    const auto validValues = [&](const std::vector<float>& values) {
+        return values.size() == definition.costs.size() + 1 &&
+            std::all_of(values.begin(), values.end(), [](float v) { return std::isfinite(v); });
+    };
+    if (definition.effects.empty())
+    {
+        const bool allowZero = definition.key == "precision" || definition.key == "mana_flow" || definition.key == "wall_armor";
+        return validValues(definition.values) && std::all_of(definition.values.begin(), definition.values.end(),
+            [allowZero](float value) { return value > 0 || (allowZero && value == 0); });
     }
-    const bool allowZero = definition.id == UpgradeId::Precision || definition.id == UpgradeId::ManaFlow ||
-                           definition.id == UpgradeId::WallArmor;
-    return std::all_of(definition.costs.begin(), definition.costs.end(), [](int cost) { return cost > 0; }) &&
-           std::all_of(definition.values.begin(), definition.values.end(), [allowZero](float value) {
-               return std::isfinite(value) && (value > 0.0f || (allowZero && value == 0.0f));
-           });
+    return std::all_of(definition.effects.begin(), definition.effects.end(), [&](const UpgradeEffect& effect) {
+        return validValues(effect.values) && (effect.operation == "set" || effect.operation == "add" ||
+            effect.operation == "multiply");
+    });
 }
 }  // namespace
 
-bool validUpgradeTree(const std::array<UpgradeDefinition, static_cast<size_t>(UpgradeId::Count)>& upgrades)
+bool validUpgradeTree(const std::vector<UpgradeDefinition>& upgrades)
 {
     for (size_t i = 0; i < upgrades.size(); ++i)
     {
         const auto& node = upgrades[i];
-        if (node.id != static_cast<UpgradeId>(i) || !validUpgrade(node))
+        if (node.id != static_cast<UpgradeId>(i) || !validUpgrade(node) || node.unlockStage < 0)
             return false;
         const bool inTree = node.track != UpgradeTrack::None;
-        if ((inTree && (node.treeRow < 0 || node.treeRow > 4 ||
-                        !std::isfinite(node.treeX) || node.treeX < 0.12f || node.treeX > 0.88f)) ||
+        if ((inTree && (node.treeRow < 0 || node.treeRow > 16 || !std::isfinite(node.treeX) ||
+                        node.treeX < 0.12f || node.treeX > 0.88f)) ||
             (!inTree && node.treeRow != -1) ||
-            (inTree && node.prerequisite == UpgradeId::Count && node.treeRow != 0) ||
-            (inTree && node.prerequisite != UpgradeId::Count && node.treeRow == 0))
+            (inTree && node.prerequisite == UpgradeId::None && node.treeRow != 0))
             return false;
-        if (inTree)
-        {
-            for (size_t j = 0; j < i; ++j)
-            {
-                if (node.track == upgrades[j].track && node.treeRow == upgrades[j].treeRow &&
-                    std::abs(node.treeX - upgrades[j].treeX) < 0.18f)
-                    return false;
-            }
-        }
-        if (node.prerequisite == UpgradeId::Count)
-        {
-            if (node.requiredLevel != 0)
+        for (size_t j = 0; j < i; ++j)
+            if (node.key == upgrades[j].key || (inTree && node.track == upgrades[j].track &&
+                node.treeRow == upgrades[j].treeRow && std::abs(node.treeX - upgrades[j].treeX) < 0.18f - 1e-6f))
                 return false;
+        if (node.prerequisite == UpgradeId::None)
+        {
+            if (node.requiredLevel != 0) return false;
             continue;
         }
         const size_t parent = static_cast<size_t>(node.prerequisite);
         if (parent >= upgrades.size() || parent == i || node.requiredLevel <= 0 ||
-            node.requiredLevel > upgrades[parent].maxLevel())
-            return false;
-        if (inTree && (upgrades[parent].track != node.track || upgrades[parent].treeRow >= node.treeRow))
+            node.requiredLevel > upgrades[parent].maxLevel() ||
+            (inTree && (upgrades[parent].track != node.track || upgrades[parent].treeRow >= node.treeRow)))
             return false;
         size_t cursor = parent;
         for (size_t depth = 0; depth < upgrades.size(); ++depth)
         {
-            if (cursor == i)
-                return false;
+            if (cursor == i) return false;
             const auto next = upgrades[cursor].prerequisite;
-            if (next == UpgradeId::Count)
-                break;
+            if (next == UpgradeId::None) break;
             cursor = static_cast<size_t>(next);
-            if (cursor >= upgrades.size())
-                return false;
+            if (cursor >= upgrades.size()) return false;
         }
     }
     return true;
@@ -212,7 +193,7 @@ bool validResearchTree(const std::array<SkillDefinition, static_cast<size_t>(Ski
             return false;
         for (size_t j = 0; j < i; ++j)
         {
-            if (node.treeRow == skills[j].treeRow && std::abs(node.treeX - skills[j].treeX) < 0.18f)
+            if (node.treeRow == skills[j].treeRow && std::abs(node.treeX - skills[j].treeX) < 0.18f - 1e-6f)
                 return false;
         }
         if (node.prerequisite == SkillId::Count) continue;
@@ -363,20 +344,19 @@ bool ProgressionModel::isSkillUnlocked(SkillId id) const
     return index < _unlocked.size() && _unlocked[index];
 }
 
-bool ProgressionModel::meetsUpgradePrerequisite(const UpgradeDefinition& definition) const
+bool ProgressionModel::meetsUpgradePrerequisite(const UpgradeDefinition& definition, int stage) const
 {
-    return definition.prerequisite == UpgradeId::Count ||
-           (definition.id == UpgradeId::MultiShot && upgradeLevel(UpgradeId::MultiShot) > 0) ||
-           upgradeLevel(definition.prerequisite) >= definition.requiredLevel;
+    return stage >= definition.unlockStage && (definition.prerequisite == UpgradeId::None ||
+           (definition.key == "multi_shot" && upgradeLevel(definition.id) > 0) ||
+           upgradeLevel(definition.prerequisite) >= definition.requiredLevel);
 }
 
 void ProgressionModel::setUpgradeLevel(UpgradeId id, int level)
 {
     const auto index = static_cast<size_t>(id);
-    if (index < _levels.size())
-    {
-        _levels[index] = std::max(0, level);
-    }
+    if (id == UpgradeId::None || index >= 4096) return;
+    if (index >= _levels.size()) _levels.resize(index + 1);
+    _levels[index] = std::max(0, level);
 }
 
 void ProgressionModel::setSkillUnlocked(SkillId id, bool unlocked)
@@ -389,11 +369,11 @@ void ProgressionModel::setSkillUnlocked(SkillId id, bool unlocked)
 }
 
 PurchaseResult ProgressionModel::purchaseUpgrade(EconomyModel& economy,
-                                                 const UpgradeDefinition& definition)
+                                                 const UpgradeDefinition& definition, int stage)
 {
     PurchaseResult result;
     result.currency = definition.currency;
-    if (!validUpgrade(definition) || definition.id == UpgradeId::Count)
+    if (!validUpgrade(definition) || static_cast<size_t>(definition.id) >= 4096)
     {
         return result;
     }
@@ -405,7 +385,7 @@ PurchaseResult ProgressionModel::purchaseUpgrade(EconomyModel& economy,
         return result;
     }
 
-    if (!meetsUpgradePrerequisite(definition))
+    if (!meetsUpgradePrerequisite(definition, stage))
     {
         result.status = PurchaseStatus::PrerequisiteLocked;
         return result;
@@ -457,7 +437,7 @@ PurchaseResult ProgressionModel::unlockSkill(EconomyModel& economy, const SkillD
 
 bool ProgressionModel::grantUpgradeLevel(const UpgradeDefinition& definition)
 {
-    if (!validUpgrade(definition) || definition.id == UpgradeId::Count)
+    if (!validUpgrade(definition) || static_cast<size_t>(definition.id) >= 4096)
     {
         return false;
     }
@@ -560,11 +540,11 @@ void GameData::loadCatalog()
 {
     _upgrades = {
         UpgradeDefinition{UpgradeId::ArrowDamage, "arrow_damage", "力量", "提高每支箭的基础伤害", Currency::Coins,
-                          {8, 18, 34, 58, 90}, {1, 2, 3, 4, 5, 6}, UpgradeId::Count, 0, 0, 0.32f, UpgradeTrack::Bow},
+                          {8, 18, 34, 58, 90}, {1, 2, 3, 4, 5, 6}, UpgradeId::None, 0, 0, 0.32f, UpgradeTrack::Bow},
         UpgradeDefinition{UpgradeId::FireRate, "fire_rate", "敏捷", "缩短两次射击的间隔", Currency::Coins,
                           {10, 22, 40, 65, 100},
                           {1.0f, 0.9166667f, 0.8333333f, 0.7611111f, 0.6944444f, 0.6388889f},
-                          UpgradeId::Count, 0, 0, 0.76f, UpgradeTrack::Bow},
+                          UpgradeId::None, 0, 0, 0.76f, UpgradeTrack::Bow},
         UpgradeDefinition{UpgradeId::MultiShot, "multi_shot", "多重箭", "一次射出更多箭矢", Currency::Coins,
                           {45, 120}, {1, 2, 3}, UpgradeId::FireRate, 2, 1, 0.76f, UpgradeTrack::Bow},
         UpgradeDefinition{UpgradeId::WallHealth, "wall_health", "坚固城墙", "提高每局城墙生命上限", Currency::Coins,
@@ -574,11 +554,11 @@ void GameData::loadCatalog()
         UpgradeDefinition{UpgradeId::Precision, "precision", "鹰眼", "箭矢获得暴击概率", Currency::Crystals,
                           {3}, {0, 0.12f}, UpgradeId::ArrowDamage, 3, 1, 0.19f, UpgradeTrack::Bow},
         UpgradeDefinition{UpgradeId::ManaFlow, "mana_flow", "法力回路", "每秒额外回复法力", Currency::Crystals,
-                          {3}, {0, 1.5f}, UpgradeId::Count, 0, 0, 0.27f, UpgradeTrack::Magic},
+                          {3}, {0, 1.5f}, UpgradeId::None, 0, 0, 0.27f, UpgradeTrack::Magic},
         UpgradeDefinition{UpgradeId::WallArmor, "wall_armor", "城墙护甲", "每次受击减少伤害", Currency::Coins,
                           {20, 45, 80}, {0, 1, 2, 3}},
         UpgradeDefinition{UpgradeId::SpellEfficiency, "spell_efficiency", "奥术专注", "降低施放法术所需法力", Currency::Coins,
-                          {18, 42, 80}, {1.0f, 0.9f, 0.8f, 0.7f}, UpgradeId::Count, 0, 0, 0.73f,
+                          {18, 42, 80}, {1.0f, 0.9f, 0.8f, 0.7f}, UpgradeId::None, 0, 0, 0.73f,
                           UpgradeTrack::Magic},
     };
     _skills = {
@@ -592,6 +572,12 @@ void GameData::loadCatalog()
                         1, 0.73f, SkillId::Fireball},
     };
 
+    _attributes = defaultUpgradeAttributes();
+    if (!parseUpgradeAttributes(ax::FileUtils::getInstance()->getStringFromFile("config/upgrade-attributes.json"), _attributes))
+        AXLOGW("[Progression][Research] invalid attribute schema, using built-in defaults");
+    for (auto& definition : _upgrades)
+        definition.effects = {{definition.key, "set", definition.values}};
+
     const std::string text = ax::FileUtils::getInstance()->getStringFromFile(CATALOG_PATH);
     rapidjson::Document doc;
     doc.Parse(text.c_str());
@@ -601,124 +587,9 @@ void GameData::loadCatalog()
         return;
     }
 
-    if (doc.HasMember("upgrades") && doc["upgrades"].IsArray())
-    {
-        auto parsedUpgrades = _upgrades;
-        std::array<bool, static_cast<size_t>(UpgradeId::Count)> seen{};
-        bool valid = true;
-        for (const auto& item : doc["upgrades"].GetArray())
-        {
-            if (!item.IsObject() || !item.HasMember("id") || !item["id"].IsString())
-            {
-                valid = false;
-                break;
-            }
-            const UpgradeId id = upgradeIdFromKey(item["id"].GetString());
-            if (id == UpgradeId::Count || seen[static_cast<size_t>(id)])
-            {
-                valid = false;
-                break;
-            }
-            UpgradeDefinition parsed;
-            parsed.id  = id;
-            parsed.key = item["id"].GetString();
-            if (!item.HasMember("name") || !item["name"].IsString() ||
-                !item.HasMember("description") || !item["description"].IsString() ||
-                !item.HasMember("currency") || !item["currency"].IsString() ||
-                !item.HasMember("costs") || !item["costs"].IsArray() ||
-                !item.HasMember("values") || !item["values"].IsArray())
-            {
-                valid = false;
-                break;
-            }
-            const std::string currency = item["currency"].GetString();
-            if (currency != "coins" && currency != "crystals")
-            {
-                valid = false;
-                break;
-            }
-            parsed.name        = item["name"].GetString();
-            parsed.description = item["description"].GetString();
-            parsed.currency    = currencyFromString(item["currency"].GetString());
-            for (const auto& cost : item["costs"].GetArray())
-            {
-                if (cost.IsInt()) parsed.costs.push_back(cost.GetInt());
-            }
-            for (const auto& value : item["values"].GetArray())
-            {
-                if (value.IsNumber()) parsed.values.push_back(value.GetFloat());
-            }
-            if (item.HasMember("requires"))
-            {
-                if (!item["requires"].IsString())
-                {
-                    valid = false;
-                    break;
-                }
-                const std::string key = item["requires"].GetString();
-                parsed.prerequisite = key.empty() ? UpgradeId::Count : upgradeIdFromKey(key.c_str());
-                if (!key.empty() && parsed.prerequisite == UpgradeId::Count)
-                {
-                    valid = false;
-                    break;
-                }
-            }
-            if (item.HasMember("requiredLevel"))
-            {
-                if (!item["requiredLevel"].IsInt())
-                {
-                    valid = false;
-                    break;
-                }
-                parsed.requiredLevel = item["requiredLevel"].GetInt();
-            }
-            if (item.HasMember("treeRow"))
-            {
-                if (!item["treeRow"].IsInt())
-                {
-                    valid = false;
-                    break;
-                }
-                parsed.treeRow = item["treeRow"].GetInt();
-            }
-            if (item.HasMember("treeX"))
-            {
-                if (!item["treeX"].IsNumber())
-                {
-                    valid = false;
-                    break;
-                }
-                parsed.treeX = item["treeX"].GetFloat();
-            }
-            if (item.HasMember("track"))
-            {
-                if (!item["track"].IsString())
-                {
-                    valid = false;
-                    break;
-                }
-                const std::string track = item["track"].GetString();
-                if (track != "bow" && track != "magic")
-                {
-                    valid = false;
-                    break;
-                }
-                parsed.track = track == "bow" ? UpgradeTrack::Bow : UpgradeTrack::Magic;
-            }
-            if (!validUpgrade(parsed))
-            {
-                valid = false;
-                break;
-            }
-            parsedUpgrades[static_cast<size_t>(id)] = std::move(parsed);
-            seen[static_cast<size_t>(id)] = true;
-        }
-        if (valid && std::all_of(seen.begin(), seen.end(), [](bool value) { return value; }) &&
-            validUpgradeTree(parsedUpgrades))
-            _upgrades = std::move(parsedUpgrades);
-        else
-            AXLOGW("[Progression][Research] invalid upgrade tree, using built-in defaults");
-    }
+    std::string upgradeError;
+    if (!parseUpgradeCatalog(text, _upgrades, &upgradeError, _attributes))
+        AXLOGW("[Progression][Research] invalid upgrade tree: {}, using built-in defaults", upgradeError);
 
     if (doc.HasMember("skills") && doc["skills"].IsArray())
     {
@@ -830,8 +701,9 @@ void GameData::save() const
 
 const UpgradeDefinition& GameData::upgradeDefinition(UpgradeId id) const
 {
-    const size_t index = std::min(static_cast<size_t>(id), _upgrades.size() - 1);
-    return _upgrades[index];
+    static const UpgradeDefinition invalid{UpgradeId::None};
+    const size_t index = static_cast<size_t>(id);
+    return index < _upgrades.size() ? _upgrades[index] : invalid;
 }
 
 const SkillDefinition& GameData::skillDefinition(SkillId id) const
@@ -847,7 +719,7 @@ int GameData::upgradeLevel(UpgradeId id) const
 
 bool GameData::upgradePrerequisiteMet(UpgradeId id) const
 {
-    return _progression.meetsUpgradePrerequisite(upgradeDefinition(id));
+    return _progression.meetsUpgradePrerequisite(upgradeDefinition(id), _campaign.highestClearedStage() + 1);
 }
 
 bool GameData::isSkillUnlocked(SkillId id) const
@@ -857,7 +729,7 @@ bool GameData::isSkillUnlocked(SkillId id) const
 
 PurchaseResult GameData::purchaseUpgrade(UpgradeId id)
 {
-    auto result = _progression.purchaseUpgrade(_economy, upgradeDefinition(id));
+    auto result = _progression.purchaseUpgrade(_economy, upgradeDefinition(id), _campaign.highestClearedStage() + 1);
     if (result.purchased())
     {
         save();
@@ -941,9 +813,8 @@ std::vector<SkillId> GameData::beginStage(int stage)
 
 float GameData::upgradeValue(UpgradeId id) const
 {
-    const auto& definition = upgradeDefinition(id);
-    const int level        = std::clamp(upgradeLevel(id), 0, static_cast<int>(definition.values.size()) - 1);
-    return definition.values[level];
+    const auto index = static_cast<size_t>(id);
+    return index < _attributes.size() ? evaluateUpgradeAttribute(_attributes[index], _upgrades, _progression) : 0;
 }
 
 int GameData::arrowDamage() const
@@ -1001,6 +872,7 @@ DebugPlayerData GameData::debugPlayerData() const
     result.highestRewardedStage = _campaign.highestRewardedStage();
     result.wallKitStock = _wallKitStock;
     result.manaCharmStock = _manaCharmStock;
+    result.upgradeLevels.resize(_upgrades.size());
     for (size_t i = 0; i < result.upgradeLevels.size(); ++i)
     {
         result.upgradeLevels[i] = _progression.upgradeLevel(static_cast<UpgradeId>(i));
@@ -1019,7 +891,7 @@ void GameData::debugApplyPlayerData(const DebugPlayerData& data)
     _campaign.setHighestRewardedStage(data.highestRewardedStage);
     _wallKitStock = std::max(0, data.wallKitStock);
     _manaCharmStock = std::max(0, data.manaCharmStock);
-    for (size_t i = 0; i < data.upgradeLevels.size(); ++i)
+    for (size_t i = 0; i < std::min(data.upgradeLevels.size(), _upgrades.size()); ++i)
     {
         const auto id         = static_cast<UpgradeId>(i);
         const int maxLevel    = upgradeDefinition(id).maxLevel();
@@ -1040,6 +912,7 @@ void GameData::debugApplyPlayerData(const DebugPlayerData& data)
 void GameData::debugResetPlayerData()
 {
     DebugPlayerData defaults;
+    defaults.upgradeLevels.resize(_upgrades.size());
     for (size_t i = 0; i < defaults.skillUnlocked.size(); ++i)
     {
         defaults.skillUnlocked[i] = skillDefinition(static_cast<SkillId>(i)).defaultUnlocked;

@@ -35,6 +35,7 @@ MONSTER_FIELD_LIMITS = {
 }
 STATIC_FILES = {
     "/": ("index.html", "text/html; charset=utf-8"),
+    "/upgrade-editor.js": ("upgrade-editor.js", "text/javascript; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/preview-model.js": ("preview-model.js", "text/javascript; charset=utf-8"),
     "/monster-visual.js": ("monster-visual.js", "text/javascript; charset=utf-8"),
@@ -106,6 +107,10 @@ def make_handler(project_root=PROJECT_ROOT):
             return project_root / CONFIG_PATHS[name] if name in CONFIG_PATHS else None
 
         def do_GET(self):
+            if self.path == "/api/attributes":
+                path = project_root / "code/axmol/CastleGuard/Content/config/upgrade-attributes.json"
+                self.send_json(200, {"data": json.loads(path.read_text(encoding="utf-8"))})
+                return
             if self.path == "/api/monster-speeds":
                 try:
                     self.send_json(200, monster_speeds(project_root))

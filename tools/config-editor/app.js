@@ -71,8 +71,8 @@ function markDirty() {
 }
 async function loadAll() {
   if (previewState.open) closePreview();
-  const [levels, tree, monsters] = await Promise.all(
-    ["levels", "tree", "monsters"].map(async (kind) => {
+  const [levels, tree, monsters, attributes] = await Promise.all(
+    ["levels", "tree", "monsters", "attributes"].map(async (kind) => {
       const response = await fetch(`/api/${kind}`);
       if (!response.ok) {
         const problem = await response.json().catch(() => ({}));
@@ -81,6 +81,8 @@ async function loadAll() {
       return response.json();
     }),
   );
+  UpgradeEditor.normalize(tree.data);
+  state.attributes = attributes.data.attributes;
   state.documents = {levels, tree, monsters};
   state.dirty = {levels: false, tree: false, monsters: false};
   state.level = 0; state.wave = 0; state.group = 0;
@@ -149,33 +151,9 @@ function validateDraft() {
     }
     return [];
   }
-  const upgradeIds = new Set(data.upgrades.map((item) => item.id));
+  const upgradeError = UpgradeEditor.validate(data, state.attributes);
+  if (upgradeError) return [upgradeError];
   const skillIds = new Set(data.skills.map((item) => item.id));
-  for (const node of data.upgrades) {
-    if (!node.name?.trim() || !node.description?.trim() || !node.costs.length ||
-        node.values.length !== node.costs.length + 1 || !node.costs.every((cost) => Number.isInteger(cost) && cost > 0) ||
-        !node.values.every((value) => Number.isFinite(value) && (value > 0 ||
-          (["precision", "mana_flow", "wall_armor"].includes(node.id) && value === 0))))
-      return [`${node.id} 的价格或数值无效`];
-    if (node.requires && (!upgradeIds.has(node.requires) || node.requires === node.id))
-      return [`${node.id} 的前置节点无效`];
-    if (node.track && (!Number.isInteger(node.treeRow) || node.treeRow < 0 || node.treeRow > 4 ||
-        !Number.isFinite(node.treeX) || node.treeX < .12 || node.treeX > .88))
-      return [`${node.id} 的树位置无效`];
-    if (node.track && !node.requires && node.treeRow !== 0)
-      return [`${node.id} 没有前置节点，应位于首层`];
-    if (!node.requires && (node.requiredLevel ?? 0) !== 0)
-      return [`${node.id} 没有前置节点，前置等级应为 0`];
-    if (node.track && data.upgrades.some((other) => other !== node && other.track === node.track &&
-        other.treeRow === node.treeRow && Math.abs(other.treeX - node.treeX) < .18))
-      return [`${node.id} 与同层节点过近`];
-    if (node.requires && node.track) {
-      const parent = data.upgrades.find((item) => item.id === node.requires);
-      if (parent.track !== node.track || parent.treeRow >= node.treeRow ||
-          !Number.isInteger(node.requiredLevel) || node.requiredLevel < 1 || node.requiredLevel > parent.costs.length)
-        return [`${node.id} 的前置等级或层级无效`];
-    }
-  }
   for (const node of data.skills) {
     if (!node.name?.trim() || !node.description?.trim() || !Number.isInteger(node.treeRow) ||
         node.treeRow < 0 || node.treeRow > 8 || !Number.isFinite(node.treeX) || node.treeX < .12 || node.treeX > .88 ||
@@ -185,7 +163,7 @@ function validateDraft() {
         (!node.defaultUnlocked && (node.unlockCost > 0) === (node.unlockStage > 0)))
       return [`${node.id} 的解锁条件或树位置无效`];
     if (data.skills.some((other) => other !== node && other.treeRow === node.treeRow &&
-        Math.abs(other.treeX - node.treeX) < .18))
+        Math.abs(other.treeX - node.treeX) < .18 - 1e-6))
       return [`${node.id} 与同层法术过近`];
     if (node.requires && (!skillIds.has(node.requires) ||
         data.skills.find((item) => item.id === node.requires).treeRow >= node.treeRow))
@@ -240,12 +218,13 @@ function renderSidebar() {
       list.innerHTML = Object.entries(monsterNames).map(([id, name]) => `<button class="sidebar-item ${id === state.monster ? "selected" : ""}" data-action="select-monster" data-id="${id}"><strong>${name}</strong><small>${id} · ${speeds[id]} 像素/秒</small></button>`).join("");
     } else {
       const upgrades = documentData().upgrades;
-      list.innerHTML = ["bow", "magic", "defense"].map((track) => `<p class="sidebar-group-title">${trackNames[track]}</p>${upgrades.filter((entry) => trackOf(entry) === track).map((entry) => `<button class="sidebar-item ${entry.id === state.baseUpgrade ? "selected" : ""}" data-action="select-base-upgrade" data-id="${escapeHtml(entry.id)}"><strong>${escapeHtml(entry.name)}</strong><small>初始 ${escapeHtml(entry.values[0])}</small></button>`).join("")}`).join("");
+      list.innerHTML = ["bow", "magic", "defense"].map((track) => `<p class="sidebar-group-title">${trackNames[track]}</p>${upgrades.filter((entry) => trackOf(entry) === track).map((entry) => `<button class="sidebar-item ${entry.id === state.baseUpgrade ? "selected" : ""}" data-action="select-base-upgrade" data-id="${escapeHtml(entry.id)}"><strong>${escapeHtml(entry.name)}</strong><small>初始 ${escapeHtml(entry.effects[0].values[0])}</small></button>`).join("")}`).join("");
     }
     return;
   }
   const data = documentData();
   head.innerHTML = `<p class="sidebar-title">成长体系</p><div class="segment">${Object.entries(trackNames).map(([track, label]) => `<button class="${track === state.track ? "active" : ""}" data-action="select-track" data-track="${track}">${label}</button>`).join("")}</div>`;
+  if (state.track !== "spells") head.innerHTML += '<div class="toolbar"><button class="secondary-button" data-action="add-node">＋ 新建节点</button></div>';
   const nodes = state.track === "spells" ? data.skills : data.upgrades.filter((item) => trackOf(item) === state.track);
   list.innerHTML = nodes.map((node) => `<button class="sidebar-item ${node.id === state.node ? "selected" : ""}" data-action="select-node" data-id="${escapeHtml(node.id)}"><strong>${escapeHtml(node.name)}</strong><small>${escapeHtml(node.id)}${node.treeRow >= 0 ? ` · 第 ${node.treeRow + 1} 层` : ""}</small></button>`).join("");
 }
@@ -294,7 +273,7 @@ function nodesForTrack() {
 }
 function renderTree() {
   const nodes = nodesForTrack();
-  const selected = currentNode() || nodes[0];
+  const selected = nodes.find((node) => node.id === state.node) || nodes[0];
   if (selected) state.node = selected.id;
   $("#main-content").innerHTML = `<div class="page-head"><div><p class="eyebrow">PROGRESSION / ${state.track.toUpperCase()}</p><h1>${trackNames[state.track]}</h1><div class="meta-row"><span><strong>${nodes.length}</strong> 节点</span></div></div></div><h2 class="section-title">节点关系</h2>${renderGraph(nodes)}<h2 class="section-title">成长数值</h2>${state.track === "spells" ? `<p class="info-note">法术按关卡里程碑或水晶购买解锁。</p>` : `<p class="info-note">升级等级由价格与效果数组共同决定；每个价格对应下一等级。</p>`}`;
   renderNodeInspector(selected);
@@ -306,10 +285,12 @@ function renderBalance() {
 function renderBaseUpgrades() {
   const upgrades = documentData().upgrades;
   const ordered = ["bow", "magic", "defense"].flatMap((track) => upgrades.filter((entry) => trackOf(entry) === track));
-  const selected = currentBaseUpgrade();
+  const selected = currentBaseUpgrade() || upgrades[0];
+  if (selected) state.baseUpgrade = selected.id;
   $("#main-content").innerHTML = `<div class="page-head"><div><p class="eyebrow">BASE VALUES / PROGRESSION</p><h1>成长初始值</h1><div class="meta-row"><span><strong>${upgrades.length}</strong> 属性</span></div></div></div>
-    <div class="monster-table-wrap"><table class="monster-table"><thead><tr><th>属性</th><th>所属</th><th>初始值</th><th>首次升级</th></tr></thead><tbody>${ordered.map((entry) => `<tr class="${entry.id === state.baseUpgrade ? "selected" : ""}"><th scope="row"><button data-action="select-base-upgrade" data-id="${escapeHtml(entry.id)}">${escapeHtml(entry.name)}<small>${escapeHtml(entry.id)}</small></button></th><td>${trackNames[trackOf(entry)]}</td><td>${escapeHtml(entry.values[0])}</td><td>${escapeHtml(entry.values[1])}</td></tr>`).join("")}</tbody></table></div>`;
-  $("#inspector").innerHTML = `<p class="eyebrow">BASE / ${escapeHtml(selected.id)}</p><h2>${escapeHtml(selected.name)}</h2><div class="stack"><p class="info-note">${escapeHtml(selected.description)}</p>${field("base-upgrade", "baseValue", "初始值", selected.values[0], "number")}<div class="speed-reference"><span>首次升级后</span><div><strong>${escapeHtml(selected.values[1])}</strong></div></div></div>`;
+    <div class="monster-table-wrap"><table class="monster-table"><thead><tr><th>属性</th><th>所属</th><th>初始值</th><th>首次升级</th></tr></thead><tbody>${ordered.map((entry) => `<tr class="${entry.id === state.baseUpgrade ? "selected" : ""}"><th scope="row"><button data-action="select-base-upgrade" data-id="${escapeHtml(entry.id)}">${escapeHtml(entry.name)}<small>${escapeHtml(entry.id)}</small></button></th><td>${trackNames[trackOf(entry)]}</td><td>${escapeHtml(entry.effects[0].values[0])}</td><td>${escapeHtml(entry.effects[0].values[1])}</td></tr>`).join("")}</tbody></table></div>`;
+  if (!selected) { $("#inspector").innerHTML = ""; return; }
+  $("#inspector").innerHTML = `<p class="eyebrow">BASE / ${escapeHtml(selected.id)}</p><h2>${escapeHtml(selected.name)}</h2><div class="stack"><p class="info-note">${escapeHtml(selected.description)}</p>${selected.effects[0].operation === "set" ? field("base-upgrade", "baseValue", "初始值", selected.effects[0].values[0], "number") : `<p class="info-note">初始不提供额外加成</p>`}<div class="speed-reference"><span>首次升级后</span><div><strong>${escapeHtml(selected.effects[0].values[1])}</strong></div></div></div>`;
 }
 function renderMonsters() {
   const data = documentData();
@@ -350,17 +331,18 @@ function renderGraph(nodes) {
   }).join("")}</div>`;
 }
 function renderNodeInspector(node) {
-  if (!node) { $("#inspector").innerHTML = ""; return; }
+  if (!node) { $("#inspector").innerHTML = '<p class="info-note">新建节点开始配置</p>'; return; }
   const isSkill = state.track === "spells";
   let html = `<p class="eyebrow">${isSkill ? "SPELL" : "UPGRADE"} / ${escapeHtml(node.id)}</p><h2>${escapeHtml(node.name)}</h2><div class="stack">${field("node", "name", "名称", node.name)}${field("node", "description", "效果说明", node.description, "textarea")}`;
+  if (!isSkill) html += `<div class="line"><button class="secondary-button" data-action="add-child-node">＋ 子节点</button><button class="small-button danger-button" data-action="delete-node" aria-label="删除节点" title="删除节点">×</button></div>${field("node", "id", "节点 ID · 保存后保持稳定", node.id)}${field("node", "unlockStage", "可进入第几关时解锁 · 0 不限制", node.unlockStage ?? 0, "number")}`;
   if (isSkill) {
     html += `<div class="field-grid">${field("node", "unlockStage", "解锁关卡 · 0 不启用", node.unlockStage, "number")}${field("node", "unlockCost", "水晶价格 · 0 不启用", node.unlockCost, "number")}</div><div class="field"><label class="line"><input data-scope="node" data-field="defaultUnlocked" type="checkbox" ${node.defaultUnlocked ? "checked" : ""}> 默认解锁</label></div>`;
     html += field("node", "requires", "前置法术", options(["", ...documentData().skills.filter((item) => item.id !== node.id).map((item) => item.id)], node.requires, {"": "无"}), "select");
   } else {
     html += field("node", "currency", "货币", options(["coins", "crystals"], node.currency, {coins: "金币", crystals: "水晶"}), "select");
-    if (node.track) {
+    if (!isSkill) {
       const parents = documentData().upgrades.filter((item) => item.track === node.track && item.id !== node.id);
-      html += field("node", "requires", "前置升级", options(["", ...parents.map((item) => item.id)], node.requires, {"": "无"}), "select");
+      html += field("node", "requires", "前置升级", options(["", ...parents.map((item) => item.id)], node.requires, {"": "无", ...Object.fromEntries(parents.map((item) => [item.id, item.name]))}), "select");
       html += field("node", "requiredLevel", "前置等级 · 0 无前置", node.requiredLevel ?? 0, "number");
     }
   }
@@ -370,7 +352,9 @@ function renderNodeInspector(node) {
   }
   if (!isSkill) {
     html += `<div class="divider"></div><div class="line"><h3 class="grow">等级数值</h3><button class="small-button" data-action="add-upgrade-level" title="增加一级" aria-label="增加一级">+</button><button class="small-button danger-button" data-action="remove-upgrade-level" title="移除末级" aria-label="移除末级" ${node.costs.length <= 1 ? "disabled" : ""}>×</button></div>`;
-    html += node.values.map((value, index) => `<div class="level-row"><span>${index === 0 ? "初始" : `${index} 级`}</span><input type="number" step="any" value="${escapeHtml(value)}" data-action="edit-array" data-array="values" data-index="${index}" aria-label="${index} 级效果"><input type="number" step="1" value="${index < node.costs.length ? escapeHtml(node.costs[index]) : ""}" data-action="edit-array" data-array="costs" data-index="${index}" aria-label="升级价格" ${index >= node.costs.length ? "disabled" : ""}><span>${index < node.costs.length ? "花费" : ""}</span></div>`).join("");
+    html += node.costs.map((cost, index) => `<div class="level-row"><span>${index + 1} 级</span><input type="number" step="1" value="${escapeHtml(cost)}" data-action="edit-array" data-array="costs" data-index="${index}" aria-label="${index + 1} 级升级价格"><span>${node.currency === "coins" ? "金币" : "水晶"}</span></div>`).join("");
+    html += `<div class="line"><h3 class="grow">升级效果</h3><button class="small-button" data-action="add-effect" aria-label="添加效果" title="添加效果">+</button></div>`;
+    html += node.effects.map((effect, index) => `<div class="effect-card"><div class="line"><strong class="grow">效果 ${index + 1}</strong><button class="small-button danger-button" data-action="delete-effect" data-index="${index}" ${node.effects.length === 1 ? "disabled" : ""} aria-label="删除效果">×</button></div><div class="field"><label>属性</label><select data-action="effect-attribute" data-index="${index}" aria-label="效果 ${index + 1} 属性">${options(state.attributes.map((a) => a.id), effect.attribute, Object.fromEntries(state.attributes.map((a) => [a.id, a.name])))}</select></div><div class="field"><label>计算方式</label><select data-action="effect-operation" data-index="${index}" aria-label="效果 ${index + 1} 计算方式">${options(["add", "multiply", "set"], effect.operation, {add: "增加数值", multiply: "乘以倍率", set: "设置基础值"})}</select></div>${effect.values.map((value, level) => `<div class="effect-value-row"><label>${level === 0 ? "未升级" : `${level} 级`}</label><input type="number" step="any" value="${escapeHtml(value)}" data-action="effect-value" data-index="${index}" data-level="${level}" aria-label="效果 ${index + 1} ${level} 级数值" ${level === 0 && effect.operation !== "set" ? "readonly" : ""}></div>`).join("")}</div>`).join("");
   }
   $("#inspector").innerHTML = html + "</div>";
 }
@@ -479,7 +463,15 @@ function setCurrentField(input) {
   if (!target) return;
   let value = input.type === "checkbox" ? input.checked : input.type === "number" || input.type === "range" ? Number(input.value) : input.value;
   if (input.type === "number" && input.value.trim() === "") value = NaN;
-  if (scope === "base-upgrade") target.values[0] = value;
+  if (scope === "node" && input.dataset.field === "id") {
+    if (!/^[a-z][a-z0-9_]{0,63}$/.test(value) || documentData().upgrades.some((node) => node !== target && node.id === value)) {
+      showToast("ID 须以小写字母开头，仅含小写字母、数字和下划线，且不能重复", true); render(); return;
+    }
+    for (const node of documentData().upgrades) if (node.requires === target.id) node.requires = value;
+    if (state.baseUpgrade === target.id) state.baseUpgrade = value;
+    state.node = value;
+  }
+  if (scope === "base-upgrade") target.effects[0].values[0] = value;
   else target[input.dataset.field] = value;
   if (scope === "group" && input.dataset.field === "useConfiguredSpeed" && value && !positive(target.configuredSpeed)) {
     const references = speedReferences(target);
@@ -488,6 +480,10 @@ function setCurrentField(input) {
   }
   if (scope === "group" && input.dataset.field === "formation" && value !== "scatter")
     target.from = "spawn";
+  if (scope === "node" && state.track !== "spells" && input.dataset.field === "requires") {
+    target.requiredLevel = value ? 1 : 0;
+    if (target.track) target.treeRow = value ? documentData().upgrades.find((node) => node.id === value).treeRow + 1 : 0;
+  }
   markDirty();
   render();
 }
@@ -539,7 +535,23 @@ function handleAction(button) {
   else if (action === "select-balance-category") state.balanceCategory = button.dataset.category;
   else if (action === "select-base-upgrade") state.baseUpgrade = button.dataset.id;
   else if (action === "select-monster") state.monster = button.dataset.id;
-  else if (action === "add-level") {
+  else if (action === "add-node" || action === "add-child-node") {
+    const result = UpgradeEditor.create(documentData(), state.track, action === "add-child-node" ? currentNode() : null);
+    if (result.error) { showToast(result.error, true); return; }
+    documentData().upgrades.push(result.node); state.node = result.node.id; markDirty();
+  } else if (action === "delete-node") {
+    const node = currentNode();
+    const children = documentData().upgrades.filter((item) => item.requires === node.id);
+    if (children.length) { showToast(`请先移除前置引用：${children.map((item) => item.name).join("、")}`, true); return; }
+    if (!confirm(`删除“${node.name}”？`)) return;
+    documentData().upgrades.splice(documentData().upgrades.indexOf(node), 1);
+    state.node = nodesForTrack()[0]?.id; markDirty();
+  } else if (action === "add-effect") {
+    currentNode().effects.push({attribute: state.attributes[0].id, operation: "add", values: [0, ...currentNode().costs.map(() => 1)]}); markDirty();
+  } else if (action === "delete-effect") {
+    if (currentNode().effects.length <= 1) return;
+    currentNode().effects.splice(index, 1); markDirty();
+  } else if (action === "add-level") {
     const copy = clone(currentLevel()); copy.name = "新关卡";
     state.documents.levels.data.levels.splice(++state.level, 0, copy);
     state.wave = 0; state.group = 0; markDirty();
@@ -579,11 +591,11 @@ function handleAction(button) {
     if (currentGroup().types.length <= 1) return;
     currentGroup().types.splice(index, 1); markDirty();
   } else if (action === "add-upgrade-level") {
-    const node = currentNode(); node.costs.push(Math.max(1, (node.costs.at(-1) || 1) * 2));
-    node.values.push(node.values.at(-1)); markDirty();
+    const node = currentNode(); if (node.costs.length >= 50) { showToast("最多配置 50 级", true); return; } node.costs.push(Math.max(1, (node.costs.at(-1) || 1) * 2));
+    for (const effect of node.effects) effect.values.push(effect.values.at(-1)); markDirty();
   } else if (action === "remove-upgrade-level") {
     const node = currentNode(); if (node.costs.length <= 1) return;
-    node.costs.pop(); node.values.pop(); markDirty();
+    node.costs.pop(); for (const effect of node.effects) effect.values.pop(); markDirty();
   } else return;
   render();
   if (action === "select-monster" && matchMedia("(max-width: 850px)").matches)
@@ -609,6 +621,17 @@ document.addEventListener("change", (event) => {
   if (input.dataset.action === "position-preset") { applyPositionPreset(input.value); return; }
   if (input.dataset.scope) { setCurrentField(input); return; }
   if (input.dataset.action === "type-at") { currentGroup().types[Number(input.dataset.index)] = input.value; markDirty(); render(); return; }
+  if (input.dataset.action?.startsWith("effect-")) {
+    const effect = currentNode().effects[Number(input.dataset.index)];
+    if (input.dataset.action === "effect-value") effect.values[Number(input.dataset.level)] = input.value.trim() === "" ? NaN : Number(input.value);
+    else if (input.dataset.action === "effect-attribute") effect.attribute = input.value;
+    else {
+      effect.operation = input.value;
+      const attribute = state.attributes.find((item) => item.id === effect.attribute);
+      effect.values = effect.values.map(() => input.value === "multiply" ? 1 : input.value === "set" ? attribute.baseValue : 0);
+    }
+    markDirty(); render(); return;
+  }
   if (input.dataset.action === "edit-array") {
     currentNode()[input.dataset.array][Number(input.dataset.index)] = Number(input.value);
     markDirty(); render();

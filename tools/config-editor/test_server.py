@@ -22,6 +22,8 @@ class ConfigEditorServerTest(unittest.TestCase):
             else:
                 target.write_text(json.dumps({"levels": []} if kind == "levels" else
                                              {"upgrades": [], "skills": []}), encoding="utf-8")
+        schema = Path("code/axmol/CastleGuard/Content/config/upgrade-attributes.json")
+        (self.root / schema).write_bytes((PROJECT_ROOT / schema).read_bytes())
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(self.root))
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -86,6 +88,12 @@ class ConfigEditorServerTest(unittest.TestCase):
             self.assertEqual(response.status, 200)
             self.assertIn("javascript", response.headers["Content-Type"])
             self.assertIn(b"TreePosition", response.read())
+
+    def test_upgrade_attribute_schema_is_shared_and_read_only(self):
+        status, response = self.request("/api/attributes")
+        self.assertEqual(status, 200)
+        self.assertEqual(response["data"]["attributes"][0]["id"], "arrow_damage")
+        self.assertEqual(self.request("/api/attributes", {"data": {}})[0], 400)
 
     def test_monster_speeds_come_from_shared_config(self):
         status, response = self.request("/api/monster-speeds")

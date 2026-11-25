@@ -31,7 +31,7 @@ const TreePosition = (() => {
       .sort((a, b) => a.x - b.x);
     if (row.some(({x}) => !Number.isFinite(x) || x < MIN_X || x > MAX_X))
       return {error: "预设位置超出可用范围"};
-    if (row.some((node, index) => index > 0 && node.x - row[index - 1].x < MIN_GAP))
+    if (row.some((node, index) => index > 0 && node.x - row[index - 1].x < MIN_GAP - 1e-6))
       return {error: "预设位置与同层节点过近"};
     return {updates: [...positions].filter(([id, x]) => nodes.find((node) => node.id === id).treeX !== x)};
   }

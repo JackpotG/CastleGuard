@@ -312,7 +312,7 @@ TEST_SUITE("ProductionProgressionCatalog")
         CHECK_EQ(multiShot.prerequisite, UpgradeId::FireRate);
         CHECK_EQ(multiShot.requiredLevel, 2);
         CHECK_EQ(multiShot.track, UpgradeTrack::Bow);
-        CHECK_EQ(mana.prerequisite, UpgradeId::Count);
+        CHECK_EQ(mana.prerequisite, UpgradeId::None);
         CHECK_EQ(mana.track, UpgradeTrack::Magic);
         CHECK_EQ(mana.values[1], doctest::Approx(1.5f));
         CHECK_EQ(efficiency.track, UpgradeTrack::Magic);
