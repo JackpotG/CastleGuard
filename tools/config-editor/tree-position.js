@@ -1,8 +1,7 @@
 const TreePosition = (() => {
-  const requirements = typeof module !== "undefined" ? require("./upgrade-editor.js").requirements : UpgradeEditor.requirements;
-  const MIN_X = .12;
-  const MAX_X = .88;
-  const MIN_GAP = .18;
+  const editor = typeof module !== "undefined" ? require("./upgrade-editor.js") : UpgradeEditor;
+  const {requirements} = editor;
+  const {minX: MIN_X, maxX: MAX_X, minGap: MIN_GAP} = editor.layout;
 
   function plan(nodes, selected, preset) {
     let positions;

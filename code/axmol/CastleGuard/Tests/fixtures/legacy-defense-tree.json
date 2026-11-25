@@ -1,0 +1,8 @@
+{
+  "upgrades": [
+    {"id":"wall_health","name":"城墙","description":"旧城防基础","currency":"coins","costs":[3,5],"values":[100,120,140]},
+    {"id":"wall_armor","name":"护甲","description":"旧城防基础","currency":"coins","costs":[4],"values":[0,1]},
+    {"id":"wall_training","name":"联合工事","description":"旧多前置城防","currency":"crystals","costs":[2],"prerequisites":[{"id":"wall_health","level":2},{"id":"wall_armor","level":1}],"effects":[{"attribute":"wall_health","operation":"add","values":[0,20]}]}
+  ],
+  "skills": []
+}

@@ -92,9 +92,10 @@ enum class UpgradeId
 
 enum class UpgradeTrack
 {
-    None,
+    Defense,
     Bow,
     Magic,
+    None = Defense, // Legacy C++ callers used None for city defense.
 };
 
 enum class SkillId
@@ -141,7 +142,7 @@ struct UpgradeDefinition
     int requiredLevel = 0;
     int treeRow = -1;
     float treeX = 0.5f;
-    UpgradeTrack track = UpgradeTrack::None;
+    UpgradeTrack track = UpgradeTrack::Defense;
 
     std::vector<UpgradeEffect> effects;
     int unlockStage = 0;
@@ -171,6 +172,7 @@ std::vector<SkillId> skillRequirements(const SkillDefinition& definition);
 bool parseSkillCatalog(const std::string& json, std::array<SkillDefinition, static_cast<size_t>(SkillId::Count)>& skills);
 bool validResearchTree(const std::array<SkillDefinition, static_cast<size_t>(SkillId::Count)>& skills);
 bool validUpgradeTree(const std::vector<UpgradeDefinition>& upgrades);
+bool migrateLegacyUpgradeLayout(std::vector<UpgradeDefinition>& upgrades);
 inline bool validUpgradeTree(const std::array<UpgradeDefinition, static_cast<size_t>(UpgradeId::Count)>& upgrades)
 {
     return validUpgradeTree(std::vector<UpgradeDefinition>(upgrades.begin(), upgrades.end()));

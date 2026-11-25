@@ -201,22 +201,20 @@ function validateDraft() {
   const upgradeError = UpgradeEditor.validate(data, state.attributes);
   if (upgradeError) return [upgradeError];
   const skillIds = new Set(data.skills.map((item) => item.id));
+  const skillLayoutError = UpgradeEditor.validateLayout(data.skills);
+  if (skillLayoutError) return [skillLayoutError];
   for (const node of data.skills) {
-    if (!node.name?.trim() || !node.description?.trim() || !Number.isInteger(node.treeRow) ||
-        node.treeRow < 0 || node.treeRow > 8 || !Number.isFinite(node.treeX) || node.treeX < .12 || node.treeX > .88 ||
+    if (!node.name?.trim() || !node.description?.trim() ||
         !Number.isInteger(node.unlockCost) || node.unlockCost < 0 ||
         !Number.isInteger(node.unlockStage) || node.unlockStage < 0 ||
         (node.defaultUnlocked && (node.unlockCost > 0 || node.unlockStage > 0)) ||
         (!node.defaultUnlocked && (node.unlockCost > 0) === (node.unlockStage > 0)))
       return [`${node.id} 的解锁条件或树位置无效`];
-    if (data.skills.some((other) => other !== node && other.treeRow === node.treeRow &&
-        Math.abs(other.treeX - node.treeX) < .18 - 1e-6))
-      return [`${node.id} 与同层法术过近`];
     const seen = new Set();
     for (const requirement of UpgradeEditor.requirements(node)) {
       const parent = data.skills.find((item) => item.id === requirement.id);
       if (!skillIds.has(requirement.id) || seen.has(requirement.id) || requirement.level !== 1 ||
-          parent.treeRow >= node.treeRow || node.defaultUnlocked)
+          node.defaultUnlocked)
         return [`${node.id} 的前置法术无效（不可重复，且须在更早层）`];
       seen.add(requirement.id);
       if (node.unlockStage > 0 && !parent.defaultUnlocked && (parent.unlockStage <= 0 || parent.unlockStage > node.unlockStage))
@@ -372,10 +370,9 @@ function renderMonsters() {
 }
 function renderGraph(nodes) {
   if (!nodes.length) return '<div class="tree-graph"><p class="empty">暂无节点</p></div>';
-  const defense = state.track === "defense";
-  const positions = new Map(nodes.map((node, index) => [node.id, {
-    x: defense ? (index + 1) / (nodes.length + 1) : node.treeX,
-    y: defense ? 110 : 75 + node.treeRow * 110,
+  const positions = new Map(nodes.map((node) => [node.id, {
+    x: node.treeX,
+    y: 75 + node.treeRow * 110,
   }]));
   const height = Math.max(350, ...[...positions.values()].map((position) => position.y + 120));
   return `<div class="tree-graph" style="height:${height}px"><svg aria-hidden="true"></svg>${nodes.map((node) => {
@@ -417,7 +414,6 @@ function prerequisiteCandidates(node) {
   return nodes.filter((candidate) => !dependsOn(candidate));
 }
 function updatePrerequisiteRow(node) {
-  if (state.track === "defense") return;
   const parents = nodesForTrack().filter((item) => UpgradeEditor.requirements(node).some((r) => r.id === item.id));
   node.treeRow = parents.length ? Math.max(...parents.map((item) => item.treeRow)) + 1 : 0;
 }
@@ -444,7 +440,7 @@ function renderNodeInspector(node) {
     html += field("node", "currency", "货币", options(["coins", "crystals"], node.currency, {coins: "金币", crystals: "水晶"}), "select");
   }
   html += renderPrerequisites(node, isSkill);
-  if (isSkill || node.track) {
+  {
     html += `<div class="field-grid">${field("node", "treeRow", "树层级 · 从 0 开始", node.treeRow, "number")}${field("node", "treeX", "横向位置 · 0–1", node.treeX, "number")}</div><div class="field"><input data-scope="node" data-field="treeX" type="range" min="0.12" max="0.88" step="0.01" value="${escapeHtml(node.treeX)}" aria-label="横向位置"></div>
       <div class="field"><label for="tree-position-preset">位置预设</label><select id="tree-position-preset" data-action="position-preset"><option value="">选择位置预设</option><option value="children-center" ${nodesForTrack().some((item) => UpgradeEditor.requirements(item).some((r) => r.id === node.id)) ? "" : "disabled"}>基于子节点居中</option><option value="row-distribute">同层级平均分配</option><option value="parent-align" ${UpgradeEditor.requirements(node).length ? "" : "disabled"}>对齐前置中心</option><option value="canvas-center">画布居中</option></select></div>`;
   }
@@ -625,7 +621,7 @@ function handleAction(button) {
   if (action === "select-level") { state.level = index; state.wave = 0; state.group = 0; }
   else if (action === "select-wave") { state.wave = index; state.group = 0; }
   else if (action === "select-group") state.group = index;
-  else if (action === "select-track") { state.track = button.dataset.track; state.node = nodesForTrack()[0]?.id; }
+  else if (action === "select-track") { navigate("tree", button.dataset.track); return; }
   else if (action === "select-node") state.node = button.dataset.id;
   else if (action === "select-balance-category") state.balanceCategory = button.dataset.category;
   else if (action === "select-base-upgrade") state.baseUpgrade = button.dataset.id;

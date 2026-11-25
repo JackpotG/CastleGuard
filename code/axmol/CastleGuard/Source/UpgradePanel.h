@@ -42,7 +42,6 @@ private:
 
     struct TreeNodeView
     {
-        int targetLevel = 0;
         int id          = 0;
         float radius    = 31.0f;
         bool skill      = false;
@@ -53,22 +52,12 @@ private:
         ax::ui::Button* target = nullptr;
     };
 
-    struct UpgradeBranchView
-    {
-        UpgradeId id = UpgradeId::ArrowDamage;
-        ax::DrawNode* connector = nullptr;
-        ax::ui::Text* title     = nullptr;
-        ax::ui::Text* detail    = nullptr;
-        std::vector<TreeNodeView> nodes;
-    };
-
     void rebuildTree(float contentWidth);
+    TreeNodeView createTreeNode(int id, bool skill, const ax::Vec2& position, bool root, float extra);
     void refresh();
-    void refreshUpgradeBranch(UpgradeBranchView& branch);
-    void refreshResearchUpgradeNode(TreeNodeView& node);
+    void refreshUpgradeNode(TreeNodeView& node);
     void refreshSkillNode(TreeNodeView& node);
     void drawNode(TreeNodeView& node, NodeState state, bool affordable = true);
-    void selectUpgradeNode(UpgradeId id, int targetLevel);
     void purchaseUpgrade(UpgradeId id);
     void unlockSkill(SkillId id);
     void showResult(const PurchaseResult& result);
@@ -82,19 +71,20 @@ private:
     ax::ui::Button* _closeButton  = nullptr;
     ax::ui::Button* _startButton  = nullptr;
     ax::DrawNode* _startButtonBg  = nullptr;
-    ax::DrawNode* _skillConnector = nullptr;
-    ax::DrawNode* _skillRoot      = nullptr;
-    ax::DrawNode* _researchConnector = nullptr;
-    ax::DrawNode* _defenseConnector = nullptr;
     struct ConnectionCache
     {
         std::vector<float> geometry;
         std::vector<TreeConnections::Route> routes;
     };
-    std::array<ConnectionCache, 3> _connectionCaches;
-    std::vector<UpgradeBranchView> _upgradeBranches;
-    std::vector<TreeNodeView> _researchNodes;
-    std::vector<TreeNodeView> _skillNodes;
+    struct TreeTrackView
+    {
+        ax::DrawNode* connector = nullptr;
+        ax::ui::Text* heading = nullptr;
+        float top = 0, bottom = 0;
+        std::vector<TreeNodeView> nodes;
+        ConnectionCache connections;
+    };
+    std::vector<TreeTrackView> _tracks;
     std::function<void()> _startRunCallback;
     std::function<void()> _closeCallback;
     Section _section = Section::All;

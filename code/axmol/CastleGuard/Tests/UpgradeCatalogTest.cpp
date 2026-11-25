@@ -14,6 +14,13 @@ std::string sourceConfig(const char* name)
     text << input.rdbuf();
     return text.str();
 }
+std::string fixtureConfig(const char* name)
+{
+    std::ifstream input(std::filesystem::path(__FILE__).parent_path() / "fixtures" / name);
+    std::ostringstream text;
+    text << input.rdbuf();
+    return text.str();
+}
 const char* customCatalog = R"({"upgrades":[
  {"id":"training","name":"训练","description":"基础训练","currency":"coins","costs":[5,10],
   "track":"bow","treeRow":0,"treeX":0.5,"effects":[{"attribute":"arrow_damage","operation":"add","values":[0,2,4]}]},
@@ -228,12 +235,92 @@ TEST_SUITE("UpgradeCatalog")
     {
         std::vector<UpgradeDefinition> nodes;
         REQUIRE(parseUpgradeCatalog(customCatalog, nodes));
-        for (auto& node : nodes) { node.track = UpgradeTrack::None; node.treeRow = -1; node.prerequisite = UpgradeId::None; node.requiredLevel = 0; }
+        for (auto& node : nodes) { node.track = UpgradeTrack::Defense; node.treeRow = -1; node.prerequisite = UpgradeId::None; node.requiredLevel = 0; }
         auto extra = nodes[0]; extra.id = static_cast<UpgradeId>(2); extra.key = "third";
         nodes.push_back(extra);
         nodes[0].prerequisites = {{nodes[1].id, 1}, {nodes[2].id, 1}};
         nodes[2].prerequisites = {{nodes[0].id, 1}};
-        CHECK_FALSE(validUpgradeTree(nodes));
+        CHECK_FALSE(migrateLegacyUpgradeLayout(nodes));
+    }
+
+    TEST_CASE("browser-saved facilities share layout, AND gates, levels and effects")
+    {
+        std::vector<UpgradeDefinition> nodes;
+        REQUIRE(parseUpgradeCatalog(fixtureConfig("editor-shared-trees.json"), nodes));
+        REQUIRE(nodes.size() == 18);
+        for (const std::string track : {"bow", "magic", "defense"})
+        {
+            const auto find = [&](const std::string& suffix) -> const UpgradeDefinition& {
+                const auto node = std::find_if(nodes.begin(), nodes.end(), [&](const auto& item) { return item.key == track + suffix; });
+                REQUIRE(node != nodes.end());
+                return *node;
+            };
+            const auto& first = find("_training");
+            const auto& second = find("_support");
+            const auto& child = find("_focused");
+            CHECK(first.track == child.track);
+            CHECK(first.track == second.track);
+            CHECK_EQ(first.treeRow, 0);
+            CHECK_EQ(child.treeRow, 1);
+            CHECK_EQ(child.treeX, doctest::Approx(.373333f));
+            REQUIRE(child.prerequisites.size() == 2);
+            CHECK_EQ(child.prerequisites[0].level, 2);
+            CHECK_EQ(child.prerequisites[1].level, 1);
+            REQUIRE(child.effects.size() == 2);
+            CHECK_EQ(child.costs.size(), 2);
+            ProgressionModel progress;
+            EconomyModel wallet(100, 100);
+            CHECK_EQ(progress.purchaseUpgrade(wallet, child, 3).status, PurchaseStatus::PrerequisiteLocked);
+            REQUIRE(progress.purchaseUpgrade(wallet, first, 3).purchased());
+            REQUIRE(progress.purchaseUpgrade(wallet, second, 3).purchased());
+            CHECK_EQ(progress.purchaseUpgrade(wallet, child, 3).status, PurchaseStatus::PrerequisiteLocked);
+            REQUIRE(progress.purchaseUpgrade(wallet, first, 3).purchased());
+            const int balance = wallet.totalCoins();
+            CHECK_EQ(progress.purchaseUpgrade(wallet, child, 2).status, PurchaseStatus::PrerequisiteLocked);
+            CHECK_EQ(wallet.totalCoins(), balance);
+            REQUIRE(progress.purchaseUpgrade(wallet, child, 3).purchased());
+            REQUIRE(progress.purchaseUpgrade(wallet, child, 3).purchased());
+            CHECK_EQ(progress.purchaseUpgrade(wallet, child, 3).status, PurchaseStatus::MaxLevel);
+            const auto attributes = defaultUpgradeAttributes();
+            CHECK_EQ(evaluateUpgradeAttribute(attributes[1], nodes, progress), doctest::Approx(.8f));
+            auto invalid = nodes;
+            invalid[static_cast<size_t>(child.id)].treeRow = 0;
+            CHECK_FALSE(validUpgradeTree(invalid));
+            invalid = nodes;
+            invalid[static_cast<size_t>(child.id)].treeX = .95f;
+            CHECK_FALSE(validUpgradeTree(invalid));
+        }
+    }
+
+    TEST_CASE("legacy defense gains stable layout without changing progression data")
+    {
+        std::vector<UpgradeDefinition> nodes;
+        REQUIRE(parseUpgradeCatalog(fixtureConfig("legacy-defense-tree.json"), nodes));
+        REQUIRE(nodes.size() == 3);
+        CHECK_EQ(nodes[0].key, "wall_health");
+        CHECK_EQ(nodes[0].treeRow, 0);
+        CHECK_EQ(nodes[0].treeX, doctest::Approx(.73f));
+        CHECK_EQ(nodes[1].treeX, doctest::Approx(.27f));
+        CHECK_EQ(nodes[2].treeRow, 1);
+        CHECK_EQ(nodes[2].treeX, doctest::Approx(.5f));
+        CHECK((nodes[0].costs == std::vector<int>{3, 5}));
+        CHECK((nodes[0].effects[0].values == std::vector<float>{100, 120, 140}));
+        REQUIRE(nodes[2].prerequisites.size() == 2);
+        CHECK_EQ(nodes[2].prerequisites[0].level, 2);
+        CHECK_EQ(nodes[2].prerequisites[1].level, 1);
+        const auto snapshot = nodes;
+        REQUIRE(migrateLegacyUpgradeLayout(nodes));
+        CHECK_EQ(nodes[0].treeX, snapshot[0].treeX);
+        CHECK_EQ(nodes[2].treeRow, snapshot[2].treeRow);
+    }
+
+    TEST_CASE("active spell layout uses the same sixteen-layer range")
+    {
+        std::array<SkillDefinition, static_cast<size_t>(SkillId::Count)> skills;
+        REQUIRE(parseSkillCatalog(fixtureConfig("editor-shared-trees.json"), skills));
+        CHECK_EQ(skills[static_cast<size_t>(SkillId::Lightning)].treeRow, 9);
+        skills[static_cast<size_t>(SkillId::Lightning)].treeRow = 17;
+        CHECK_FALSE(validResearchTree(skills));
     }
 
     TEST_CASE("node deletion leaves a usable base and empty catalog is safe")

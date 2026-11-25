@@ -8,6 +8,58 @@
 #include <stdexcept>
 #include <unordered_map>
 
+bool migrateLegacyUpgradeLayout(std::vector<UpgradeDefinition>& nodes)
+{
+    std::set<size_t> legacy;
+    for (size_t i = 0; i < nodes.size(); ++i)
+        if (nodes[i].track == UpgradeTrack::Defense && nodes[i].treeRow == -1) legacy.insert(i);
+    std::vector<int> rows(nodes.size(), -1), visiting(nodes.size());
+    const std::function<bool(size_t)> resolve = [&](size_t index) {
+        if (!legacy.count(index)) { rows[index] = nodes[index].treeRow; return true; }
+        if (visiting[index]) return visiting[index] == 2;
+        visiting[index] = 1;
+        int row = 0;
+        for (const auto requirement : upgradeRequirements(nodes[index]))
+        {
+            const auto parent = static_cast<size_t>(requirement.id);
+            if (parent >= nodes.size() || !resolve(parent)) return false;
+            row = std::max(row, rows[parent] + 1);
+        }
+        rows[index] = row;
+        visiting[index] = 2;
+        return true;
+    };
+    for (const auto index : legacy)
+        if (!resolve(index)) return false;
+    for (const auto index : legacy) nodes[index].treeRow = rows[index];
+    std::vector<size_t> order(legacy.begin(), legacy.end()), placed;
+    std::sort(order.begin(), order.end(), [&](size_t a, size_t b) { return nodes[a].key < nodes[b].key; });
+    for (size_t i = 0; i < nodes.size(); ++i) if (!legacy.count(i)) placed.push_back(i);
+    for (const auto index : order)
+    {
+        auto& node = nodes[index];
+        const auto count = std::count_if(nodes.begin(), nodes.end(), [&](const auto& other) {
+            return other.track == node.track && other.treeRow == node.treeRow;
+        });
+        std::vector<float> candidates;
+        if (count == 1) candidates = {.5f};
+        else if (count == 2) candidates = {.27f, .73f};
+        else for (int i = 0; i < count; ++i)
+            candidates.push_back(std::round((.12 + i * .76 / (count - 1)) * 1000000) / 1000000);
+        for (int i = 0; i <= 76; ++i) candidates.push_back(std::round((.12 + i * .01) * 1000000) / 1000000);
+        const auto position = std::find_if(candidates.begin(), candidates.end(), [&](float x) {
+            return std::all_of(placed.begin(), placed.end(), [&](size_t other) {
+                return nodes[other].track != node.track || nodes[other].treeRow != node.treeRow ||
+                    std::abs(nodes[other].treeX - x) >= .18f - 1e-6f;
+            });
+        });
+        if (position == candidates.end()) return false;
+        node.treeX = *position;
+        placed.push_back(index);
+    }
+    return true;
+}
+
 std::vector<UpgradeAttribute> defaultUpgradeAttributes()
 {
     return {{"arrow_damage", "箭矢伤害", 1, 1, 99999},
@@ -140,8 +192,11 @@ bool parseUpgradeCatalog(const std::string& json, std::vector<UpgradeDefinition>
             node.requiredLevel = integer(item, "requiredLevel", 0);
             const auto track = item.HasMember("track") ? text(item, "track") : "defense";
             if (track != "bow" && track != "magic" && track != "defense") throw std::runtime_error("invalid track");
-            node.track = track == "bow" ? UpgradeTrack::Bow : track == "magic" ? UpgradeTrack::Magic : UpgradeTrack::None;
+            node.track = track == "bow" ? UpgradeTrack::Bow : track == "magic" ? UpgradeTrack::Magic : UpgradeTrack::Defense;
             node.treeRow = integer(item, "treeRow", -1);
+            const bool legacyLayout = node.track == UpgradeTrack::Defense && node.treeRow == -1 && !item.HasMember("treeX");
+            if (!legacyLayout && (!item.HasMember("treeX") || !item.HasMember("treeRow") || node.treeRow < 0))
+                throw std::runtime_error("incomplete tree layout");
             if (item.HasMember("treeX"))
             {
                 if (!item["treeX"].IsNumber()) throw std::runtime_error("invalid treeX");
@@ -200,7 +255,8 @@ bool parseUpgradeCatalog(const std::string& json, std::vector<UpgradeDefinition>
                 if (effect.operation == "set" && !assigned.insert(effect.attribute).second)
                     throw std::runtime_error("multiple base setters for one attribute");
         }
-        if (!validUpgradeTree(sorted)) throw std::runtime_error("invalid tree layout, costs or prerequisites");
+        if (!migrateLegacyUpgradeLayout(sorted) || !validUpgradeTree(sorted))
+            throw std::runtime_error("invalid tree layout, costs or prerequisites");
         upgrades = std::move(sorted);
         return true;
     }

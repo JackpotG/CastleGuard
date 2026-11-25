@@ -159,14 +159,12 @@ bool validUpgradeTree(const std::vector<UpgradeDefinition>& upgrades)
             return false;
         const auto requirements = upgradeRequirements(node);
         if (requirements.empty() && node.requiredLevel != 0) return false;
-        const bool inTree = node.track != UpgradeTrack::None;
-        if ((inTree && (node.treeRow < 0 || node.treeRow > 16 || !std::isfinite(node.treeX) ||
-                        node.treeX < 0.12f || node.treeX > 0.88f)) ||
-            (!inTree && node.treeRow != -1) ||
-            (inTree && requirements.empty() && node.treeRow != 0))
+        if (node.treeRow < 0 || node.treeRow > 16 || !std::isfinite(node.treeX) ||
+            node.treeX < 0.12f || node.treeX > 0.88f ||
+            (requirements.empty() && node.treeRow != 0))
             return false;
         for (size_t j = 0; j < i; ++j)
-            if (node.key == upgrades[j].key || (inTree && node.track == upgrades[j].track &&
+            if (node.key == upgrades[j].key || (node.track == upgrades[j].track &&
                 node.treeRow == upgrades[j].treeRow && std::abs(node.treeX - upgrades[j].treeX) < 0.18f - 1e-6f))
                 return false;
         std::set<UpgradeId> seen;
@@ -175,11 +173,11 @@ bool validUpgradeTree(const std::vector<UpgradeDefinition>& upgrades)
             const size_t parent = static_cast<size_t>(requirement.id);
             if (parent >= upgrades.size() || parent == i || !seen.insert(requirement.id).second ||
                 requirement.level <= 0 || requirement.level > upgrades[parent].maxLevel() ||
-                upgrades[parent].track != node.track || (inTree && upgrades[parent].treeRow >= node.treeRow))
+                upgrades[parent].track != node.track || upgrades[parent].treeRow >= node.treeRow)
                 return false;
         }
     }
-    // Visit every incoming edge, including city-defense branches that have no explicit tree row.
+    // Visit every incoming edge; every facility uses the same dependency rules.
     std::vector<int> visited(upgrades.size());
     const std::function<bool(size_t)> visit = [&](size_t index) {
         if (visited[index] != 0) return visited[index] == 2;
@@ -205,12 +203,13 @@ bool validResearchTree(const std::array<SkillDefinition, static_cast<size_t>(Ski
     {
         const auto& node = skills[i];
         if (node.id != static_cast<SkillId>(i) || node.key.empty() || node.name.empty() ||
-            node.treeRow < 0 || node.treeRow > 8 || !std::isfinite(node.treeX) ||
+            node.treeRow < 0 || node.treeRow > 16 || !std::isfinite(node.treeX) ||
             node.treeX < 0.12f || node.treeX > 0.88f || node.unlockStage < 0 || node.unlockCost < 0)
             return false;
         if ((node.defaultUnlocked && (node.unlockStage > 0 || node.unlockCost > 0)) ||
             (!node.defaultUnlocked && (node.unlockStage > 0) == (node.unlockCost > 0)))
             return false;
+        if (skillRequirements(node).empty() && node.treeRow != 0) return false;
         for (size_t j = 0; j < i; ++j)
         {
             if (node.treeRow == skills[j].treeRow && std::abs(node.treeX - skills[j].treeX) < 0.18f - 1e-6f)
@@ -684,6 +683,7 @@ void GameData::loadCatalog()
         AXLOGW("[Progression][Research] invalid attribute schema, using built-in defaults");
     for (auto& definition : _upgrades)
         definition.effects = {{definition.key, "set", definition.values}};
+    migrateLegacyUpgradeLayout(_upgrades);
 
     const std::string text = ax::FileUtils::getInstance()->getStringFromFile(CATALOG_PATH);
     rapidjson::Document doc;

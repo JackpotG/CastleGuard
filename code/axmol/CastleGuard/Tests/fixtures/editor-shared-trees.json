@@ -1,0 +1,608 @@
+{
+  "upgrades": [
+    {
+      "id": "bow_training",
+      "name": "弓术基础",
+      "description": "测试基础成长",
+      "currency": "coins",
+      "costs": [
+        3,
+        5
+      ],
+      "prerequisites": [],
+      "effects": [
+        {
+          "attribute": "arrow_damage",
+          "operation": "add",
+          "values": [
+            0,
+            1,
+            2
+          ]
+        }
+      ],
+      "track": "bow",
+      "treeRow": 0,
+      "treeX": 0.12
+    },
+    {
+      "id": "bow_support",
+      "name": "弓术辅助",
+      "description": "测试基础成长",
+      "currency": "coins",
+      "costs": [
+        3,
+        5
+      ],
+      "prerequisites": [],
+      "effects": [
+        {
+          "attribute": "arrow_damage",
+          "operation": "add",
+          "values": [
+            0,
+            1,
+            2
+          ]
+        }
+      ],
+      "track": "bow",
+      "treeRow": 0,
+      "treeX": 0.88
+    },
+    {
+      "id": "magic_training",
+      "name": "法术基础",
+      "description": "测试基础成长",
+      "currency": "coins",
+      "costs": [
+        3,
+        5
+      ],
+      "prerequisites": [],
+      "effects": [
+        {
+          "attribute": "mana_flow",
+          "operation": "add",
+          "values": [
+            0,
+            1,
+            2
+          ]
+        }
+      ],
+      "track": "magic",
+      "treeRow": 0,
+      "treeX": 0.12
+    },
+    {
+      "id": "magic_support",
+      "name": "法术辅助",
+      "description": "测试基础成长",
+      "currency": "coins",
+      "costs": [
+        3,
+        5
+      ],
+      "prerequisites": [],
+      "effects": [
+        {
+          "attribute": "mana_flow",
+          "operation": "add",
+          "values": [
+            0,
+            1,
+            2
+          ]
+        }
+      ],
+      "track": "magic",
+      "treeRow": 0,
+      "treeX": 0.88
+    },
+    {
+      "id": "defense_training",
+      "name": "城防基础",
+      "description": "测试基础成长",
+      "currency": "coins",
+      "costs": [
+        3,
+        5
+      ],
+      "prerequisites": [],
+      "effects": [
+        {
+          "attribute": "wall_health",
+          "operation": "add",
+          "values": [
+            0,
+            1,
+            2
+          ]
+        }
+      ],
+      "track": "defense",
+      "treeRow": 0,
+      "treeX": 0.88
+    },
+    {
+      "id": "defense_support",
+      "name": "城防辅助",
+      "description": "测试基础成长",
+      "currency": "coins",
+      "costs": [
+        3,
+        5
+      ],
+      "prerequisites": [],
+      "effects": [
+        {
+          "attribute": "wall_health",
+          "operation": "add",
+          "values": [
+            0,
+            1,
+            2
+          ]
+        }
+      ],
+      "track": "defense",
+      "treeRow": 0,
+      "treeX": 0.12
+    },
+    {
+      "id": "bow_focused",
+      "name": "组合研修",
+      "description": "配置升级效果",
+      "currency": "coins",
+      "costs": [
+        10,
+        18
+      ],
+      "effects": [
+        {
+          "attribute": "arrow_damage",
+          "operation": "add",
+          "values": [
+            0,
+            2,
+            4
+          ]
+        },
+        {
+          "attribute": "fire_rate",
+          "operation": "multiply",
+          "values": [
+            1,
+            0.9,
+            0.8
+          ]
+        }
+      ],
+      "track": "bow",
+      "treeRow": 1,
+      "treeX": 0.373333,
+      "prerequisites": [
+        {
+          "id": "bow_training",
+          "level": 2
+        },
+        {
+          "id": "bow_support",
+          "level": 1
+        }
+      ],
+      "unlockStage": 3
+    },
+    {
+      "id": "bow_branch_0",
+      "name": "新升级",
+      "description": "配置升级效果",
+      "currency": "coins",
+      "costs": [
+        10
+      ],
+      "effects": [
+        {
+          "attribute": "arrow_damage",
+          "operation": "add",
+          "values": [
+            0,
+            1
+          ]
+        }
+      ],
+      "track": "bow",
+      "treeRow": 1,
+      "treeX": 0.12,
+      "prerequisites": [
+        {
+          "id": "bow_training",
+          "level": 1
+        }
+      ],
+      "unlockStage": 0
+    },
+    {
+      "id": "bow_branch_1",
+      "name": "新升级",
+      "description": "配置升级效果",
+      "currency": "coins",
+      "costs": [
+        10
+      ],
+      "effects": [
+        {
+          "attribute": "arrow_damage",
+          "operation": "add",
+          "values": [
+            0,
+            1
+          ]
+        }
+      ],
+      "track": "bow",
+      "treeRow": 1,
+      "treeX": 0.626667,
+      "prerequisites": [
+        {
+          "id": "bow_training",
+          "level": 1
+        }
+      ],
+      "unlockStage": 0
+    },
+    {
+      "id": "bow_branch_2",
+      "name": "新升级",
+      "description": "配置升级效果",
+      "currency": "coins",
+      "costs": [
+        10
+      ],
+      "effects": [
+        {
+          "attribute": "arrow_damage",
+          "operation": "add",
+          "values": [
+            0,
+            1
+          ]
+        }
+      ],
+      "track": "bow",
+      "treeRow": 1,
+      "treeX": 0.88,
+      "prerequisites": [
+        {
+          "id": "bow_training",
+          "level": 1
+        }
+      ],
+      "unlockStage": 0
+    },
+    {
+      "id": "magic_focused",
+      "name": "组合研修",
+      "description": "配置升级效果",
+      "currency": "coins",
+      "costs": [
+        10,
+        18
+      ],
+      "effects": [
+        {
+          "attribute": "mana_flow",
+          "operation": "add",
+          "values": [
+            0,
+            2,
+            4
+          ]
+        },
+        {
+          "attribute": "fire_rate",
+          "operation": "multiply",
+          "values": [
+            1,
+            0.9,
+            0.8
+          ]
+        }
+      ],
+      "track": "magic",
+      "treeRow": 1,
+      "treeX": 0.373333,
+      "prerequisites": [
+        {
+          "id": "magic_training",
+          "level": 2
+        },
+        {
+          "id": "magic_support",
+          "level": 1
+        }
+      ],
+      "unlockStage": 3
+    },
+    {
+      "id": "magic_branch_0",
+      "name": "新升级",
+      "description": "配置升级效果",
+      "currency": "coins",
+      "costs": [
+        10
+      ],
+      "effects": [
+        {
+          "attribute": "mana_flow",
+          "operation": "add",
+          "values": [
+            0,
+            1
+          ]
+        }
+      ],
+      "track": "magic",
+      "treeRow": 1,
+      "treeX": 0.12,
+      "prerequisites": [
+        {
+          "id": "magic_training",
+          "level": 1
+        }
+      ],
+      "unlockStage": 0
+    },
+    {
+      "id": "magic_branch_1",
+      "name": "新升级",
+      "description": "配置升级效果",
+      "currency": "coins",
+      "costs": [
+        10
+      ],
+      "effects": [
+        {
+          "attribute": "mana_flow",
+          "operation": "add",
+          "values": [
+            0,
+            1
+          ]
+        }
+      ],
+      "track": "magic",
+      "treeRow": 1,
+      "treeX": 0.626667,
+      "prerequisites": [
+        {
+          "id": "magic_training",
+          "level": 1
+        }
+      ],
+      "unlockStage": 0
+    },
+    {
+      "id": "magic_branch_2",
+      "name": "新升级",
+      "description": "配置升级效果",
+      "currency": "coins",
+      "costs": [
+        10
+      ],
+      "effects": [
+        {
+          "attribute": "mana_flow",
+          "operation": "add",
+          "values": [
+            0,
+            1
+          ]
+        }
+      ],
+      "track": "magic",
+      "treeRow": 1,
+      "treeX": 0.88,
+      "prerequisites": [
+        {
+          "id": "magic_training",
+          "level": 1
+        }
+      ],
+      "unlockStage": 0
+    },
+    {
+      "id": "defense_focused",
+      "name": "组合研修",
+      "description": "配置升级效果",
+      "currency": "coins",
+      "costs": [
+        10,
+        18
+      ],
+      "effects": [
+        {
+          "attribute": "wall_health",
+          "operation": "add",
+          "values": [
+            0,
+            2,
+            4
+          ]
+        },
+        {
+          "attribute": "fire_rate",
+          "operation": "multiply",
+          "values": [
+            1,
+            0.9,
+            0.8
+          ]
+        }
+      ],
+      "track": "defense",
+      "treeRow": 1,
+      "treeX": 0.373333,
+      "prerequisites": [
+        {
+          "id": "defense_training",
+          "level": 2
+        },
+        {
+          "id": "defense_support",
+          "level": 1
+        }
+      ],
+      "unlockStage": 3
+    },
+    {
+      "id": "defense_branch_0",
+      "name": "新升级",
+      "description": "配置升级效果",
+      "currency": "coins",
+      "costs": [
+        10
+      ],
+      "effects": [
+        {
+          "attribute": "wall_health",
+          "operation": "add",
+          "values": [
+            0,
+            1
+          ]
+        }
+      ],
+      "track": "defense",
+      "treeRow": 1,
+      "treeX": 0.12,
+      "prerequisites": [
+        {
+          "id": "defense_training",
+          "level": 1
+        }
+      ],
+      "unlockStage": 0
+    },
+    {
+      "id": "defense_branch_1",
+      "name": "新升级",
+      "description": "配置升级效果",
+      "currency": "coins",
+      "costs": [
+        10
+      ],
+      "effects": [
+        {
+          "attribute": "wall_health",
+          "operation": "add",
+          "values": [
+            0,
+            1
+          ]
+        }
+      ],
+      "track": "defense",
+      "treeRow": 1,
+      "treeX": 0.626667,
+      "prerequisites": [
+        {
+          "id": "defense_training",
+          "level": 1
+        }
+      ],
+      "unlockStage": 0
+    },
+    {
+      "id": "defense_branch_2",
+      "name": "新升级",
+      "description": "配置升级效果",
+      "currency": "coins",
+      "costs": [
+        10
+      ],
+      "effects": [
+        {
+          "attribute": "wall_health",
+          "operation": "add",
+          "values": [
+            0,
+            1
+          ]
+        }
+      ],
+      "track": "defense",
+      "treeRow": 1,
+      "treeX": 0.88,
+      "prerequisites": [
+        {
+          "id": "defense_training",
+          "level": 1
+        }
+      ],
+      "unlockStage": 0
+    }
+  ],
+  "skills": [
+    {
+      "id": "fireball",
+      "name": "火球",
+      "description": "范围爆炸伤害",
+      "unlockCost": 0,
+      "defaultUnlocked": false,
+      "unlockStage": 3,
+      "treeRow": 0,
+      "treeX": 0.5,
+      "prerequisites": []
+    },
+    {
+      "id": "freeze",
+      "name": "冰冻",
+      "description": "范围减速控制",
+      "unlockCost": 0,
+      "defaultUnlocked": false,
+      "unlockStage": 4,
+      "treeRow": 1,
+      "treeX": 0.12,
+      "prerequisites": [
+        {
+          "id": "fireball",
+          "level": 1
+        }
+      ]
+    },
+    {
+      "id": "arrow_rain",
+      "name": "箭雨",
+      "description": "持续覆盖一片区域",
+      "unlockCost": 0,
+      "defaultUnlocked": false,
+      "unlockStage": 5,
+      "treeRow": 2,
+      "treeX": 0.27,
+      "prerequisites": [
+        {
+          "id": "freeze",
+          "level": 1
+        }
+      ]
+    },
+    {
+      "id": "lightning",
+      "name": "闪电",
+      "description": "点杀主目标并麻痹周围敌人",
+      "unlockCost": 5,
+      "defaultUnlocked": false,
+      "unlockStage": 0,
+      "treeRow": 9,
+      "treeX": 0.88,
+      "prerequisites": [
+        {
+          "id": "fireball",
+          "level": 1
+        }
+      ]
+    }
+  ]
+}

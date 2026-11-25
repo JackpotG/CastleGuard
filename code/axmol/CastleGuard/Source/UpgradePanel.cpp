@@ -10,7 +10,6 @@ namespace
 {
 constexpr float PANEL_PADDING         = 24.0f;
 constexpr float SECTION_HEIGHT        = 52.0f;
-constexpr float UPGRADE_BRANCH_HEIGHT = 162.0f;
 constexpr float NODE_RADIUS           = 31.0f;
 constexpr float NODE_TARGET_SIZE      = 78.0f;
 constexpr float CLOSE_BUTTON_SIZE     = 64.0f;
@@ -300,228 +299,114 @@ void UpgradePanel::openAt(Section section)
     _scroll->jumpToTop();
 }
 
+UpgradePanel::TreeNodeView UpgradePanel::createTreeNode(int id, bool skill, const Vec2& position, bool root, float extra)
+{
+    TreeNodeView node;
+    node.id = id;
+    node.skill = skill;
+    node.graphic = DrawNode::create();
+    node.graphic->setPosition(position);
+    _scroll->addChild(node.graphic, 1);
+    node.title = addText(_scroll, "", 17.0f, Vec2(0.5f, 0.5f), 3);
+    node.title->setPosition(position + Vec2(0, root ? 90.0f + extra : -43.0f));
+    node.status = addText(_scroll, "", 13.0f, Vec2(0.5f, 0.5f), 3);
+    node.status->setPosition(position + Vec2(0, root ? 68.0f + extra * .5f : -64.0f - extra * .5f));
+    if (!skill)
+    {
+        node.detail = addText(_scroll, "", 13.0f, Vec2(0.5f, 0.5f), 3);
+        node.detail->setPosition(position + Vec2(0, root ? 46.0f : -84.0f - extra));
+    }
+    node.target = ui::Button::create();
+    node.target->ignoreContentAdaptWithSize(false);
+    node.target->setContentSize(Size(NODE_TARGET_SIZE, NODE_TARGET_SIZE));
+    node.target->setPosition(position);
+    node.target->addClickEventListener([this, id, skill](Object*) {
+        if (skill) unlockSkill(static_cast<SkillId>(id));
+        else purchaseUpgrade(static_cast<UpgradeId>(id));
+    });
+    _scroll->addChild(node.target, 4);
+    return node;
+}
+
 void UpgradePanel::rebuildTree(float contentWidth)
 {
     _scroll->removeAllChildren();
-    _upgradeBranches.clear();
-    _researchNodes.clear();
-    _skillNodes.clear();
-    _skillConnector = nullptr;
-    _skillRoot      = nullptr;
-    _researchConnector = nullptr;
-    _defenseConnector = DrawNode::create();
-    _scroll->addChild(_defenseConnector, 0);
-
-    const bool showBow = _section == Section::All || _section == Section::Weapons;
-    const bool showMagic = _section == Section::All || _section == Section::Research;
-    const bool showDefense = _section == Section::All || _section == Section::Defense;
-    std::vector<UpgradeId> upgradeIds;
-    if (showDefense)
+    _tracks.clear();
+    const auto& data = GameData::getInstance();
+    struct Track
     {
-        for (const auto& node : GameData::getInstance().upgradeDefinitions())
-            if (node.track == UpgradeTrack::None) upgradeIds.push_back(node.id);
-    }
-    int maxSkillRow = 0;
-    int maxBowRow = 0;
-    int maxMagicRow = 0;
-    float bowExtra = 0, magicExtra = 0;
-    if (showMagic)
+        const char* title;
+        UpgradeTrack track;
+        bool skill;
+        bool visible;
+        std::vector<int> ids;
+        int maxRow = 0;
+        float extra = 0;
+        float height = 0;
+    };
+    std::array<Track, 4> tracks{{
+        {"城防研修", UpgradeTrack::Defense, false, _section == Section::All || _section == Section::Defense, {}},
+        {"弓箭研修", UpgradeTrack::Bow, false, _section == Section::All || _section == Section::Weapons, {}},
+        {"法力研修", UpgradeTrack::Magic, false, _section == Section::All || _section == Section::Research, {}},
+        {"法术研习", UpgradeTrack::Magic, true, _section == Section::All || _section == Section::Research, {}},
+    }};
+    float naturalH = 20.0f;
+    for (auto& track : tracks)
     {
-        for (int i = 0; i < static_cast<int>(SkillId::Count); ++i)
-            maxSkillRow = std::max(maxSkillRow, GameData::getInstance()
-                .skillDefinition(static_cast<SkillId>(i)).treeRow);
-    }
-    if (showBow || showMagic)
-    {
-        for (int i = 0; i < static_cast<int>(GameData::getInstance().upgradeDefinitions().size()); ++i)
+        if (!track.visible) continue;
+        if (track.skill)
         {
-            const auto& definition = GameData::getInstance().upgradeDefinition(static_cast<UpgradeId>(i));
-            if (definition.track == UpgradeTrack::Bow)
+            for (int i = 0; i < static_cast<int>(SkillId::Count); ++i)
             {
-                maxBowRow = std::max(maxBowRow, definition.treeRow);
-                bowExtra = std::max(bowExtra, (static_cast<float>(std::max(definition.effects.size(), upgradeRequirements(definition).size() + (definition.unlockStage > 0 ? 1 : 0))) - 1) * 22.0f);
-            }
-            else if (definition.track == UpgradeTrack::Magic)
-            {
-                maxMagicRow = std::max(maxMagicRow, definition.treeRow);
-                magicExtra = std::max(magicExtra, (static_cast<float>(std::max(definition.effects.size(), upgradeRequirements(definition).size() + (definition.unlockStage > 0 ? 1 : 0))) - 1) * 22.0f);
+                track.ids.push_back(i);
+                track.maxRow = std::max(track.maxRow, data.skillDefinition(static_cast<SkillId>(i)).treeRow);
             }
         }
+        else
+        {
+            for (const auto& node : data.upgradeDefinitions())
+            {
+                if (node.track != track.track) continue;
+                track.ids.push_back(static_cast<int>(node.id));
+                track.maxRow = std::max(track.maxRow, node.treeRow);
+                const auto lines = std::max(node.effects.size(), upgradeRequirements(node).size() + (node.unlockStage > 0 ? 1 : 0));
+                track.extra = std::max(track.extra, (static_cast<float>(lines) - 1) * 22.0f);
+            }
+        }
+        track.height = SECTION_HEIGHT + (track.maxRow + 1) * (160.0f + track.extra) + 55.0f + track.extra;
+        naturalH += track.height;
     }
-    const float bowHeight = showBow ? SECTION_HEIGHT + (maxBowRow + 1) * (160.0f + bowExtra) + 55.0f + bowExtra : 0.0f;
-    const float magicHeight = showMagic ?
-        SECTION_HEIGHT + (maxMagicRow + 1) * (160.0f + magicExtra) + 55.0f + magicExtra +
-        SECTION_HEIGHT + 145.0f + maxSkillRow * 138.0f + 100.0f : 0.0f;
-    const float defenseFacilityHeight = showDefense ? SECTION_HEIGHT + 100.0f : 0.0f;
-    const float naturalH = (!upgradeIds.empty() ? SECTION_HEIGHT : 0.0f) +
-        upgradeIds.size() * UPGRADE_BRANCH_HEIGHT + defenseFacilityHeight + bowHeight + magicHeight + 20.0f;
     const float innerH = std::max(_scroll->getContentSize().height, naturalH);
     _scroll->setInnerContainerSize(Size(contentWidth, innerH));
     float y = innerH;
-
-    auto addSection = [&](const std::string& text) {
-        y -= SECTION_HEIGHT * 0.5f;
-        auto* label = addText(_scroll, text, 25.0f, Vec2(0.0f, 0.5f));
-        label->setTextColor(Color4B(150, 205, 255, 255));
-        label->setPosition(Vec2(12.0f, y));
-        y -= SECTION_HEIGHT * 0.5f;
-    };
-
-    if (!upgradeIds.empty())
-        addSection("城墙工事");
-    for (const auto id : upgradeIds)
+    for (const auto& track : tracks)
     {
-        const auto& definition = GameData::getInstance().upgradeDefinition(id);
-        const float branchTop = y;
-
-        UpgradeBranchView branch;
-        branch.id        = id;
-        branch.connector = DrawNode::create();
-        _scroll->addChild(branch.connector, 0);
-        branch.title = addText(_scroll, definition.name, 24.0f, Vec2(0.0f, 0.5f));
-        branch.title->setPosition(Vec2(12.0f, branchTop - 25.0f));
-        branch.detail = addText(_scroll, "", 17.0f, Vec2(0.0f, 0.5f));
-        branch.detail->setTextColor(Color4B(185, 198, 215, 255));
-        branch.detail->setPosition(Vec2(12.0f, branchTop - 56.0f));
-
-        const int levelCount = std::max(1, definition.maxLevel());
-        const float startX = levelCount == 1 ? contentWidth * 0.5f : 36.0f;
-        const float endX   = levelCount == 1 ? contentWidth * 0.5f : contentWidth - 36.0f;
-        const float nodeY  = branchTop - 111.0f;
-        for (int level = 1; level <= levelCount; ++level)
+        if (!track.visible) continue;
+        TreeTrackView view;
+        view.top = y;
+        view.bottom = y - track.height;
+        view.connector = DrawNode::create();
+        _scroll->addChild(view.connector, 0);
+        view.heading = addText(_scroll, track.title, 25.0f, Vec2(0.0f, 0.5f));
+        view.heading->setTextColor(Color4B(150, 205, 255, 255));
+        view.heading->setPosition(Vec2(12.0f, y - SECTION_HEIGHT * 0.5f));
+        y -= SECTION_HEIGHT;
+        for (const int id : track.ids)
         {
-            const float t = levelCount == 1 ? 0.0f : static_cast<float>(level - 1) / (levelCount - 1);
-            const Vec2 position(startX + (endX - startX) * t, nodeY);
-
-            TreeNodeView node;
-            node.id          = static_cast<int>(id);
-            node.targetLevel = level;
-            node.radius      = std::clamp((contentWidth - 58.0f) / (levelCount * 2.0f), 16.0f, NODE_RADIUS);
-            node.graphic     = DrawNode::create();
-            node.graphic->setPosition(position);
-            _scroll->addChild(node.graphic, 1);
-            node.title = addText(_scroll, "", 18.0f, Vec2(0.5f, 0.5f), 3);
-            node.title->setPosition(position);
-            node.status = addText(_scroll, "", 13.0f, Vec2(0.5f, 0.5f), 3);
-            node.status->setPosition(position + Vec2(0.0f, -37.0f));
-
-            node.target = ui::Button::create();
-            node.target->ignoreContentAdaptWithSize(false);
-            node.target->setContentSize(Size(node.radius * 2.0f + 10.0f, node.radius * 2.0f + 10.0f));
-            node.target->setPosition(position);
-            node.target->addClickEventListener([this, id, level](Object*) {
-                selectUpgradeNode(id, level);
-            });
-            _scroll->addChild(node.target, 4);
-            branch.nodes.push_back(node);
+            const int row = track.skill ? data.skillDefinition(static_cast<SkillId>(id)).treeRow
+                                        : data.upgradeDefinition(static_cast<UpgradeId>(id)).treeRow;
+            const float x = track.skill ? data.skillDefinition(static_cast<SkillId>(id)).treeX
+                                        : data.upgradeDefinition(static_cast<UpgradeId>(id)).treeX;
+            const Vec2 position(contentWidth * x, y - 95.0f - track.extra - row * (160.0f + track.extra));
+            view.nodes.push_back(createTreeNode(id, track.skill, position, row == 0, track.extra));
         }
-        _upgradeBranches.push_back(std::move(branch));
-        y -= UPGRADE_BRANCH_HEIGHT;
-    }
-
-    if (showDefense)
-    {
-        addSection("城防设施");
-        auto* tower = DrawNode::create();
-        tower->setPosition(Vec2(56.0f, y - 49.0f));
-        tower->drawSolidRect(Vec2(-19, -24), Vec2(19, 14), Color4F(0.20f, 0.25f, 0.32f, 1.0f));
-        tower->drawSolidTriangle(Vec2(-24, 14), Vec2(0, 34), Vec2(24, 14),
-                                 Color4F(0.34f, 0.39f, 0.48f, 1.0f), Color4F(0.34f, 0.39f, 0.48f, 1.0f));
-        _scroll->addChild(tower, 1);
-        auto* towerLabel = addText(_scroll, "魔法塔", 19.0f, Vec2(0, 0.5f));
-        towerLabel->setPosition(Vec2(95.0f, y - 42.0f));
-        auto* towerState = addText(_scroll, "待建造", 14.0f, Vec2(0, 0.5f));
-        towerState->setTextColor(Color4B(145, 153, 166, 255));
-        towerState->setPosition(Vec2(95.0f, y - 66.0f));
-        y -= 100.0f;
-    }
-
-    if (!showBow && !showMagic) return;
-    _researchConnector = DrawNode::create();
-    _scroll->addChild(_researchConnector, 0);
-    auto addUpgradeTrack = [&](UpgradeTrack track, float top) {
-        for (int i = 0; i < static_cast<int>(GameData::getInstance().upgradeDefinitions().size()); ++i)
+        if (track.ids.empty())
         {
-            const UpgradeId id = static_cast<UpgradeId>(i);
-            const auto& definition = GameData::getInstance().upgradeDefinition(id);
-            if (definition.track != track) continue;
-            const float extra = track == UpgradeTrack::Bow ? bowExtra : magicExtra;
-            const Vec2 position(contentWidth * definition.treeX, top - 95.0f - extra - definition.treeRow * (160.0f + extra));
-            TreeNodeView node;
-            node.id = i;
-            node.graphic = DrawNode::create();
-            node.graphic->setPosition(position);
-            _scroll->addChild(node.graphic, 1);
-            const bool bowRoot = track == UpgradeTrack::Bow && definition.treeRow == 0;
-            node.title = addText(_scroll, "", 17.0f, Vec2(0.5f, 0.5f), 3);
-            node.title->setPosition(position + Vec2(0, bowRoot ? 90.0f + extra : -43.0f));
-            node.status = addText(_scroll, "", 13.0f, Vec2(0.5f, 0.5f), 3);
-            node.status->setPosition(position + Vec2(0, bowRoot ? 68.0f + extra * .5f : -64.0f - extra * .5f));
-            node.detail = addText(_scroll, "", 13.0f, Vec2(0.5f, 0.5f), 3);
-            node.detail->setPosition(position + Vec2(0, bowRoot ? 46.0f : -84.0f - extra));
-            node.target = ui::Button::create();
-            node.target->ignoreContentAdaptWithSize(false);
-            node.target->setContentSize(Size(NODE_TARGET_SIZE, NODE_TARGET_SIZE));
-            node.target->setPosition(position);
-            node.target->addClickEventListener([this, id](Object*) { purchaseUpgrade(id); });
-            _scroll->addChild(node.target, 4);
-            _researchNodes.push_back(node);
+            auto* empty = addText(_scroll, "暂无研修项目", 20.0f, Vec2(.5f, .5f));
+            empty->setPosition(Vec2(contentWidth * .5f, y - 80.0f));
         }
-    };
-    if (showBow)
-    {
-        addSection("弓箭研修");
-        const float bowTop = y;
-        addUpgradeTrack(UpgradeTrack::Bow, bowTop);
-        y -= (maxBowRow + 1) * (160.0f + bowExtra) + 55.0f + bowExtra;
-    }
-    if (!showMagic) return;
-    addSection("法力研修");
-    const float magicTop = y;
-    addUpgradeTrack(UpgradeTrack::Magic, magicTop);
-    y -= (maxMagicRow + 1) * (160.0f + magicExtra) + 55.0f + magicExtra;
-
-    addSection("法术研习");
-    const float skillTop = y;
-    const Vec2 rootPosition(contentWidth * 0.5f, skillTop - 48.0f);
-    _skillConnector = DrawNode::create();
-    _scroll->addChild(_skillConnector, 0);
-    _skillRoot = DrawNode::create();
-    _skillRoot->setPosition(rootPosition);
-    _skillRoot->drawSolidCircle(Vec2::ZERO, 24.0f, 0.0f, 28, Color4F(0.23f, 0.30f, 0.40f, 1.0f));
-    _skillRoot->drawCircle(Vec2::ZERO, 24.0f, 0.0f, 28, false,
-                           Color4F(0.64f, 0.78f, 0.94f, 1.0f), 2.0f);
-    _scroll->addChild(_skillRoot, 1);
-    auto* rootLabel = addText(_scroll, "法术", 16.0f, Vec2(0.5f, 0.5f), 2);
-    rootLabel->setPosition(rootPosition);
-
-    const int skillCount = static_cast<int>(SkillId::Count);
-    for (int i = 0; i < skillCount; ++i)
-    {
-        const auto& definition = GameData::getInstance().skillDefinition(static_cast<SkillId>(i));
-        const Vec2 position(contentWidth * definition.treeX,
-                            skillTop - 145.0f - definition.treeRow * 138.0f);
-
-        TreeNodeView node;
-        node.id      = i;
-        node.skill   = true;
-        node.graphic = DrawNode::create();
-        node.graphic->setPosition(position);
-        _scroll->addChild(node.graphic, 1);
-        const bool labelOnLeft = definition.treeX > 0.66f;
-        const Vec2 labelAnchor(labelOnLeft ? 1.0f : 0.0f, 0.5f);
-        const float labelX = labelOnLeft ? -NODE_RADIUS - 13.0f : NODE_RADIUS + 13.0f;
-        node.title = addText(_scroll, "", 17.0f, labelAnchor, 3);
-        node.title->setPosition(position + Vec2(labelX, 10.0f));
-        node.status = addText(_scroll, "", 13.0f, labelAnchor, 3);
-        node.status->setPosition(position + Vec2(labelX, -12.0f));
-        node.target = ui::Button::create();
-        node.target->ignoreContentAdaptWithSize(false);
-        node.target->setContentSize(Size(NODE_TARGET_SIZE, NODE_TARGET_SIZE));
-        node.target->setPosition(position);
-        node.target->addClickEventListener([this, i](Object*) { unlockSkill(static_cast<SkillId>(i)); });
-        _scroll->addChild(node.target, 4);
-        _skillNodes.push_back(node);
+        y = view.bottom;
+        _tracks.push_back(std::move(view));
     }
 }
 
@@ -529,18 +414,16 @@ void UpgradePanel::refresh()
 {
     const auto& economy = GameData::getInstance().economy();
     _wallet->setString(StringUtils::format("金币 %d     水晶 %d", economy.totalCoins(), economy.totalCrystals()));
-    for (auto& branch : _upgradeBranches)
-    {
-        refreshUpgradeBranch(branch);
-    }
-    for (auto& node : _researchNodes) refreshResearchUpgradeNode(node);
-    for (auto& node : _skillNodes) refreshSkillNode(node);
+    for (auto& track : _tracks)
+        for (auto& node : track.nodes)
+            if (node.skill) refreshSkillNode(node);
+            else refreshUpgradeNode(node);
 
     const auto& data = GameData::getInstance();
-    const Color4F active(.24f,.69f,.92f,1), locked(.30f,.38f,.49f,1), completed(.82f,.70f,.28f,1);
+    const Color4F active(.24f,.69f,.92f,1), locked(.30f,.38f,.49f,1);
     const auto drawConnections = [&](DrawNode* layer, const std::vector<TreeNodeView*>& nodes,
         const std::vector<TreeConnections::Edge>& edges, const std::vector<Color4F>& colors,
-        const std::vector<ui::Text*>& extraLabels, ConnectionCache& cache) {
+        const std::vector<ui::Text*>& extraLabels, ConnectionCache& cache, float top, float bottom) {
         if (!layer) return;
         layer->clear();
         std::vector<TreeConnections::Rect> bodies, labels;
@@ -570,14 +453,7 @@ void UpgradePanel::refresh()
         if (signature != cache.geometry)
         {
             cache.geometry = std::move(signature);
-            TreeConnections::Rect bounds{4,0,size.width-4,-size.height};
-            for (const auto& boxes : {bodies,labels}) for (const auto box : boxes)
-            {
-                bounds.top=std::min(bounds.top,box.top-20);
-                bounds.bottom=std::max(bounds.bottom,box.bottom+20);
-            }
-            bounds.top=std::max(bounds.top,-size.height+4);
-            bounds.bottom=std::min(bounds.bottom,-4.0f);
+            TreeConnections::Rect bounds{4,-top,size.width-4,-bottom};
             cache.routes = TreeConnections::route(bodies,edges,labels,bounds);
             if (std::any_of(cache.routes.begin(),cache.routes.end(),[](const auto& path){return path.points.empty();}))
                 AXLOGW("[Progression][Research] tree connector blocked by dense node labels");
@@ -588,112 +464,38 @@ void UpgradePanel::refresh()
                     layer->drawLine(Vec2(stroke[j-1].x,-stroke[j-1].y),Vec2(stroke[j].x,-stroke[j].y),colors[i],2.0f);
     };
 
-    std::vector<TreeNodeView*> views;
-    std::vector<TreeConnections::Edge> edges;
-    std::vector<Color4F> colors;
-    std::vector<ui::Text*> labels;
-    for (auto& branch : _upgradeBranches)
+    for (auto& track : _tracks)
     {
-        labels.insert(labels.end(),{branch.title,branch.detail});
-        const int start=static_cast<int>(views.size());
-        for (auto& node : branch.nodes) views.push_back(&node);
-        for (size_t i=1;i<branch.nodes.size();++i)
+        std::vector<TreeNodeView*> views;
+        std::vector<TreeConnections::Edge> edges;
+        std::vector<Color4F> colors;
+        for (auto& node : track.nodes) views.push_back(&node);
+        for (size_t i = 0; i < views.size(); ++i)
         {
-            edges.push_back({start+static_cast<int>(i)-1,start+static_cast<int>(i)});
-            colors.push_back(branch.nodes[i].targetLevel<=data.upgradeLevel(branch.id)?completed:
-                branch.nodes[i].targetLevel==data.upgradeLevel(branch.id)+1?active:locked);
+            const auto append = [&](int parentId, bool met) {
+                const auto parent = std::find_if(views.begin(), views.end(), [&](const auto* node) { return node->id == parentId; });
+                if (parent == views.end()) return;
+                edges.push_back({static_cast<int>(parent - views.begin()), static_cast<int>(i)});
+                colors.push_back(met ? active : locked);
+            };
+            if (views[i]->skill)
+            {
+                const auto id = static_cast<SkillId>(views[i]->id);
+                for (const auto parent : skillRequirements(data.skillDefinition(id)))
+                    append(static_cast<int>(parent), data.isSkillUnlocked(parent));
+            }
+            else
+            {
+                const auto id = static_cast<UpgradeId>(views[i]->id);
+                for (const auto& requirement : upgradeRequirements(data.upgradeDefinition(id)))
+                    append(static_cast<int>(requirement.id), data.upgradeLevel(requirement.id) >= requirement.level);
+            }
         }
-    }
-    for (auto& branch : _upgradeBranches)
-        for (const auto& requirement : upgradeRequirements(data.upgradeDefinition(branch.id)))
-        {
-            const auto from=std::find_if(views.begin(),views.end(),[&](const auto* n){return n->id==static_cast<int>(requirement.id)&&n->targetLevel==requirement.level;});
-            const auto to=std::find_if(views.begin(),views.end(),[&](const auto* n){return n->id==static_cast<int>(branch.id)&&n->targetLevel==1;});
-            if (from==views.end()||to==views.end()) continue;
-            edges.push_back({static_cast<int>(from-views.begin()),static_cast<int>(to-views.begin())});
-            colors.push_back(data.upgradeLevel(requirement.id)>=requirement.level?active:locked);
-        }
-    drawConnections(_defenseConnector,views,edges,colors,labels,_connectionCaches[0]);
-
-    views.clear(); edges.clear(); colors.clear();
-    for (auto& node : _researchNodes) views.push_back(&node);
-    for (size_t i=0;i<views.size();++i)
-        for (const auto& requirement : upgradeRequirements(data.upgradeDefinition(static_cast<UpgradeId>(views[i]->id))))
-        {
-            const auto parent=std::find_if(views.begin(),views.end(),[&](const auto* n){return n->id==static_cast<int>(requirement.id);});
-            if (parent==views.end()) continue;
-            edges.push_back({static_cast<int>(parent-views.begin()),static_cast<int>(i)});
-            colors.push_back(data.upgradeLevel(requirement.id)>=requirement.level?active:locked);
-        }
-    drawConnections(_researchConnector,views,edges,colors,{},_connectionCaches[1]);
-
-    views.clear(); edges.clear(); colors.clear();
-    TreeNodeView root; root.radius=24; root.graphic=_skillRoot;
-    if (_skillRoot) views.push_back(&root);
-    for (auto& node : _skillNodes) views.push_back(&node);
-    for (size_t i=1;i<views.size();++i)
-    {
-        const auto id=static_cast<SkillId>(views[i]->id);
-        const auto& definition=data.skillDefinition(id);
-        const bool unlocked=data.isSkillUnlocked(id);
-        const bool available=!unlocked&&data.skillPrerequisiteMet(id)&&definition.unlockStage==0&&definition.unlockCost>0;
-        const Color4F rootColor=unlocked?completed:available?active:locked;
-        auto parents=skillRequirements(definition);
-        if (parents.empty()) parents.push_back(SkillId::Count);
-        for (const auto parent : parents)
-        {
-            auto from=views.begin();
-            if (parent!=SkillId::Count)
-                from=std::find_if(views.begin()+1,views.end(),[&](const auto* n){return n->id==static_cast<int>(parent);});
-            if (from==views.end()) continue;
-            edges.push_back({static_cast<int>(from-views.begin()),static_cast<int>(i)});
-            colors.push_back(parent==SkillId::Count?rootColor:!data.isSkillUnlocked(parent)?locked:unlocked?completed:active);
-        }
-    }
-    drawConnections(_skillConnector,views,edges,colors,{},_connectionCaches[2]);
-}
-
-void UpgradePanel::refreshUpgradeBranch(UpgradeBranchView& branch)
-{
-    const auto& data       = GameData::getInstance();
-    const auto& definition = data.upgradeDefinition(branch.id);
-    const int level        = std::min(data.upgradeLevel(branch.id), definition.maxLevel());
-    if (level >= definition.maxLevel())
-    {
-        branch.detail->setString(valueText(definition, level) + "  ·  已满级");
-    }
-    else
-    {
-        branch.detail->setString(valueText(definition, level) + "  ->  " + valueText(definition, level + 1));
-    }
-    branch.title->setString(StringUtils::format("%s  %d/%d", definition.name.c_str(), level,
-                                                 definition.maxLevel()));
-
-    branch.connector->clear();
-    const auto& economy = data.economy();
-    for (auto& node : branch.nodes)
-    {
-        if (node.targetLevel <= level)
-        {
-            node.status->setString("");
-            drawNode(node, NodeState::Completed);
-            continue;
-        }
-        if (node.targetLevel == level + 1 && data.upgradePrerequisiteMet(branch.id))
-        {
-            const int cost = definition.costs[level];
-            const bool coins = definition.currency == Currency::Coins;
-            const bool affordable = coins ? economy.totalCoins() >= cost : economy.totalCrystals() >= cost;
-            node.status->setString(StringUtils::format("%d%s", cost, coins ? "金" : "晶"));
-            drawNode(node, NodeState::Available, affordable);
-            continue;
-        }
-        node.status->setString("");
-        drawNode(node, NodeState::Locked);
+        drawConnections(track.connector, views, edges, colors, {track.heading}, track.connections, track.top, track.bottom);
     }
 }
 
-void UpgradePanel::refreshResearchUpgradeNode(TreeNodeView& node)
+void UpgradePanel::refreshUpgradeNode(TreeNodeView& node)
 {
     const auto& data = GameData::getInstance();
     const auto id = static_cast<UpgradeId>(node.id);
@@ -807,16 +609,6 @@ void UpgradePanel::drawNode(TreeNodeView& node, NodeState state, bool affordable
     if (node.detail) node.detail->setTextColor(text);
     node.target->setTouchEnabled(state == NodeState::Available);
     node.target->setBright(state == NodeState::Available);
-}
-
-void UpgradePanel::selectUpgradeNode(UpgradeId id, int targetLevel)
-{
-    const int currentLevel = GameData::getInstance().upgradeLevel(id);
-    if (targetLevel != currentLevel + 1)
-    {
-        return;
-    }
-    purchaseUpgrade(id);
 }
 
 void UpgradePanel::purchaseUpgrade(UpgradeId id)
