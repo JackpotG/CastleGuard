@@ -89,6 +89,14 @@ class ConfigEditorServerTest(unittest.TestCase):
             self.assertIn("javascript", response.headers["Content-Type"])
             self.assertIn(b"TreePosition", response.read())
 
+    def test_shared_connection_router_is_served(self):
+        for asset, marker in [("tree-routing.js", b"TreeRouting"),
+                              ("tree-router-runtime.js", b"createTreeConnectionRouter")]:
+            with urlopen(self.url + "/" + asset) as response:
+                self.assertEqual(response.status, 200)
+                self.assertIn("javascript", response.headers["Content-Type"])
+                self.assertIn(marker, response.read())
+
     def test_upgrade_attribute_schema_is_shared_and_read_only(self):
         status, response = self.request("/api/attributes")
         self.assertEqual(status, 200)

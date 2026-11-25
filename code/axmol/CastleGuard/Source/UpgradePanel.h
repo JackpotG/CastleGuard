@@ -1,6 +1,7 @@
 #pragma once
 
 #include "GameData.h"
+#include "TreeConnectionRouter.h"
 #include "axmol.h"
 #include "ui/CocosGUI.h"
 
@@ -83,6 +84,12 @@ private:
     ax::DrawNode* _skillRoot      = nullptr;
     ax::DrawNode* _researchConnector = nullptr;
     ax::DrawNode* _defenseConnector = nullptr;
+    struct ConnectionCache
+    {
+        std::vector<float> geometry;
+        std::vector<TreeConnections::Route> routes;
+    };
+    std::array<ConnectionCache, 3> _connectionCaches;
     std::vector<UpgradeBranchView> _upgradeBranches;
     std::vector<TreeNodeView> _researchNodes;
     std::vector<TreeNodeView> _skillNodes;

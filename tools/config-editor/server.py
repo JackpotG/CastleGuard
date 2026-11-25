@@ -5,6 +5,8 @@ import hashlib
 import json
 import math
 import os
+import subprocess
+from build_tree_router import runtime_path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -34,6 +36,7 @@ MONSTER_FIELD_LIMITS = {
     "coinDrop": (1, 100, True),
 }
 STATIC_FILES = {
+    "/tree-routing.js": ("tree-routing.js", "text/javascript; charset=utf-8"),
     "/": ("index.html", "text/html; charset=utf-8"),
     "/upgrade-editor.js": ("upgrade-editor.js", "text/javascript; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
@@ -107,6 +110,20 @@ def make_handler(project_root=PROJECT_ROOT):
             return project_root / CONFIG_PATHS[name] if name in CONFIG_PATHS else None
 
         def do_GET(self):
+            if self.path == "/tree-router-runtime.js":
+                try:
+                    body = runtime_path().read_bytes()
+                except (OSError, subprocess.SubprocessError) as error:
+                    self.log_error("[Progression][Research] router build failed: %s", error)
+                    self.send_json(503, {"error": "连线模块构建失败，请检查 emsdk 工具链"})
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "text/javascript; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(body)
+                return
             if self.path == "/api/attributes":
                 path = project_root / "code/axmol/CastleGuard/Content/config/upgrade-attributes.json"
                 self.send_json(200, {"data": json.loads(path.read_text(encoding="utf-8"))})

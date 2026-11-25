@@ -81,6 +81,7 @@ async function loadAll() {
       return response.json();
     }),
   );
+  await TreeRouting.ready();
   UpgradeEditor.normalize(tree.data);
   state.attributes = attributes.data.attributes;
   state.documents = {levels, tree, monsters};
@@ -279,6 +280,7 @@ function renderTree() {
   if (selected) state.node = selected.id;
   $("#main-content").innerHTML = `<div class="page-head"><div><p class="eyebrow">PROGRESSION / ${state.track.toUpperCase()}</p><h1>${trackNames[state.track]}</h1><div class="meta-row"><span><strong>${nodes.length}</strong> 节点</span></div></div></div><h2 class="section-title">节点关系</h2>${renderGraph(nodes)}<h2 class="section-title">成长数值</h2>${state.track === "spells" ? `<p class="info-note">法术按关卡里程碑或水晶购买解锁。</p>` : `<p class="info-note">升级等级由价格与效果数组共同决定；每个价格对应下一等级。</p>`}`;
   renderNodeInspector(selected);
+  drawTreeConnections();
 }
 function renderBalance() {
   if (state.balanceCategory === "monsters") renderMonsters();
@@ -322,15 +324,30 @@ function renderGraph(nodes) {
     y: defense ? 110 : 75 + node.treeRow * 110,
   }]));
   const height = Math.max(350, ...[...positions.values()].map((position) => position.y + 120));
-  const links = nodes.flatMap((node) => UpgradeEditor.requirements(node).filter((r) => positions.has(r.id)).map((requirement) => {
-    const from = positions.get(requirement.id), to = positions.get(node.id);
-    const start = from.y + 25, end = to.y - 25, turn = (start + end) / 2;
-    return `<path data-from="${escapeHtml(requirement.id)}" data-to="${escapeHtml(node.id)}" d="M ${from.x * 1000} ${start} V ${turn} H ${to.x * 1000} V ${end}"/>`;
-  })).join("");
-  return `<div class="tree-graph" style="height:${height}px"><svg viewBox="0 0 1000 ${height}" preserveAspectRatio="none">${links}</svg>${nodes.map((node) => {
+  return `<div class="tree-graph" style="height:${height}px"><svg aria-hidden="true"></svg>${nodes.map((node) => {
     const position = positions.get(node.id);
     return `<button class="tree-node ${node.id === state.node ? "selected" : ""} ${position.x > .55 ? "right-label" : ""}" style="left:${position.x * 100}%;top:${position.y}px" data-action="select-node" data-id="${escapeHtml(node.id)}" title="${escapeHtml(node.name)}">${escapeHtml(node.name.slice(0, 1))}<span>${escapeHtml(node.name)}</span></button>`;
   }).join("")}</div>`;
+}
+function drawTreeConnections() {
+  const graph = $(".tree-graph"), svg = graph?.querySelector("svg");
+  if (!svg || state.mode !== "tree" || !state.documents.tree) return;
+  const nodes = nodesForTrack(), origin = svg.getBoundingClientRect();
+  const buttons = [...graph.querySelectorAll(".tree-node")];
+  const rect = (box) => [box.left - origin.left, box.top - origin.top, box.right - origin.left, box.bottom - origin.top];
+  const bodies = buttons.map((button) => rect(button.getBoundingClientRect()));
+  const labels = buttons.map((button) => rect(button.querySelector("span").getBoundingClientRect()));
+  const indices = new Map(nodes.map((node, index) => [node.id, index]));
+  const links = nodes.flatMap((node, to) => UpgradeEditor.requirements(node).filter((r) => indices.has(r.id)).map((r) => ({from: indices.get(r.id), to})));
+  const width = graph.clientWidth, height = graph.clientHeight;
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  const routes = TreeRouting.plan(bodies, links.map(({from,to}) => [from,to]), labels, [8,8,width-8,height-8], 6);
+  svg.innerHTML = routes.map((route, index) => {
+    const {from,to} = links[index];
+    const path = route.strokes.map((points) => points.map(([x,y], i) => `${i ? "L" : "M"} ${x} ${y}`).join(" ")).join(" ");
+    return `<path data-from="${escapeHtml(nodes[from].id)}" data-to="${escapeHtml(nodes[to].id)}" d="${path}"/>`;
+  }).join("");
+  graph.dataset.unrouted = routes.filter((route) => !route.points.length).length;
 }
 function prerequisiteCandidates(node) {
   const nodes = nodesForTrack();
@@ -695,3 +712,9 @@ window.addEventListener("beforeunload", (event) => {
   if (Object.values(state.dirty).some(Boolean)) event.preventDefault();
 });
 loadAll().catch((error) => showToast(error.message, true));
+
+let treeResizeFrame;
+new ResizeObserver(() => {
+  cancelAnimationFrame(treeResizeFrame);
+  treeResizeFrame = requestAnimationFrame(() => { if (state.mode === "tree") drawTreeConnections(); });
+}).observe($("#main-content"));
