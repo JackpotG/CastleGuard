@@ -41,12 +41,12 @@ bool intersects(Point a, Point b, Point c, Point d)
 struct LayerBands
 {
     std::vector<int> rows;
-    std::vector<float> channels;
-    float portY(int node, int other) const
+    std::vector<std::vector<float>> channels;
+    float portY(int node, int other, int source) const
     {
         if (rows[node]==rows[other]) return std::numeric_limits<float>::quiet_NaN();
         const int band=rows[node]<rows[other]?rows[node]:rows[node]-1;
-        return channels[band];
+        return channels[band][source];
     }
 };
 bool mayJoin(Edge a, Edge b, Point p, Point q, Point r, Point s, const std::vector<Rect>& nodes,
@@ -57,36 +57,30 @@ bool mayJoin(Edge a, Edge b, Point p, Point q, Point r, Point s, const std::vect
                             std::max(std::min(p.y,q.y),std::min(r.y,s.y)),
                             std::min(std::max(p.x,q.x),std::max(r.x,s.x)),
                             std::min(std::max(p.y,q.y),std::max(r.y,s.y))};
-    // A long dependency shares its parent's outgoing bus and its child's incoming bus.
-    // Sharing ends at those layer boundaries, so unrelated middle segments remain separate.
-    for (bool source:{true,false})
+    // Only a common source may share an outgoing trunk. A common destination never joins wires.
+    if (a.from!=b.from) return false;
+    const int node=a.from;
+    const float y=bands.portY(node,a.to,node),otherY=bands.portY(node,b.to,node);
+    if (std::isfinite(y)&&near(y,otherY))
     {
-        const int node=source?a.from:a.to, other=source?a.to:a.from;
-        if (node!=(source?b.from:b.to)) continue;
-        const float y=bands.portY(node,other), otherY=bands.portY(node,source?b.to:b.from);
-        if (!std::isfinite(y)||!near(y,otherY)) continue;
         const float face=y>center(nodes[node]).y?nodes[node].bottom:nodes[node].top;
         if (intersection.top>=std::min(face,y)-EPS && intersection.bottom<=std::max(face,y)+EPS) return true;
     }
-    for (int node : {a.from,a.to}) if (node==b.from || node==b.to)
-    {
-        const auto area=expand(nodes[node],gap*3);
-        if (intersection.left>=area.left-EPS && intersection.right<=area.right+EPS &&
-            intersection.top>=area.top-EPS && intersection.bottom<=area.bottom+EPS) return true;
-    }
-    return false;
+    const auto area=expand(nodes[node],gap*3);
+    return intersection.left>=area.left-EPS && intersection.right<=area.right+EPS &&
+           intersection.top>=area.top-EPS && intersection.bottom<=area.bottom+EPS;
 }
 struct Segment { Point a, b; Edge edge; };
 struct Port { Point boundary, outside; int direction; float penalty; std::vector<Point> path; };
-std::vector<Port> ports(Rect r, Point target, float gap)
+std::vector<Port> ports(Rect r, Point target, float gap, Point offset={})
 {
     const auto c = center(r);
     // Downward trees prefer bottom -> top, while horizontal defense chains prefer facing sides.
     const bool horizontal = std::abs(target.x - c.x) > std::abs(target.y - c.y) * 2;
     const int preferred = horizontal ? (target.x >= c.x ? 1 : 3) : (target.y >= c.y ? 2 : 0);
     std::vector<Port> result = {
-        {{c.x,r.top},{c.x,r.top-gap},1,0}, {{r.right,c.y},{r.right+gap,c.y},0,0},
-        {{c.x,r.bottom},{c.x,r.bottom+gap},1,0}, {{r.left,c.y},{r.left-gap,c.y},0,0}};
+        {{c.x+offset.x,r.top},{c.x+offset.x,r.top-gap},1,0}, {{r.right,c.y+offset.y},{r.right+gap,c.y+offset.y},0,0},
+        {{c.x+offset.x,r.bottom},{c.x+offset.x,r.bottom+gap},1,0}, {{r.left,c.y+offset.y},{r.left-gap,c.y+offset.y},0,0}};
     for (int i = 0; i < 4; ++i)
     {
         result[i].penalty = i == preferred ? 0 : gap * 2;
@@ -100,7 +94,8 @@ void coordinates(std::vector<float>& values, float lo, float hi)
     std::sort(values.begin(), values.end());
     values.erase(std::unique(values.begin(), values.end(), near), values.end());
 }
-LayerBands makeBands(const std::vector<Rect>& nodes, const std::vector<Rect>& obstacles, float gap)
+LayerBands makeBands(const std::vector<Rect>& nodes, const std::vector<Edge>& edges,
+                     const std::vector<Rect>& obstacles, float gap)
 {
     LayerBands result;
     std::vector<float> rows;
@@ -118,14 +113,32 @@ LayerBands makeBands(const std::vector<Rect>& nodes, const std::vector<Rect>& ob
     for (size_t i=1;i<rows.size();++i)
     {
         const float lo=bottoms[i-1]+gap,hi=tops[i]-gap,middle=(lo+hi)/2;
-        std::vector<float> candidates{middle,lo,hi};
+        std::vector<int> sources;
+        for (const auto edge:edges)
+            if (edge.from>=0&&edge.to>=0&&static_cast<size_t>(edge.from)<nodes.size()&&static_cast<size_t>(edge.to)<nodes.size()&&
+                std::min(result.rows[edge.from],result.rows[edge.to])<static_cast<int>(i)&&
+                std::max(result.rows[edge.from],result.rows[edge.to])>=static_cast<int>(i)) sources.push_back(edge.from);
+        std::sort(sources.begin(),sources.end(),[&](int a,int b) {
+            return center(nodes[a]).x==center(nodes[b]).x?a<b:center(nodes[a]).x<center(nodes[b]).x;
+        });
+        sources.erase(std::unique(sources.begin(),sources.end()),sources.end());
+        std::vector<float> channels(nodes.size(),std::numeric_limits<float>::quiet_NaN());
+        std::vector<float> candidates{lo,hi};
+        const float spacing=std::max(gap*2,4.0f);
+        for (size_t rank=0;rank<sources.size();++rank)
+            candidates.push_back(middle+(static_cast<float>(rank)-(sources.size()-1)*.5f)*spacing);
         for (auto obstacle:obstacles) for (float y:{obstacle.top,obstacle.bottom}) candidates.push_back(y);
         coordinates(candidates,lo,hi);
-        std::stable_sort(candidates.begin(),candidates.end(),[&](float a,float b){return std::abs(a-middle)<std::abs(b-middle);});
-        float channel=std::numeric_limits<float>::quiet_NaN();
-        for (float y:candidates)
-            if (std::none_of(obstacles.begin(),obstacles.end(),[&](Rect r){return y>r.top+EPS&&y<r.bottom-EPS;})) {channel=y;break;}
-        result.channels.push_back(channel);
+        for (size_t rank=0;rank<sources.size();++rank)
+        {
+            const float desired=middle+(static_cast<float>(rank)-(sources.size()-1)*.5f)*spacing;
+            std::stable_sort(candidates.begin(),candidates.end(),[&](float a,float b){return std::abs(a-desired)<std::abs(b-desired);});
+            for (float y:candidates)
+                if (std::none_of(obstacles.begin(),obstacles.end(),[&](Rect r){return y>r.top+EPS&&y<r.bottom-EPS;})&&
+                    std::none_of(channels.begin(),channels.end(),[&](float used){return std::isfinite(used)&&std::abs(used-y)<spacing-EPS;}))
+                    {channels[sources[rank]]=y;break;}
+        }
+        result.channels.push_back(std::move(channels));
     }
     return result;
 }
@@ -147,24 +160,24 @@ std::vector<Point> simplify(const std::vector<Point>& points)
 }
 std::vector<Point> findPath(const std::vector<Rect>& nodes, const std::vector<Rect>& obstacles,
                            Edge edge, Rect bounds, float gap, const std::vector<Segment>& occupied,
-                           const LayerBands& bands, bool allowCrossing, bool preferBands)
+                           const LayerBands& bands, Point targetOffset, bool allowCrossing, bool preferBands)
 {
     auto sources = ports(nodes[edge.from], center(nodes[edge.to]), gap);
-    auto targets = ports(nodes[edge.to], center(nodes[edge.from]), gap);
-    const float sourceY=bands.portY(edge.from,edge.to),targetY=bands.portY(edge.to,edge.from);
+    auto targets = ports(nodes[edge.to], center(nodes[edge.from]), gap,targetOffset);
+    const float sourceY=bands.portY(edge.from,edge.to,edge.from),targetY=bands.portY(edge.to,edge.from,edge.from);
     const bool layered=preferBands&&std::isfinite(sourceY)&&std::isfinite(targetY);
     const bool longOffset=layered&&!near(sourceY,targetY)&&!near(center(nodes[edge.from]).x,center(nodes[edge.to]).x);
     if (layered)
     {
         const auto extend=[&](std::vector<Port>& options,Rect node,float y) {
             options.erase(std::remove_if(options.begin(),options.end(),[&](const Port& p) {
-                return near(p.boundary.x,center(node).x)&&((p.boundary.y<center(node).y)==(y>center(node).y));
+                return p.direction==1&&((p.boundary.y<center(node).y)==(y>center(node).y));
             }),options.end());
             for (auto& p:options)
             {
-                if (near(p.boundary.x,center(node).x)) p.path={p.boundary,{p.boundary.x,y}};
+                if (p.direction==1) p.path={p.boundary,{p.boundary.x,y}};
                 else p.path={p.boundary,p.outside,{p.outside.x,y}};
-                p.penalty=near(p.boundary.x,center(node).x)?0:gap*2;
+                p.penalty=p.direction==1?0:gap*2;
                 p.outside=p.path.back(); p.direction=1;
             }
         };
@@ -196,7 +209,7 @@ std::vector<Point> findPath(const std::vector<Rect>& nodes, const std::vector<Re
     }
     for (const auto& p : sources) { xs.push_back(p.outside.x); ys.push_back(p.outside.y); }
     for (const auto& p : targets) { xs.push_back(p.outside.x); ys.push_back(p.outside.y); }
-    if (layered) for (float y:bands.channels) if (std::isfinite(y)) ys.push_back(y);
+    if (layered) for (const auto& channel:bands.channels) if (std::isfinite(channel[edge.from])) ys.push_back(channel[edge.from]);
     for (const auto& s : occupied)
     {
         for (float x : {s.a.x-gap,s.a.x+gap,s.b.x-gap,s.b.x+gap}) xs.push_back(x);
@@ -213,7 +226,7 @@ std::vector<Point> findPath(const std::vector<Rect>& nodes, const std::vector<Re
     for (int i = 0; i < count; ++i) for (const auto r : obstacles)
         if (inside(point(i),r)) { free[i]=false; break; }
     const auto segmentCost = [&](Point a,Point b) {
-        if (layered&&near(a.y,b.y)&&std::none_of(bands.channels.begin(),bands.channels.end(),[&](float y){return near(a.y,y);})) return -1.0f;
+        if (layered&&near(a.y,b.y)&&std::none_of(bands.channels.begin(),bands.channels.end(),[&](const auto& channel){return near(a.y,channel[edge.from]);})) return -1.0f;
         for (const auto r : obstacles) if (blocked(a,b,r)) return -1.0f;
         float cost = distance(a,b);
         for (const auto& s : occupied)
@@ -286,7 +299,7 @@ std::vector<Route> route(const std::vector<Rect>& nodes,const std::vector<Edge>&
     std::vector<Rect> obstacles;
     for (const auto r:nodes) obstacles.push_back(expand(r,clearance));
     for (const auto r:labels) obstacles.push_back(expand(r,clearance));
-    const auto bands=makeBands(nodes,obstacles,clearance);
+    const auto bands=makeBands(nodes,edges,obstacles,clearance);
     std::vector<size_t> order;
     for (size_t i=0;i<edges.size();++i)
         if (edges[i].from>=0&&edges[i].to>=0&&edges[i].from!=edges[i].to&&
@@ -299,11 +312,23 @@ std::vector<Route> route(const std::vector<Rect>& nodes,const std::vector<Edge>&
     std::vector<Segment> occupied;
     for (const auto i:order)
     {
-        auto points=findPath(nodes,obstacles,edges[i],bounds,clearance,occupied,bands,false,true);
+        // Incoming wires get distinct face positions, ordered by their source geometry.
+        std::vector<int> parents;
+        for (const auto j:order) if (edges[j].to==edges[i].to) parents.push_back(edges[j].from);
+        const auto offset=[&](bool horizontal) {
+            const auto coordinate=[&](int node){return horizontal?center(nodes[node]).x:center(nodes[node]).y;};
+            std::sort(parents.begin(),parents.end(),[&](int a,int b){return coordinate(a)==coordinate(b)?a<b:coordinate(a)<coordinate(b);});
+            parents.erase(std::unique(parents.begin(),parents.end()),parents.end());
+            const auto rank=std::find(parents.begin(),parents.end(),edges[i].from)-parents.begin();
+            const auto body=nodes[edges[i].to];
+            return ((rank+1.0f)/(parents.size()+1.0f)-.5f)*(horizontal?body.right-body.left:body.bottom-body.top)*.7f;
+        };
+        const Point targetOffset{offset(true),offset(false)};
+        auto points=findPath(nodes,obstacles,edges[i],bounds,clearance,occupied,bands,targetOffset,false,true);
         // A crowded layer can need separate lanes; retain the obstacle router as a fallback.
-        if (points.empty()) points=findPath(nodes,obstacles,edges[i],bounds,clearance,occupied,bands,false,false);
-        if (points.empty()) points=findPath(nodes,obstacles,edges[i],bounds,clearance,occupied,bands,true,true);
-        if (points.empty()) points=findPath(nodes,obstacles,edges[i],bounds,clearance,occupied,bands,true,false);
+        if (points.empty()) points=findPath(nodes,obstacles,edges[i],bounds,clearance,occupied,bands,targetOffset,false,false);
+        if (points.empty()) points=findPath(nodes,obstacles,edges[i],bounds,clearance,occupied,bands,targetOffset,true,true);
+        if (points.empty()) points=findPath(nodes,obstacles,edges[i],bounds,clearance,occupied,bands,targetOffset,true,false);
         result[i].points=points;
         for (size_t j=1;j<points.size();++j) occupied.push_back({points[j-1],points[j],edges[i]});
     }

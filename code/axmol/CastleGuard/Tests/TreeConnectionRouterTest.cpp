@@ -17,6 +17,14 @@ bool crossing(Point a,Point b,Point c,Point d)
     if(horizontal==other) return false;
     return horizontal?between(c.x,a.x,b.x)&&between(a.y,c.y,d.y):between(a.x,c.x,d.x)&&between(c.y,a.y,b.y);
 }
+bool overlap(Point a,Point b,Point c,Point d)
+{
+    if(std::abs(a.y-b.y)<.01f&&std::abs(c.y-d.y)<.01f&&std::abs(a.y-c.y)<.01f)
+        return std::min(std::max(a.x,b.x),std::max(c.x,d.x))-std::max(std::min(a.x,b.x),std::min(c.x,d.x))>.01f;
+    if(std::abs(a.x-b.x)<.01f&&std::abs(c.x-d.x)<.01f&&std::abs(a.x-c.x)<.01f)
+        return std::min(std::max(a.y,b.y),std::max(c.y,d.y))-std::max(std::min(a.y,b.y),std::min(c.y,d.y))>.01f;
+    return false;
+}
 void clearPaths(const std::vector<Rect>& nodes,const std::vector<Rect>& labels,const std::vector<Edge>& edges,const std::vector<Route>& paths)
 {
     REQUIRE(paths.size()==edges.size());
@@ -36,15 +44,16 @@ void clearPaths(const std::vector<Rect>& nodes,const std::vector<Rect>& labels,c
         for(const auto& a:paths[i].strokes) for(const auto& b:paths[j].strokes)
             for(size_t x=1;x<a.size();++x) for(size_t y=1;y<b.size();++y)
             {
+                if(edges[i].from!=edges[j].from) CHECK_FALSE(overlap(a[x-1],a[x],b[y-1],b[y]));
                 if(!crossing(a[x-1],a[x],b[y-1],b[y])) continue;
                 const bool horizontal=std::abs(a[x-1].y-a[x].y)<.01f;
                 const Point hit=horizontal?Point{b[y].x,a[x].y}:Point{a[x].x,b[y].y};
-                // Shared outgoing/incoming layer buses are intentional; independent edges never join.
-                bool junction=edges[i].from==edges[j].from||edges[i].to==edges[j].to;
+                // Only same-source branches may join outside a node body.
+                bool junction=edges[i].from==edges[j].from;
                 for(int n:{edges[i].from,edges[i].to}) if(n==edges[j].from||n==edges[j].to)
                 {
                     const auto r=nodes[n];
-                    if(hit.x>=r.left-18.01f&&hit.x<=r.right+18.01f&&hit.y>=r.top-18.01f&&hit.y<=r.bottom+18.01f) junction=true;
+                    if(hit.x>=r.left-.01f&&hit.x<=r.right+.01f&&hit.y>=r.top-.01f&&hit.y<=r.bottom+.01f) junction=true;
                 }
                 CHECK(junction);
             }
@@ -53,7 +62,7 @@ void clearPaths(const std::vector<Rect>& nodes,const std::vector<Rect>& labels,c
 }
 TEST_SUITE("TreeConnectionRouter")
 {
-    TEST_CASE("four siblings with mixed parents share the adjacent-layer bus")
+    TEST_CASE("same-parent branches share trunks while mixed-parent inputs stay separate")
     {
         const std::vector<Rect> nodes{{154,31,200,77},{464,31,510,77},{61,140,107,186},
                                       {245,140,291,186},{351,140,397,186},{464,140,510,186}};
@@ -64,13 +73,14 @@ TEST_SUITE("TreeConnectionRouter")
         clearPaths(nodes,labels,edges,paths);
         for(const auto& path:paths)
         {
-            CHECK(path.strokes.size()==1);
-            for(size_t i=1;i<path.points.size();++i)
-                if(std::abs(path.points[i-1].y-path.points[i].y)<.01f)
-                    CHECK(path.points[i].y==108.5f);
+            REQUIRE(path.points.size()>=2);
         }
+        CHECK(paths[0].points[1].y==paths[1].points[1].y);
+        CHECK(paths[0].points[1].y==paths[3].points[1].y);
+        CHECK(paths[0].points[1].y!=paths[4].points[1].y);
+        CHECK(paths[3].points.back().x!=paths[4].points.back().x);
     }
-    TEST_CASE("a third-row multi-parent node uses the same outgoing and incoming layer buses")
+    TEST_CASE("a long prerequisite preserves its source bus and gets an independent target port")
     {
         const std::vector<Rect> nodes{{125,25,175,75},{365,25,415,75},
                                       {125,135,175,185},{245,135,295,185},{365,135,415,185},
@@ -80,14 +90,29 @@ TEST_SUITE("TreeConnectionRouter")
         clearPaths(nodes,{},edges,paths);
         const auto& longLink=paths.back();
         REQUIRE(longLink.points.size()>=6);
-        CHECK(longLink.points[1].y==105);
-        CHECK(longLink.points[2].y==105);
-        CHECK(longLink.points[longLink.points.size()-2].y==215);
-        CHECK(longLink.points[longLink.points.size()-3].y==215);
-        CHECK(longLink.strokes.size()==1);
-        for(const auto& path:paths) for(size_t i=1;i<path.points.size();++i)
-            if(std::abs(path.points[i-1].y-path.points[i].y)<.01f)
-                CHECK((std::abs(path.points[i].y-105)<.01f||std::abs(path.points[i].y-215)<.01f));
+        CHECK(longLink.points[1].y==paths[1].points[1].y);
+        CHECK(longLink.points[2].y==paths[1].points[1].y);
+        CHECK(longLink.points[longLink.points.size()-2].y>185);
+        CHECK(longLink.points[longLink.points.size()-2].y<245);
+        CHECK(longLink.points.back().x!=paths[3].points.back().x);
+    }
+    TEST_CASE("three prerequisites enter through distinct ordered ports")
+    {
+        const std::vector<Rect> nodes{{20,25,60,65},{130,25,170,65},{240,25,280,65},{130,180,170,220}};
+        const std::vector<Edge> edges{{0,3},{1,3},{2,3}};
+        const auto paths=route(nodes,edges,{}, {8,8,292,250});
+        clearPaths(nodes,{},edges,paths);
+        CHECK(paths[0].points.back().x<paths[1].points.back().x);
+        CHECK(paths[1].points.back().x<paths[2].points.back().x);
+        for(const auto& path:paths) CHECK(path.points.back().y==180);
+        // Input ordering, not config iteration order, determines the target ports.
+        const auto reversed=route(nodes,{{2,3},{1,3},{0,3}},{},{8,8,292,250});
+        for(size_t i=0;i<paths.size();++i)
+        {
+            REQUIRE_FALSE(reversed[2-i].points.empty());
+            CHECK(paths[i].points.back().x==reversed[2-i].points.back().x);
+            CHECK(paths[i].points.back().y==reversed[2-i].points.back().y);
+        }
     }
     TEST_CASE("labels below a node leave side ports available to its layer bus")
     {
@@ -154,7 +179,9 @@ TEST_SUITE("TreeConnectionRouter")
     {
         const std::vector<Rect> nodes{{25,90,65,130},{125,90,165,130},{225,90,265,130}};
         const std::vector<Edge> edges{{0,1},{1,2},{0,2}};
-        clearPaths(nodes,{},edges,route(nodes,edges,{}, {8,8,292,220}));
+        const auto paths=route(nodes,edges,{}, {8,8,292,220});
+        clearPaths(nodes,{},edges,paths);
+        CHECK(paths[1].points.back().y!=paths[2].points.back().y);
         const auto invalid=route(nodes,{{-1,2},{0,9},{0,0}},{},{8,8,292,220});
         for(const auto& path:invalid) CHECK(path.points.empty());
     }
