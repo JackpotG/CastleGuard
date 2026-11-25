@@ -39,7 +39,10 @@ void clearPaths(const std::vector<Rect>& nodes,const std::vector<Rect>& labels,c
                 if(!crossing(a[x-1],a[x],b[y-1],b[y])) continue;
                 const bool horizontal=std::abs(a[x-1].y-a[x].y)<.01f;
                 const Point hit=horizontal?Point{b[y].x,a[x].y}:Point{a[x].x,b[y].y};
-                bool junction=false;
+                // Same-parent siblings form one intentional branch bus, including its distant forks.
+                bool junction=edges[i].from==edges[j].from&&
+                    std::abs((nodes[edges[i].to].top+nodes[edges[i].to].bottom)-
+                             (nodes[edges[j].to].top+nodes[edges[j].to].bottom))<.01f;
                 for(int n:{edges[i].from,edges[i].to}) if(n==edges[j].from||n==edges[j].to)
                 {
                     const auto r=nodes[n];
@@ -52,6 +55,36 @@ void clearPaths(const std::vector<Rect>& nodes,const std::vector<Rect>& labels,c
 }
 TEST_SUITE("TreeConnectionRouter")
 {
+    TEST_CASE("same-parent siblings share a centered trunk and fork without parallel detours")
+    {
+        const std::vector<Rect> nodes{{125,25,175,75},{45,155,95,205},{205,155,255,205}};
+        const std::vector<Edge> edges{{0,1},{0,2}};
+        const auto paths=route(nodes,edges,{}, {8,8,292,240});
+        clearPaths(nodes,{},edges,paths);
+        for(const auto& path:paths)
+        {
+            REQUIRE(path.points.size()==4);
+            CHECK(path.points[0].x==150);
+            CHECK(path.points[0].y==75);
+            CHECK(path.points[1].x==150);
+            CHECK(path.points[1].y==115);
+            CHECK(path.points[2].y==115);
+            REQUIRE(path.strokes.size()==1);
+            CHECK(path.strokes[0].size()==path.points.size());
+        }
+    }
+    TEST_CASE("a sibling bus moves around labels while keeping its common fork")
+    {
+        const std::vector<Rect> nodes{{125,25,175,75},{45,155,95,205},{205,155,255,205}};
+        const std::vector<Rect> labels{{100,100,120,125}};
+        const std::vector<Edge> edges{{0,1},{0,2}};
+        const auto paths=route(nodes,edges,labels, {8,8,292,240});
+        clearPaths(nodes,labels,edges,paths);
+        REQUIRE(paths[0].points.size()==4);
+        REQUIRE(paths[1].points.size()==4);
+        CHECK(paths[0].points[1].y==paths[1].points[1].y);
+        CHECK(paths[0].points[1].y!=115);
+    }
     TEST_CASE("a multi-row link detours around an aligned intermediate node and its label")
     {
         const std::vector<Rect> nodes{{125,25,175,75},{125,135,175,185},{125,245,175,295}};

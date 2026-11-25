@@ -12,6 +12,15 @@ function avoids(rect,a,b) {
  return a[0]===b[0] ? !(a[0]>rect[0]&&a[0]<rect[2]&&Math.min(a[1],b[1])<rect[3]&&Math.max(a[1],b[1])>rect[1]) :
   !(a[1]>rect[1]&&a[1]<rect[3]&&Math.min(a[0],b[0])<rect[2]&&Math.max(a[0],b[0])>rect[0]);
 }
+test('same-parent siblings reuse one trunk and fork in the browser',()=>{
+ const nodes=[[125,25,175,75],[45,155,95,205],[205,155,255,205]];
+ const paths=routing.plan(nodes,[[0,1],[0,2]],[],[8,8,292,240]);
+ for(const route of paths){
+  assert.deepEqual(route.points.slice(0,2),[[150,75],[150,115]]);
+  assert.equal(route.points[2][1],115);
+  assert.equal(route.strokes.length,1);
+ }
+});
 test('browser uses the game router to bypass intermediate nodes and labels',()=>{
  const nodes=[[125,25,175,75],[125,135,175,185],[125,245,175,295]], labels=[[105,190,195,210]];
  const paths=routing.plan(nodes,[[0,2],[0,1],[1,2]],labels,[8,8,292,330]);

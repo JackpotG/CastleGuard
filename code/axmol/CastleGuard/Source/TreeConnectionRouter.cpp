@@ -38,9 +38,16 @@ bool intersects(Point a, Point b, Point c, Point d)
     return horizontal ? near(a.y, c.y) && std::max(std::min(a.x,b.x),std::min(c.x,d.x)) <= std::min(std::max(a.x,b.x),std::max(c.x,d.x)) + EPS
                       : near(a.x, c.x) && std::max(std::min(a.y,b.y),std::min(c.y,d.y)) <= std::min(std::max(a.y,b.y),std::max(c.y,d.y)) + EPS;
 }
+bool sameBranch(Edge a, Edge b, const std::vector<Rect>& nodes)
+{
+    return a.from==b.from && near(center(nodes[a.to]).y,center(nodes[b.to]).y) &&
+           !near(center(nodes[a.from]).y,center(nodes[a.to]).y);
+}
 bool mayJoin(Edge a, Edge b, Point p, Point q, Point r, Point s, const std::vector<Rect>& nodes, float gap)
 {
     if (!intersects(p,q,r,s)) return false;
+    // Same-parent siblings deliberately share a bus; unrelated links must still keep their distance.
+    if (sameBranch(a,b,nodes)) return true;
     const Rect intersection{std::max(std::min(p.x,q.x),std::min(r.x,s.x)),
                             std::max(std::min(p.y,q.y),std::min(r.y,s.y)),
                             std::min(std::max(p.x,q.x),std::max(r.x,s.x)),
@@ -88,6 +95,55 @@ std::vector<Point> simplify(const std::vector<Point>& points)
         result.push_back(p);
     }
     return result;
+}
+std::vector<std::vector<Point>> branchPaths(const std::vector<Rect>& nodes, const std::vector<Rect>& obstacles,
+    const std::vector<Edge>& edges, const std::vector<size_t>& siblings, Rect bounds, float gap,
+    const std::vector<Segment>& occupied)
+{
+    const auto parent=nodes[edges[siblings.front()].from];
+    const bool down=center(nodes[edges[siblings.front()].to]).y>center(parent).y;
+    const float start=down?parent.bottom:parent.top;
+    float finish=down?bounds.bottom:bounds.top;
+    for (auto i:siblings)
+        finish=down?std::min(finish,nodes[edges[i].to].top):std::max(finish,nodes[edges[i].to].bottom);
+    const float lo=std::min(start,finish)+gap, hi=std::max(start,finish)-gap;
+    if (lo>hi || (down?finish<=start:finish>=start)) return {};
+    const float middle=(start+finish)/2;
+    std::vector<float> channels{middle,lo,hi};
+    for (const auto r:obstacles) for (float y:{r.top-gap,r.bottom+gap}) channels.push_back(y);
+    coordinates(channels,lo,hi);
+    std::stable_sort(channels.begin(),channels.end(),[&](float a,float b){return std::abs(a-middle)<std::abs(b-middle);});
+    // Reserve an entire sibling group together, so the first child cannot claim a different fork height.
+    for (float y:channels)
+    {
+        std::vector<std::vector<Point>> paths;
+        bool clear=true;
+        for (auto i:siblings)
+        {
+            const auto edge=edges[i]; const auto child=nodes[edge.to];
+            auto points=simplify({{center(parent).x,start},{center(parent).x,y},
+                                  {center(child).x,y},{center(child).x,down?child.top:child.bottom}});
+            for (size_t j=1;j<points.size()&&clear;++j)
+            {
+                const auto a=points[j-1],b=points[j];
+                for (auto p:{a,b}) if (p.x<bounds.left||p.x>bounds.right||p.y<bounds.top||p.y>bounds.bottom) clear=false;
+                for (size_t n=0;n<obstacles.size()&&clear;++n)
+                {
+                    // Only endpoint stubs may pass through their own clearance margin.
+                    if ((static_cast<int>(n)==edge.from&&j==1)||
+                        (static_cast<int>(n)==edge.to&&j==points.size()-1)) continue;
+                    if (blocked(a,b,obstacles[n])) clear=false;
+                }
+                for (const auto& segment:occupied)
+                    if (intersects(a,b,segment.a,segment.b)&&
+                        !mayJoin(edge,segment.edge,a,b,segment.a,segment.b,nodes,gap)) clear=false;
+            }
+            if (!clear) break;
+            paths.push_back(std::move(points));
+        }
+        if (clear) return paths;
+    }
+    return {};
 }
 std::vector<Point> findPath(const std::vector<Rect>& nodes, const std::vector<Rect>& obstacles,
                            Edge edge, Rect bounds, float gap, const std::vector<Segment>& occupied, bool allowCrossing)
@@ -209,6 +265,23 @@ std::vector<Route> route(const std::vector<Rect>& nodes,const std::vector<Edge>&
     std::vector<Segment> occupied;
     for (const auto i:order)
     {
+        if (!result[i].points.empty()) continue;
+        std::vector<size_t> siblings;
+        for (auto j:order) if (result[j].points.empty()&&sameBranch(edges[i],edges[j],nodes)) siblings.push_back(j);
+        if (siblings.size()>1)
+        {
+            auto paths=branchPaths(nodes,obstacles,edges,siblings,bounds,clearance,occupied);
+            if (!paths.empty())
+            {
+                for (size_t n=0;n<siblings.size();++n)
+                {
+                    result[siblings[n]].points=std::move(paths[n]);
+                    const auto& points=result[siblings[n]].points;
+                    for (size_t j=1;j<points.size();++j) occupied.push_back({points[j-1],points[j],edges[siblings[n]]});
+                }
+                continue;
+            }
+        }
         auto points=findPath(nodes,obstacles,edges[i],bounds,clearance,occupied,false);
         if (points.empty()) points=findPath(nodes,obstacles,edges[i],bounds,clearance,occupied,true);
         result[i].points=points;
