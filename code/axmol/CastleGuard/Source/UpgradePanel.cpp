@@ -13,6 +13,7 @@ constexpr float SECTION_HEIGHT        = 52.0f;
 constexpr float UPGRADE_BRANCH_HEIGHT = 162.0f;
 constexpr float NODE_RADIUS           = 31.0f;
 constexpr float NODE_TARGET_SIZE      = 78.0f;
+constexpr float CLOSE_BUTTON_SIZE     = 64.0f;
 
 std::string valueText(const UpgradeDefinition& definition, int level)
 {
@@ -198,6 +199,25 @@ bool UpgradePanel::init()
     });
     addChild(_startButton, 3);
 
+    _closeButton = ui::Button::create();
+    _closeButton->ignoreContentAdaptWithSize(false);
+    _closeButton->setContentSize(Size(CLOSE_BUTTON_SIZE, CLOSE_BUTTON_SIZE));
+    _closeButton->setAnchorPoint(Vec2(0.5f, 0.5f));
+    auto* closeIcon = DrawNode::create();
+    const Vec2 closeCenter(CLOSE_BUTTON_SIZE * 0.5f, CLOSE_BUTTON_SIZE * 0.5f);
+    closeIcon->drawSolidCircle(closeCenter, 23.0f, 0.0f, 24, Color4F(0.18f, 0.22f, 0.28f, 1.0f));
+    const Color4F closeColor(0.88f, 0.93f, 1.0f, 1.0f);
+    closeIcon->drawLine(closeCenter + Vec2(-10.0f, -10.0f),
+                        closeCenter + Vec2(10.0f, 10.0f), closeColor, 3.0f);
+    closeIcon->drawLine(closeCenter + Vec2(-10.0f, 10.0f),
+                        closeCenter + Vec2(10.0f, -10.0f), closeColor, 3.0f);
+    _closeButton->addChild(closeIcon);
+    _closeButton->addClickEventListener([this](Object*) {
+        setVisible(false);
+        if (_closeCallback) _closeCallback();
+    });
+    addChild(_closeButton, 3);
+
     setVisible(false);
     return true;
 }
@@ -214,10 +234,11 @@ void UpgradePanel::layout(const Vec2& origin, const Size& visibleSize)
     const Vec2 center(origin.x + visibleSize.width * 0.5f, origin.y + visibleSize.height * 0.5f);
     const Vec2 panelMin(center.x - panelW * 0.5f, center.y - panelH * 0.5f);
     const Vec2 panelMax(center.x + panelW * 0.5f, center.y + panelH * 0.5f);
+    const bool facility = _section != Section::All;
 
     _backdrop->clear();
     _backdrop->drawSolidRect(origin, origin + Vec2(visibleSize.width, visibleSize.height),
-                             Color4F(0.02f, 0.03f, 0.05f, 0.90f));
+                             Color4F(0.02f, 0.03f, 0.05f, facility ? 0.60f : 0.90f));
     _panel->clear();
     _panel->drawSolidRect(panelMin, panelMax, Color4F(0.09f, 0.11f, 0.15f, 1.0f));
     _panel->drawRect(panelMin, panelMax, Color4F(0.64f, 0.72f, 0.84f, 1.0f), 3.0f);
@@ -225,7 +246,7 @@ void UpgradePanel::layout(const Vec2& origin, const Size& visibleSize)
     _title->setPosition(Vec2(center.x, panelMax.y - 42.0f));
     _wallet->setPosition(Vec2(center.x, panelMax.y - 82.0f));
 
-    const float footerH      = _section == Section::Defense ? 82.0f : 108.0f;
+    const float footerH      = facility ? 64.0f : 108.0f;
     const float scrollTop    = panelMax.y - 112.0f;
     const float scrollBottom = panelMin.y + footerH;
     const float scrollW      = panelW - PANEL_PADDING * 2.0f;
@@ -239,7 +260,12 @@ void UpgradePanel::layout(const Vec2& origin, const Size& visibleSize)
     _startButtonBg->setPosition(_startButton->getPosition() -
                                 Vec2(_startButton->getContentSize().width * 0.5f,
                                      _startButton->getContentSize().height * 0.5f));
-    _feedback->setPosition(Vec2(center.x, panelMin.y + 90.0f));
+    _startButton->setVisible(!facility);
+    _startButtonBg->setVisible(!facility);
+    _closeButton->setVisible(facility);
+    _closeButton->setPosition(panelMax - Vec2(CLOSE_BUTTON_SIZE * 0.5f + 6.0f,
+                                             CLOSE_BUTTON_SIZE * 0.5f + 6.0f));
+    _feedback->setPosition(Vec2(center.x, panelMin.y + (facility ? 32.0f : 90.0f)));
     refresh();
 }
 

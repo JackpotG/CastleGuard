@@ -3405,6 +3405,10 @@ void MainScene::initEconomyUI()
 
     _upgradePanel = UpgradePanel::create();
     _upgradePanel->setStartRunCallback([this]() { resetGame(); });
+    _upgradePanel->setCloseCallback([this]() {
+        showCampaignMenu();
+        AXLOGI("[CampaignCity] facility closed");
+    });
     addChild(_upgradePanel, 30);
 
     _choicePanel = ThreeChoicePanel::create();
@@ -3428,10 +3432,8 @@ void MainScene::initEconomyUI()
     _campaignMenuPanel = ModeHomePanel::create(ModeHomeKind::Campaign);
     _campaignMenuPanel->setStartCallback([this]() { beginCampaignBattle(); });
     _campaignMenuPanel->setFacilityCallback([this](CityFacility facility) {
-        if (_campaignTransitioning) return;
-        hideCampaignMenu();
-        _upgradePanel->setStartButtonText("返回闯关主页");
-        _upgradePanel->setStartRunCallback([this]() { showCampaignMenu(); });
+        if (_campaignTransitioning || !isCampaignCityMenuOpen() || _upgradePanel->isVisible()) return;
+        // A facility is a modal over the city; hiding the city also resets its camera to the battlefield.
         const auto section = facility == CityFacility::Academy ? UpgradePanel::Section::Research
                              : facility == CityFacility::Wallworks ? UpgradePanel::Section::Defense
                                                                      : UpgradePanel::Section::Weapons;
@@ -4659,17 +4661,6 @@ void MainScene::onTouchesBegan(const std::vector<ax::Touch*>& touches, ax::Event
             }
         }
     }
-    if (isCampaignCityMenuOpen())
-    {
-        if (!_campaignTransitioning)
-        {
-            for (auto* touch : touches)
-            {
-                if (_campaignMenuPanel->handleCityTouch(touch->getLocation())) break;
-            }
-        }
-        return;
-    }
     if ((_upgradePanel && _upgradePanel->isVisible()) ||
         (_choicePanel && _choicePanel->isVisible()) ||
         (_modeSelectPanel && _modeSelectPanel->isVisible())
@@ -4680,6 +4671,17 @@ void MainScene::onTouchesBegan(const std::vector<ax::Touch*>& touches, ax::Event
     )
     {
         return;  // 模态面板由 UI 系统处理，触摸不能穿透到战场
+    }
+    if (isCampaignCityMenuOpen())
+    {
+        if (!_campaignTransitioning)
+        {
+            for (auto* touch : touches)
+            {
+                if (_campaignMenuPanel->handleCityTouch(touch->getLocation())) break;
+            }
+        }
+        return;
     }
     // 结算与升级页都是模态界面，不能穿透到射箭/技能。
     if (_settlementVisible)

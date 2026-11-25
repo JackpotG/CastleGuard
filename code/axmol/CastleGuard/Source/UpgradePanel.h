@@ -30,6 +30,7 @@ public:
     void openAt(Section section);
     void setStartRunCallback(std::function<void()> callback) { _startRunCallback = std::move(callback); }
     void setStartButtonText(const std::string& text) { _startButton->setTitleText(text); }
+    void setCloseCallback(std::function<void()> callback) { _closeCallback = std::move(callback); }
 
 private:
     enum class NodeState
@@ -78,6 +79,7 @@ private:
     ax::ui::Text* _wallet         = nullptr;
     ax::ui::Text* _feedback       = nullptr;
     ax::ui::ScrollView* _scroll   = nullptr;
+    ax::ui::Button* _closeButton  = nullptr;
     ax::ui::Button* _startButton  = nullptr;
     ax::DrawNode* _startButtonBg  = nullptr;
     ax::DrawNode* _skillConnector = nullptr;
@@ -94,6 +96,7 @@ private:
     std::vector<TreeNodeView> _researchNodes;
     std::vector<TreeNodeView> _skillNodes;
     std::function<void()> _startRunCallback;
+    std::function<void()> _closeCallback;
     Section _section = Section::All;
     ax::Vec2 _lastOrigin;
     ax::Size _lastVisibleSize;
