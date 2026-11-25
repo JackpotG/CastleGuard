@@ -112,6 +112,130 @@ TEST_SUITE("UpgradeCatalog")
         rejected("\"operation\":\"add\"", "\"operation\":\"typo\"");
     }
 
+    TEST_CASE("browser-saved multiple connections work for both upgrades and spells")
+    {
+        std::ifstream input(std::filesystem::path(__FILE__).parent_path() / "fixtures/editor-multi-prerequisites.json");
+        std::ostringstream json;
+        json << input.rdbuf();
+        std::vector<UpgradeDefinition> nodes;
+        REQUIRE(parseUpgradeCatalog(json.str(), nodes));
+        const auto& child = nodes.back();
+        CHECK_EQ(child.key, "combined_test_shot");
+        REQUIRE(child.prerequisites.size() == 2);
+        ProgressionModel progress;
+        EconomyModel wallet(100, 100);
+        progress.setUpgradeLevel(child.prerequisites[0].id, child.prerequisites[0].level);
+        CHECK_EQ(progress.purchaseUpgrade(wallet, child).status, PurchaseStatus::PrerequisiteLocked);
+        CHECK_EQ(wallet.totalCoins(), 100);
+        progress.setUpgradeLevel(child.prerequisites[1].id, child.prerequisites[1].level);
+        REQUIRE(progress.purchaseUpgrade(wallet, child).purchased());
+        CHECK_EQ(wallet.totalCoins(), 90);
+
+        std::array<SkillDefinition, static_cast<size_t>(SkillId::Count)> skills;
+        REQUIRE(parseSkillCatalog(json.str(), skills));
+        const auto& lightning = skills[static_cast<size_t>(SkillId::Lightning)];
+        REQUIRE(lightning.prerequisites.size() == 2);
+        progress.setSkillUnlocked(SkillId::Fireball, true);
+        CHECK_EQ(progress.unlockSkill(wallet, lightning).status, PurchaseStatus::PrerequisiteLocked);
+        CHECK_EQ(wallet.totalCrystals(), 100);
+        progress.setSkillUnlocked(SkillId::Freeze, true);
+        REQUIRE(progress.unlockSkill(wallet, lightning).purchased());
+        CHECK_EQ(wallet.totalCrystals(), 95);
+        // Failed parsing is atomic, including malformed and duplicate spell requirements.
+        for (const auto& replacement : std::vector<std::string>{
+            R"("prerequisites": [{"id":"freeze","level":2}])",
+            R"("prerequisites": [{"id":"freeze","level":1},{"id":"freeze","level":1}])"})
+        {
+            auto broken = json.str();
+            const auto node = broken.find("\"id\": \"lightning\"");
+            const auto start = broken.find("\"prerequisites\"", node);
+            const auto end = broken.find(']', start);
+            broken.replace(start, end - start + 1, replacement);
+            CHECK_FALSE(parseSkillCatalog(broken, skills));
+            CHECK_EQ(skills[3].prerequisites.size(), 2);
+        }
+    }
+
+    TEST_CASE("multiple prerequisites all gate a purchase with independent levels")
+    {
+        const std::string json = R"({"upgrades":[
+          {"id":"precision","name":"鹰眼","description":"暴击","currency":"coins","costs":[2,3],
+           "track":"bow","treeRow":0,"treeX":0.27,"effects":[{"attribute":"precision","operation":"add","values":[0,0.1,0.2]}]},
+          {"id":"heavy_strike","name":"强力一击","description":"击退","currency":"coins","costs":[2],
+           "track":"bow","treeRow":0,"treeX":0.73,"effects":[{"attribute":"heavy_strike","operation":"add","values":[0,10]}]},
+          {"id":"combined_shot","name":"协同射击","description":"复合前置","currency":"coins","costs":[5],
+           "track":"bow","treeRow":1,"treeX":0.5,"unlockStage":3,
+           "prerequisites":[{"id":"precision","level":2},{"id":"heavy_strike","level":1}],
+           "effects":[{"attribute":"arrow_damage","operation":"add","values":[0,2]}]}
+        ]})";
+        std::vector<UpgradeDefinition> nodes;
+        REQUIRE(parseUpgradeCatalog(json, nodes));
+        const auto& child = nodes.back();
+        REQUIRE(child.prerequisites.size() == 2);
+        // Built-in handles are reordered during parsing; both references must follow their stable keys.
+        CHECK_EQ(nodes[static_cast<size_t>(child.prerequisites[0].id)].key, "precision");
+        CHECK_EQ(nodes[static_cast<size_t>(child.prerequisites[1].id)].key, "heavy_strike");
+        for (const auto& levels : std::vector<std::pair<int, int>>{{0,0}, {2,0}, {0,1}, {1,1}})
+        {
+            ProgressionModel progress;
+            EconomyModel wallet(20);
+            progress.setUpgradeLevel(child.prerequisites[0].id, levels.first);
+            progress.setUpgradeLevel(child.prerequisites[1].id, levels.second);
+            CHECK_EQ(progress.purchaseUpgrade(wallet, child, 3).status, PurchaseStatus::PrerequisiteLocked);
+            CHECK_EQ(wallet.totalCoins(), 20);
+            CHECK_EQ(progress.upgradeLevel(child.id), 0);
+        }
+        ProgressionModel progress;
+        EconomyModel wallet(20);
+        for (const auto& requirement : child.prerequisites) progress.setUpgradeLevel(requirement.id, requirement.level);
+        CHECK_EQ(progress.purchaseUpgrade(wallet, child, 2).status, PurchaseStatus::PrerequisiteLocked);
+        REQUIRE(progress.purchaseUpgrade(wallet, child, 3).purchased());
+        CHECK_EQ(wallet.totalCoins(), 15);
+        CHECK_EQ(evaluateUpgradeAttribute(defaultUpgradeAttributes()[0], nodes, progress), doctest::Approx(3));
+        for (const auto& replacement : std::vector<std::string>{
+                 R"({"id":"heavy_strike","level":2})", R"({"id":"precision","level":1})",
+                 R"({"id":"missing","level":1})", R"({"id":"combined_shot","level":1})",
+                 R"({"id":"heavy_strike","level":0})", R"({"id":"heavy_strike","level":1.5})"})
+        {
+            std::string broken = json;
+            const std::string original = R"({"id":"heavy_strike","level":1})";
+            broken.replace(broken.find(original), original.size(), replacement);
+            CHECK_FALSE(parseUpgradeCatalog(broken, nodes));
+            CHECK_EQ(nodes.back().key, "combined_shot");
+        }
+    }
+
+    TEST_CASE("owned multi-shot compatibility never skips multiple conditions")
+    {
+        UpgradeDefinition node{UpgradeId::MultiShot, "multi_shot", "Multi", "Multi", Currency::Coins, {5, 10}, {1, 2, 3}};
+        node.prerequisite = UpgradeId::FireRate; node.requiredLevel = 2;
+        ProgressionModel progress;
+        EconomyModel wallet(20);
+        progress.setUpgradeLevel(node.id, 1);
+        CHECK(progress.meetsUpgradePrerequisite(node));
+        node.prerequisites = {{UpgradeId::FireRate, 2}};
+        CHECK(progress.meetsUpgradePrerequisite(node));
+        node.prerequisites.push_back({UpgradeId::Precision, 1});
+        CHECK_EQ(progress.purchaseUpgrade(wallet, node).status, PurchaseStatus::PrerequisiteLocked);
+        CHECK_EQ(wallet.totalCoins(), 20);
+        progress.setUpgradeLevel(UpgradeId::FireRate, 2);
+        CHECK_FALSE(progress.meetsUpgradePrerequisite(node));
+        progress.setUpgradeLevel(UpgradeId::Precision, 1);
+        CHECK(progress.purchaseUpgrade(wallet, node).purchased());
+    }
+
+    TEST_CASE("a dependency cycle on a second defense edge is rejected")
+    {
+        std::vector<UpgradeDefinition> nodes;
+        REQUIRE(parseUpgradeCatalog(customCatalog, nodes));
+        for (auto& node : nodes) { node.track = UpgradeTrack::None; node.treeRow = -1; node.prerequisite = UpgradeId::None; node.requiredLevel = 0; }
+        auto extra = nodes[0]; extra.id = static_cast<UpgradeId>(2); extra.key = "third";
+        nodes.push_back(extra);
+        nodes[0].prerequisites = {{nodes[1].id, 1}, {nodes[2].id, 1}};
+        nodes[2].prerequisites = {{nodes[0].id, 1}};
+        CHECK_FALSE(validUpgradeTree(nodes));
+    }
+
     TEST_CASE("node deletion leaves a usable base and empty catalog is safe")
     {
         std::vector<UpgradeDefinition> nodes;

@@ -1,5 +1,13 @@
 const UpgradeEditor = (() => {
+  function requirements(node) {
+    return node.prerequisites ?? (node.requires ? [{id: node.requires, level: node.requiredLevel ?? 1}] : []);
+  }
   function normalize(data) {
+    for (const node of [...data.upgrades, ...data.skills]) {
+      node.prerequisites = requirements(node);
+      delete node.requires;
+      delete node.requiredLevel;
+    }
     for (const node of data.upgrades) {
       if (!node.effects && Array.isArray(node.values)) node.effects = [{attribute: node.id, operation: "set", values: node.values}];
       delete node.values;
@@ -36,23 +44,30 @@ const UpgradeEditor = (() => {
       if (track !== "defense") {
         if (!Number.isInteger(node.treeRow) || node.treeRow < 0 || node.treeRow > 16 || !Number.isFinite(node.treeX) || node.treeX < .12 || node.treeX > .88)
           return `${node.id} 的树位置无效`;
-        if (!node.requires && node.treeRow !== 0) return "没有前置节点的节点须位于首层";
+        if (!requirements(node).length && node.treeRow !== 0) return "没有前置节点的节点须位于首层";
         if (data.upgrades.some((other) => other !== node && other.track === track && other.treeRow === node.treeRow && Math.abs(other.treeX - node.treeX) < .18 - 1e-6))
           return `${node.id} 与同层节点过近`;
       }
-      if (node.requires) {
-        const parent = data.upgrades.find((item) => item.id === node.requires);
-        if (!parent || parent === node || !Number.isInteger(node.requiredLevel) || node.requiredLevel < 1 || node.requiredLevel > parent.costs.length ||
-            (track !== "defense" && (parent.track !== track || parent.treeRow >= node.treeRow))) return `${node.id} 的前置节点或等级无效`;
-        const visited = new Set([node.id]);
-        let cursor = parent;
-        while (cursor) {
-          if (visited.has(cursor.id)) return "前置关系存在循环";
-          visited.add(cursor.id);
-          cursor = data.upgrades.find((item) => item.id === cursor.requires);
-        }
-      } else if ((node.requiredLevel ?? 0) !== 0) return "无前置节点时，前置等级须为 0";
+      const parents = requirements(node);
+      if (!Array.isArray(parents)) return "前置条件须为列表";
+      const seen = new Set();
+      for (const requirement of parents) {
+        const parent = data.upgrades.find((item) => item.id === requirement?.id);
+        if (!parent || parent === node || seen.has(parent.id) || !Number.isInteger(requirement.level) ||
+            requirement.level < 1 || requirement.level > parent.costs.length || (parent.track || "defense") !== track ||
+            (track !== "defense" && parent.treeRow >= node.treeRow)) return `${node.id} 的前置节点或等级无效（不可重复）`;
+        seen.add(parent.id);
+      }
     }
+    const visited = new Map();
+    const visit = (node) => {
+      if (visited.has(node.id)) return visited.get(node.id) === 2;
+      visited.set(node.id, 1);
+      if (!requirements(node).every((r) => visit(data.upgrades.find((p) => p.id === r.id)))) return false;
+      visited.set(node.id, 2);
+      return true;
+    };
+    if (!data.upgrades.every(visit)) return "前置关系存在循环";
     return "";
   }
   function create(data, track, parent) {
@@ -72,9 +87,9 @@ const UpgradeEditor = (() => {
       id: `${track}_upgrade_${serial}`, name: "新升级", description: "配置升级效果", currency: "coins", costs: [10],
       effects: [{attribute: track === "magic" ? "mana_flow" : track === "defense" ? "wall_health" : "arrow_damage", operation: "add", values: [0, 1]}],
       ...(track === "defense" ? {} : {track, treeRow: row, treeX: x}),
-      requires: parent?.id || "", requiredLevel: parent ? 1 : 0, unlockStage: 0,
+      prerequisites: parent ? [{id: parent.id, level: 1}] : [], unlockStage: 0,
     }};
   }
-  return {normalize, validate, create};
+  return {normalize, validate, create, requirements};
 })();
 if (typeof module !== "undefined") module.exports = UpgradeEditor;

@@ -1,4 +1,5 @@
 const TreePosition = (() => {
+  const requirements = typeof module !== "undefined" ? require("./upgrade-editor.js").requirements : UpgradeEditor.requirements;
   const MIN_X = .12;
   const MAX_X = .88;
   const MIN_GAP = .18;
@@ -6,14 +7,15 @@ const TreePosition = (() => {
   function plan(nodes, selected, preset) {
     let positions;
     if (preset === "children-center") {
-      const children = nodes.filter((node) => node.requires === selected.id);
+      const children = nodes.filter((node) => requirements(node).some((r) => r.id === selected.id));
       if (!children.length) return {error: "当前节点没有直接子节点"};
       const xs = children.map((node) => node.treeX);
       positions = new Map([[selected.id, (Math.min(...xs) + Math.max(...xs)) / 2]]);
     } else if (preset === "parent-align") {
-      const parent = nodes.find((node) => node.id === selected.requires);
-      if (!parent) return {error: "当前节点没有前置节点"};
-      positions = new Map([[selected.id, parent.treeX]]);
+      const parents = nodes.filter((node) => requirements(selected).some((r) => r.id === node.id));
+      if (!parents.length) return {error: "当前节点没有前置节点"};
+      const xs = parents.map((node) => node.treeX);
+      positions = new Map([[selected.id, (Math.min(...xs) + Math.max(...xs)) / 2]]);
     } else if (preset === "canvas-center") {
       positions = new Map([[selected.id, .5]]);
     } else if (preset === "row-distribute") {

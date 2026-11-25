@@ -165,12 +165,14 @@ function validateDraft() {
     if (data.skills.some((other) => other !== node && other.treeRow === node.treeRow &&
         Math.abs(other.treeX - node.treeX) < .18 - 1e-6))
       return [`${node.id} 与同层法术过近`];
-    if (node.requires && (!skillIds.has(node.requires) ||
-        data.skills.find((item) => item.id === node.requires).treeRow >= node.treeRow))
-      return [`${node.id} 的前置法术无效`];
-    if (node.requires && node.unlockStage > 0) {
-      const parent = data.skills.find((item) => item.id === node.requires);
-      if (!parent.defaultUnlocked && (parent.unlockStage <= 0 || parent.unlockStage > node.unlockStage))
+    const seen = new Set();
+    for (const requirement of UpgradeEditor.requirements(node)) {
+      const parent = data.skills.find((item) => item.id === requirement.id);
+      if (!skillIds.has(requirement.id) || seen.has(requirement.id) || requirement.level !== 1 ||
+          parent.treeRow >= node.treeRow || node.defaultUnlocked)
+        return [`${node.id} 的前置法术无效（不可重复，且须在更早层）`];
+      seen.add(requirement.id);
+      if (node.unlockStage > 0 && !parent.defaultUnlocked && (parent.unlockStage <= 0 || parent.unlockStage > node.unlockStage))
         return [`${node.id} 的解锁关卡早于前置法术`];
     }
   }
@@ -320,15 +322,45 @@ function renderGraph(nodes) {
     y: defense ? 110 : 75 + node.treeRow * 110,
   }]));
   const height = Math.max(350, ...[...positions.values()].map((position) => position.y + 120));
-  const links = nodes.filter((node) => node.requires && positions.has(node.requires)).map((node) => {
-    const from = positions.get(node.requires), to = positions.get(node.id);
+  const links = nodes.flatMap((node) => UpgradeEditor.requirements(node).filter((r) => positions.has(r.id)).map((requirement) => {
+    const from = positions.get(requirement.id), to = positions.get(node.id);
     const start = from.y + 25, end = to.y - 25, turn = (start + end) / 2;
-    return `<path d="M ${from.x * 1000} ${start} V ${turn} H ${to.x * 1000} V ${end}"/>`;
-  }).join("");
+    return `<path data-from="${escapeHtml(requirement.id)}" data-to="${escapeHtml(node.id)}" d="M ${from.x * 1000} ${start} V ${turn} H ${to.x * 1000} V ${end}"/>`;
+  })).join("");
   return `<div class="tree-graph" style="height:${height}px"><svg viewBox="0 0 1000 ${height}" preserveAspectRatio="none">${links}</svg>${nodes.map((node) => {
     const position = positions.get(node.id);
     return `<button class="tree-node ${node.id === state.node ? "selected" : ""} ${position.x > .55 ? "right-label" : ""}" style="left:${position.x * 100}%;top:${position.y}px" data-action="select-node" data-id="${escapeHtml(node.id)}" title="${escapeHtml(node.name)}">${escapeHtml(node.name.slice(0, 1))}<span>${escapeHtml(node.name)}</span></button>`;
   }).join("")}</div>`;
+}
+function prerequisiteCandidates(node) {
+  const nodes = nodesForTrack();
+  const dependsOn = (candidate, visited = new Set()) => {
+    if (candidate.id === node.id) return true;
+    if (visited.has(candidate.id)) return false;
+    visited.add(candidate.id);
+    return UpgradeEditor.requirements(candidate).some((r) => {
+      const parent = nodes.find((item) => item.id === r.id);
+      return parent && dependsOn(parent, visited);
+    });
+  };
+  return nodes.filter((candidate) => !dependsOn(candidate));
+}
+function updatePrerequisiteRow(node) {
+  if (state.track === "defense") return;
+  const parents = nodesForTrack().filter((item) => UpgradeEditor.requirements(node).some((r) => r.id === item.id));
+  node.treeRow = parents.length ? Math.max(...parents.map((item) => item.treeRow)) + 1 : 0;
+}
+function renderPrerequisites(node, isSkill) {
+  const requirements = UpgradeEditor.requirements(node);
+  const candidates = prerequisiteCandidates(node);
+  const unused = candidates.filter((item) => !requirements.some((r) => r.id === item.id));
+  return `<div class="divider"></div><div class="line"><h3 class="grow">前置条件 · 全部满足</h3><button class="small-button" data-action="add-prerequisite" aria-label="添加前置条件" title="添加前置条件" ${unused.length ? "" : "disabled"}>+</button></div>
+    ${requirements.length ? requirements.map((requirement, index) => {
+      const choices = candidates.filter((item) => item.id === requirement.id || !requirements.some((r) => r.id === item.id));
+      return `<div class="prerequisite-row"><select data-action="prerequisite-id" data-index="${index}" aria-label="前置条件 ${index + 1} 节点">${options(choices.map((item) => item.id), requirement.id, Object.fromEntries(choices.map((item) => [item.id, item.name])))}</select>
+        ${isSkill ? '<span>已解锁</span>' : `<label class="prerequisite-level"><input type="number" min="1" step="1" value="${escapeHtml(requirement.level)}" data-action="prerequisite-level" data-index="${index}" aria-label="前置条件 ${index + 1} 等级">级</label>`}
+        <button class="small-button danger-button" data-action="delete-prerequisite" data-index="${index}" aria-label="删除前置条件 ${index + 1}">×</button></div>`;
+    }).join("") : '<p class="info-note">无前置条件</p>'}`;
 }
 function renderNodeInspector(node) {
   if (!node) { $("#inspector").innerHTML = '<p class="info-note">新建节点开始配置</p>'; return; }
@@ -337,18 +369,13 @@ function renderNodeInspector(node) {
   if (!isSkill) html += `<div class="line"><button class="secondary-button" data-action="add-child-node">＋ 子节点</button><button class="small-button danger-button" data-action="delete-node" aria-label="删除节点" title="删除节点">×</button></div>${field("node", "id", "节点 ID · 保存后保持稳定", node.id)}${field("node", "unlockStage", "可进入第几关时解锁 · 0 不限制", node.unlockStage ?? 0, "number")}`;
   if (isSkill) {
     html += `<div class="field-grid">${field("node", "unlockStage", "解锁关卡 · 0 不启用", node.unlockStage, "number")}${field("node", "unlockCost", "水晶价格 · 0 不启用", node.unlockCost, "number")}</div><div class="field"><label class="line"><input data-scope="node" data-field="defaultUnlocked" type="checkbox" ${node.defaultUnlocked ? "checked" : ""}> 默认解锁</label></div>`;
-    html += field("node", "requires", "前置法术", options(["", ...documentData().skills.filter((item) => item.id !== node.id).map((item) => item.id)], node.requires, {"": "无"}), "select");
   } else {
     html += field("node", "currency", "货币", options(["coins", "crystals"], node.currency, {coins: "金币", crystals: "水晶"}), "select");
-    if (!isSkill) {
-      const parents = documentData().upgrades.filter((item) => item.track === node.track && item.id !== node.id);
-      html += field("node", "requires", "前置升级", options(["", ...parents.map((item) => item.id)], node.requires, {"": "无", ...Object.fromEntries(parents.map((item) => [item.id, item.name]))}), "select");
-      html += field("node", "requiredLevel", "前置等级 · 0 无前置", node.requiredLevel ?? 0, "number");
-    }
   }
+  html += renderPrerequisites(node, isSkill);
   if (isSkill || node.track) {
     html += `<div class="field-grid">${field("node", "treeRow", "树层级 · 从 0 开始", node.treeRow, "number")}${field("node", "treeX", "横向位置 · 0–1", node.treeX, "number")}</div><div class="field"><input data-scope="node" data-field="treeX" type="range" min="0.12" max="0.88" step="0.01" value="${escapeHtml(node.treeX)}" aria-label="横向位置"></div>
-      <div class="field"><label for="tree-position-preset">位置预设</label><select id="tree-position-preset" data-action="position-preset"><option value="">选择位置预设</option><option value="children-center" ${nodesForTrack().some((item) => item.requires === node.id) ? "" : "disabled"}>基于子节点居中</option><option value="row-distribute">同层级平均分配</option><option value="parent-align" ${node.requires ? "" : "disabled"}>与前置节点对齐</option><option value="canvas-center">画布居中</option></select></div>`;
+      <div class="field"><label for="tree-position-preset">位置预设</label><select id="tree-position-preset" data-action="position-preset"><option value="">选择位置预设</option><option value="children-center" ${nodesForTrack().some((item) => UpgradeEditor.requirements(item).some((r) => r.id === node.id)) ? "" : "disabled"}>基于子节点居中</option><option value="row-distribute">同层级平均分配</option><option value="parent-align" ${UpgradeEditor.requirements(node).length ? "" : "disabled"}>对齐前置中心</option><option value="canvas-center">画布居中</option></select></div>`;
   }
   if (!isSkill) {
     html += `<div class="divider"></div><div class="line"><h3 class="grow">等级数值</h3><button class="small-button" data-action="add-upgrade-level" title="增加一级" aria-label="增加一级">+</button><button class="small-button danger-button" data-action="remove-upgrade-level" title="移除末级" aria-label="移除末级" ${node.costs.length <= 1 ? "disabled" : ""}>×</button></div>`;
@@ -467,7 +494,8 @@ function setCurrentField(input) {
     if (!/^[a-z][a-z0-9_]{0,63}$/.test(value) || documentData().upgrades.some((node) => node !== target && node.id === value)) {
       showToast("ID 须以小写字母开头，仅含小写字母、数字和下划线，且不能重复", true); render(); return;
     }
-    for (const node of documentData().upgrades) if (node.requires === target.id) node.requires = value;
+    for (const node of documentData().upgrades)
+      for (const requirement of UpgradeEditor.requirements(node)) if (requirement.id === target.id) requirement.id = value;
     if (state.baseUpgrade === target.id) state.baseUpgrade = value;
     state.node = value;
   }
@@ -480,10 +508,6 @@ function setCurrentField(input) {
   }
   if (scope === "group" && input.dataset.field === "formation" && value !== "scatter")
     target.from = "spawn";
-  if (scope === "node" && state.track !== "spells" && input.dataset.field === "requires") {
-    target.requiredLevel = value ? 1 : 0;
-    if (target.track) target.treeRow = value ? documentData().upgrades.find((node) => node.id === value).treeRow + 1 : 0;
-  }
   markDirty();
   render();
 }
@@ -541,11 +565,19 @@ function handleAction(button) {
     documentData().upgrades.push(result.node); state.node = result.node.id; markDirty();
   } else if (action === "delete-node") {
     const node = currentNode();
-    const children = documentData().upgrades.filter((item) => item.requires === node.id);
+    const children = documentData().upgrades.filter((item) => UpgradeEditor.requirements(item).some((r) => r.id === node.id));
     if (children.length) { showToast(`请先移除前置引用：${children.map((item) => item.name).join("、")}`, true); return; }
     if (!confirm(`删除“${node.name}”？`)) return;
     documentData().upgrades.splice(documentData().upgrades.indexOf(node), 1);
     state.node = nodesForTrack()[0]?.id; markDirty();
+  } else if (action === "add-prerequisite") {
+    const node = currentNode();
+    const candidates = prerequisiteCandidates(node).filter((item) => !node.prerequisites.some((r) => r.id === item.id));
+    const parent = candidates.find((item) => item.treeRow < node.treeRow) || candidates[0];
+    if (!parent) return;
+    node.prerequisites.push({id: parent.id, level: 1}); updatePrerequisiteRow(node); markDirty();
+  } else if (action === "delete-prerequisite") {
+    currentNode().prerequisites.splice(index, 1); updatePrerequisiteRow(currentNode()); markDirty();
   } else if (action === "add-effect") {
     currentNode().effects.push({attribute: state.attributes[0].id, operation: "add", values: [0, ...currentNode().costs.map(() => 1)]}); markDirty();
   } else if (action === "delete-effect") {
@@ -619,6 +651,13 @@ document.addEventListener("change", (event) => {
   }
   if (input.id === "level-search") { state.search = input.value; renderSidebar(); return; }
   if (input.dataset.action === "position-preset") { applyPositionPreset(input.value); return; }
+  if (input.dataset.action?.startsWith("prerequisite-")) {
+    const node = currentNode(), requirement = node.prerequisites[Number(input.dataset.index)];
+    if (input.dataset.action === "prerequisite-id") {
+      requirement.id = input.value; requirement.level = 1; updatePrerequisiteRow(node);
+    } else requirement.level = input.value.trim() === "" ? NaN : Number(input.value);
+    markDirty(); render(); return;
+  }
   if (input.dataset.scope) { setCurrentField(input); return; }
   if (input.dataset.action === "type-at") { currentGroup().types[Number(input.dataset.index)] = input.value; markDirty(); render(); return; }
   if (input.dataset.action?.startsWith("effect-")) {

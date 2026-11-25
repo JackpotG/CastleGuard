@@ -45,3 +45,14 @@ test("rejects unavailable relations and rows too crowded to distribute", () => {
   assert.match(plan(nodes, nodes[0], "parent-align").error, /没有前置节点/);
   assert.match(plan(nodes, nodes[0], "row-distribute").error, /过多/);
 });
+
+test("multi-parent layout aligns with all parents and finds shared children", () => {
+  const nodes = [
+    {id: "left", treeRow: 0, treeX: .2},
+    {id: "right", treeRow: 0, treeX: .8},
+    {id: "child", prerequisites: [{id:"left",level:2},{id:"right",level:1}], treeRow:1, treeX:.4},
+    {id: "other", prerequisites: [{id:"right",level:1}], treeRow:1, treeX:.8},
+  ];
+  assert.deepEqual(plan(nodes, nodes[2], "parent-align"), {updates:[["child", .5]]});
+  assert.deepEqual(plan(nodes, nodes[1], "children-center"), {updates:[["right", .6000000000000001]]});
+});

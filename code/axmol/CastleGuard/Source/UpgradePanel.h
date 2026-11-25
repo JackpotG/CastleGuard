@@ -82,6 +82,7 @@ private:
     ax::DrawNode* _skillConnector = nullptr;
     ax::DrawNode* _skillRoot      = nullptr;
     ax::DrawNode* _researchConnector = nullptr;
+    ax::DrawNode* _defenseConnector = nullptr;
     std::vector<UpgradeBranchView> _upgradeBranches;
     std::vector<TreeNodeView> _researchNodes;
     std::vector<TreeNodeView> _skillNodes;

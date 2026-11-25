@@ -1,0 +1,352 @@
+{
+  "upgrades": [
+    {
+      "id": "arrow_damage",
+      "name": "力量",
+      "description": "提高每支箭的基础伤害",
+      "currency": "coins",
+      "costs": [
+        8,
+        18,
+        34,
+        58,
+        90
+      ],
+      "track": "bow",
+      "treeRow": 0,
+      "treeX": 0.32,
+      "prerequisites": [],
+      "effects": [
+        {
+          "attribute": "arrow_damage",
+          "operation": "set",
+          "values": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fire_rate",
+      "name": "敏捷",
+      "description": "缩短两次射击的间隔",
+      "currency": "coins",
+      "costs": [
+        10,
+        22,
+        40,
+        65,
+        100
+      ],
+      "track": "bow",
+      "treeRow": 0,
+      "treeX": 0.76,
+      "prerequisites": [],
+      "effects": [
+        {
+          "attribute": "fire_rate",
+          "operation": "set",
+          "values": [
+            1,
+            0.9166667,
+            0.8333333,
+            0.7611111,
+            0.6944444,
+            0.6388889
+          ]
+        }
+      ]
+    },
+    {
+      "id": "multi_shot",
+      "name": "多重箭",
+      "description": "一次射出更多箭矢",
+      "currency": "coins",
+      "costs": [
+        45,
+        120
+      ],
+      "track": "bow",
+      "treeRow": 1,
+      "treeX": 0.76,
+      "prerequisites": [
+        {
+          "id": "fire_rate",
+          "level": 2
+        }
+      ],
+      "effects": [
+        {
+          "attribute": "multi_shot",
+          "operation": "set",
+          "values": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wall_health",
+      "name": "坚固城墙",
+      "description": "提高每局城墙生命上限",
+      "currency": "coins",
+      "costs": [
+        12,
+        26,
+        45,
+        70,
+        105
+      ],
+      "prerequisites": [],
+      "effects": [
+        {
+          "attribute": "wall_health",
+          "operation": "set",
+          "values": [
+            100,
+            120,
+            140,
+            160,
+            180,
+            200
+          ]
+        }
+      ]
+    },
+    {
+      "id": "heavy_strike",
+      "name": "强力一击",
+      "description": "箭矢击退距离翻倍",
+      "currency": "crystals",
+      "costs": [
+        4
+      ],
+      "track": "bow",
+      "treeRow": 1,
+      "treeX": 0.45,
+      "prerequisites": [
+        {
+          "id": "arrow_damage",
+          "level": 5
+        }
+      ],
+      "effects": [
+        {
+          "attribute": "heavy_strike",
+          "operation": "set",
+          "values": [
+            36,
+            72
+          ]
+        }
+      ]
+    },
+    {
+      "id": "precision",
+      "name": "鹰眼",
+      "description": "箭矢获得 12% 暴击概率",
+      "currency": "crystals",
+      "costs": [
+        3
+      ],
+      "track": "bow",
+      "treeRow": 1,
+      "treeX": 0.19,
+      "prerequisites": [
+        {
+          "id": "arrow_damage",
+          "level": 3
+        }
+      ],
+      "effects": [
+        {
+          "attribute": "precision",
+          "operation": "set",
+          "values": [
+            0,
+            0.12
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mana_flow",
+      "name": "法力回路",
+      "description": "每秒额外回复 1.5 点法力",
+      "currency": "crystals",
+      "costs": [
+        3
+      ],
+      "track": "magic",
+      "treeRow": 0,
+      "treeX": 0.27,
+      "prerequisites": [],
+      "effects": [
+        {
+          "attribute": "mana_flow",
+          "operation": "set",
+          "values": [
+            0,
+            1.5
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wall_armor",
+      "name": "城墙护甲",
+      "description": "每次受击减少伤害，最低承受 1 点",
+      "currency": "coins",
+      "costs": [
+        20,
+        45,
+        80
+      ],
+      "prerequisites": [],
+      "effects": [
+        {
+          "attribute": "wall_armor",
+          "operation": "set",
+          "values": [
+            0,
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "id": "spell_efficiency",
+      "name": "奥术专注",
+      "description": "降低施放法术所需法力",
+      "currency": "coins",
+      "costs": [
+        18,
+        42,
+        80
+      ],
+      "track": "magic",
+      "treeRow": 0,
+      "treeX": 0.73,
+      "prerequisites": [],
+      "effects": [
+        {
+          "attribute": "spell_efficiency",
+          "operation": "set",
+          "values": [
+            1,
+            0.9,
+            0.8,
+            0.7
+          ]
+        }
+      ]
+    },
+    {
+      "id": "combined_test_shot",
+      "name": "协同射击",
+      "description": "配置升级效果",
+      "currency": "coins",
+      "costs": [
+        10
+      ],
+      "effects": [
+        {
+          "attribute": "arrow_damage",
+          "operation": "add",
+          "values": [
+            0,
+            1
+          ]
+        }
+      ],
+      "track": "bow",
+      "treeRow": 2,
+      "treeX": 0.32,
+      "prerequisites": [
+        {
+          "id": "precision",
+          "level": 1
+        },
+        {
+          "id": "heavy_strike",
+          "level": 1
+        }
+      ],
+      "unlockStage": 0
+    }
+  ],
+  "skills": [
+    {
+      "id": "fireball",
+      "name": "火球",
+      "description": "范围爆炸伤害",
+      "unlockCost": 0,
+      "defaultUnlocked": false,
+      "unlockStage": 3,
+      "treeRow": 0,
+      "treeX": 0.5,
+      "prerequisites": []
+    },
+    {
+      "id": "freeze",
+      "name": "冰冻",
+      "description": "范围减速控制",
+      "unlockCost": 0,
+      "defaultUnlocked": false,
+      "unlockStage": 4,
+      "treeRow": 1,
+      "treeX": 0.27,
+      "prerequisites": [
+        {
+          "id": "fireball",
+          "level": 1
+        }
+      ]
+    },
+    {
+      "id": "arrow_rain",
+      "name": "箭雨",
+      "description": "持续覆盖一片区域",
+      "unlockCost": 0,
+      "defaultUnlocked": false,
+      "unlockStage": 5,
+      "treeRow": 2,
+      "treeX": 0.27,
+      "prerequisites": [
+        {
+          "id": "freeze",
+          "level": 1
+        }
+      ]
+    },
+    {
+      "id": "lightning",
+      "name": "闪电",
+      "description": "点杀主目标并麻痹周围敌人",
+      "unlockCost": 5,
+      "defaultUnlocked": false,
+      "unlockStage": 0,
+      "treeRow": 2,
+      "treeX": 0.73,
+      "prerequisites": [
+        {
+          "id": "fireball",
+          "level": 1
+        },
+        {
+          "id": "freeze",
+          "level": 1
+        }
+      ]
+    }
+  ]
+}

@@ -60,7 +60,8 @@ bool parseUpgradeCatalog(const std::string& json, std::vector<UpgradeDefinition>
         if (doc.HasParseError() || !doc.IsObject() || !doc.HasMember("upgrades") || !doc["upgrades"].IsArray())
             throw std::runtime_error("missing upgrades");
         std::vector<UpgradeDefinition> parsed;
-        std::vector<std::string> parents;
+        std::vector<std::vector<std::pair<std::string, int>>> parents;
+        std::vector<bool> legacyParents;
         std::unordered_map<std::string, size_t> indices;
         const auto text = [](const auto& item, const char* key) -> std::string {
             if (!item.HasMember(key) || !item[key].IsString()) throw std::runtime_error(std::string("invalid ") + key);
@@ -146,7 +147,23 @@ bool parseUpgradeCatalog(const std::string& json, std::vector<UpgradeDefinition>
                 if (!item["treeX"].IsNumber()) throw std::runtime_error("invalid treeX");
                 node.treeX = item["treeX"].GetFloat();
             }
-            parents.push_back(item.HasMember("requires") ? text(item, "requires") : "");
+            std::vector<std::pair<std::string, int>> requirements;
+            const bool legacy = !item.HasMember("prerequisites");
+            if (!legacy)
+            {
+                if (!item["prerequisites"].IsArray() || node.requiredLevel != 0 ||
+                    (item.HasMember("requires") && !text(item, "requires").empty()))
+                    throw std::runtime_error("invalid or mixed prerequisites");
+                for (const auto& requirement : item["prerequisites"].GetArray())
+                {
+                    if (!requirement.IsObject()) throw std::runtime_error("invalid prerequisite");
+                    requirements.emplace_back(text(requirement, "id"), integer(requirement, "level", 0));
+                }
+            }
+            else if (item.HasMember("requires") && !text(item, "requires").empty())
+                requirements.emplace_back(text(item, "requires"), node.requiredLevel);
+            parents.push_back(std::move(requirements));
+            legacyParents.push_back(legacy);
             indices[node.key] = parsed.size();
             parsed.push_back(std::move(node));
         }
@@ -157,23 +174,27 @@ bool parseUpgradeCatalog(const std::string& json, std::vector<UpgradeDefinition>
         for (size_t i = 0; i < parsed.size(); ++i)
             if (std::find(order.begin(), order.end(), i) == order.end()) order.push_back(i);
         std::vector<UpgradeDefinition> sorted;
-        std::vector<std::string> sortedParents;
+        std::vector<std::vector<std::pair<std::string, int>>> sortedParents;
+        std::vector<bool> sortedLegacy;
         indices.clear();
         for (const auto index : order)
         {
             auto node = std::move(parsed[index]);
             node.id = static_cast<UpgradeId>(sorted.size());
             indices[node.key] = sorted.size();
-            sortedParents.push_back(parents[index]);
+            sortedParents.push_back(std::move(parents[index]));
+            sortedLegacy.push_back(legacyParents[index]);
             sorted.push_back(std::move(node));
         }
         std::set<std::string> assigned;
         for (size_t i = 0; i < sorted.size(); ++i)
         {
-            if (!sortedParents[i].empty())
+            for (const auto& [key, level] : sortedParents[i])
             {
-                if (!indices.count(sortedParents[i])) throw std::runtime_error("missing prerequisite");
-                sorted[i].prerequisite = static_cast<UpgradeId>(indices.at(sortedParents[i]));
+                if (!indices.count(key)) throw std::runtime_error("missing prerequisite");
+                const auto parent = static_cast<UpgradeId>(indices.at(key));
+                if (sortedLegacy[i]) sorted[i].prerequisite = parent;
+                else sorted[i].prerequisites.push_back({parent, level});
             }
             for (const auto& effect : sorted[i].effects)
                 if (effect.operation == "set" && !assigned.insert(effect.attribute).second)

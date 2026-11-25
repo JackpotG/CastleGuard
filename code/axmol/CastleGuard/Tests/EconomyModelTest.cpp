@@ -438,6 +438,38 @@ TEST_SUITE("ProductionProgressionCatalog")
         CHECK_FALSE(validResearchTree(skills));
     }
 
+    TEST_CASE("multiple spell prerequisites gate both purchases and milestone unlocks")
+    {
+        const auto& data = GameData::getInstance();
+        auto lightning = data.skillDefinition(SkillId::Lightning);
+        lightning.prerequisites = {SkillId::Fireball, SkillId::Freeze};
+        ProgressionModel progress;
+        EconomyModel wallet(0, 20);
+        progress.setSkillUnlocked(SkillId::Fireball, true);
+        CHECK_EQ(progress.unlockSkill(wallet, lightning).status, PurchaseStatus::PrerequisiteLocked);
+        CHECK_EQ(wallet.totalCrystals(), 20);
+        progress.setSkillUnlocked(SkillId::Fireball, false);
+        progress.setSkillUnlocked(SkillId::Freeze, true);
+        CHECK_FALSE(progress.meetsSkillPrerequisites(lightning));
+        progress.setSkillUnlocked(SkillId::Fireball, true);
+        REQUIRE(progress.unlockSkill(wallet, lightning).purchased());
+        CHECK_EQ(wallet.totalCrystals(), 15);
+
+        std::array<SkillDefinition, static_cast<size_t>(SkillId::Count)> skills;
+        for (size_t i = 0; i < skills.size(); ++i) skills[i] = data.skillDefinition(static_cast<SkillId>(i));
+        skills[2].prerequisites = {SkillId::Fireball, SkillId::Freeze};
+        CHECK(validResearchTree(skills));
+        progress.setSkillUnlocked(SkillId::Fireball, false);
+        progress.setSkillUnlocked(SkillId::Freeze, false);
+        CHECK(progress.unlockSkillsForStage(2, skills).empty());
+        CHECK_FALSE(progress.isSkillUnlocked(SkillId::ArrowRain));
+        const auto unlocked = progress.unlockSkillsForStage(5, skills);
+        CHECK_EQ(unlocked.size(), 3);
+        CHECK(progress.isSkillUnlocked(SkillId::ArrowRain));
+        skills[2].prerequisites.push_back(SkillId::Freeze);
+        CHECK_FALSE(validResearchTree(skills));
+    }
+
     TEST_CASE("research prerequisites block purchases without spending crystals")
     {
         EconomyModel economy(0, 8);

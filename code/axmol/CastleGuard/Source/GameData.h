@@ -122,6 +122,12 @@ struct UpgradeAttribute
     float maximum = 0;
 };
 
+struct UpgradeRequirement
+{
+    UpgradeId id = UpgradeId::None;
+    int level = 1;
+};
+
 struct UpgradeDefinition
 {
     UpgradeId id = UpgradeId::ArrowDamage;
@@ -139,6 +145,7 @@ struct UpgradeDefinition
 
     std::vector<UpgradeEffect> effects;
     int unlockStage = 0;
+    std::vector<UpgradeRequirement> prerequisites; // 所有前置同时满足；空时兼容旧单前置字段
 
     int maxLevel() const { return static_cast<int>(costs.size()); }
 };
@@ -155,8 +162,13 @@ struct SkillDefinition
     int treeRow          = 0;
     float treeX          = 0.5f;  // 研究树横向位置，0..1
     SkillId prerequisite = SkillId::Count;
+    std::vector<SkillId> prerequisites;
 };
 
+std::vector<UpgradeRequirement> upgradeRequirements(const UpgradeDefinition& definition);
+std::vector<SkillId> skillRequirements(const SkillDefinition& definition);
+
+bool parseSkillCatalog(const std::string& json, std::array<SkillDefinition, static_cast<size_t>(SkillId::Count)>& skills);
 bool validResearchTree(const std::array<SkillDefinition, static_cast<size_t>(SkillId::Count)>& skills);
 bool validUpgradeTree(const std::vector<UpgradeDefinition>& upgrades);
 inline bool validUpgradeTree(const std::array<UpgradeDefinition, static_cast<size_t>(UpgradeId::Count)>& upgrades)
@@ -202,6 +214,7 @@ public:
 
     PurchaseResult purchaseUpgrade(EconomyModel& economy, const UpgradeDefinition& definition, int stage = 1);
     PurchaseResult unlockSkill(EconomyModel& economy, const SkillDefinition& definition);
+    bool meetsSkillPrerequisites(const SkillDefinition& definition) const;
     bool grantUpgradeLevel(const UpgradeDefinition& definition);
     std::vector<SkillId> unlockSkillsForStage(
         int stage, const std::array<SkillDefinition, static_cast<size_t>(SkillId::Count)>& definitions);
@@ -279,6 +292,7 @@ public:
     const SkillDefinition& skillDefinition(SkillId id) const;
     int upgradeLevel(UpgradeId id) const;
     bool upgradePrerequisiteMet(UpgradeId id) const;
+    bool skillPrerequisiteMet(SkillId id) const;
     bool isSkillUnlocked(SkillId id) const;
     PurchaseResult purchaseUpgrade(UpgradeId id);
     PurchaseResult unlockSkill(SkillId id);

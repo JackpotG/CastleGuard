@@ -308,6 +308,8 @@ void UpgradePanel::rebuildTree(float contentWidth)
     _skillConnector = nullptr;
     _skillRoot      = nullptr;
     _researchConnector = nullptr;
+    _defenseConnector = DrawNode::create();
+    _scroll->addChild(_defenseConnector, 0);
 
     const bool showBow = _section == Section::All || _section == Section::Weapons;
     const bool showMagic = _section == Section::All || _section == Section::Research;
@@ -336,12 +338,12 @@ void UpgradePanel::rebuildTree(float contentWidth)
             if (definition.track == UpgradeTrack::Bow)
             {
                 maxBowRow = std::max(maxBowRow, definition.treeRow);
-                bowExtra = std::max(bowExtra, (static_cast<float>(definition.effects.size()) - 1) * 22.0f);
+                bowExtra = std::max(bowExtra, (static_cast<float>(std::max(definition.effects.size(), upgradeRequirements(definition).size() + (definition.unlockStage > 0 ? 1 : 0))) - 1) * 22.0f);
             }
             else if (definition.track == UpgradeTrack::Magic)
             {
                 maxMagicRow = std::max(maxMagicRow, definition.treeRow);
-                magicExtra = std::max(magicExtra, (static_cast<float>(definition.effects.size()) - 1) * 22.0f);
+                magicExtra = std::max(magicExtra, (static_cast<float>(std::max(definition.effects.size(), upgradeRequirements(definition).size() + (definition.unlockStage > 0 ? 1 : 0))) - 1) * 22.0f);
             }
         }
     }
@@ -530,22 +532,38 @@ void UpgradePanel::refresh()
     {
         refreshUpgradeBranch(branch);
     }
+    if (_defenseConnector) _defenseConnector->clear();
+    for (const auto& branch : _upgradeBranches)
+    {
+        for (const auto& requirement : upgradeRequirements(GameData::getInstance().upgradeDefinition(branch.id)))
+        {
+            const auto parent = std::find_if(_upgradeBranches.begin(), _upgradeBranches.end(),
+                [&](const UpgradeBranchView& candidate) { return candidate.id == requirement.id; });
+            if (parent == _upgradeBranches.end() || requirement.level < 1 ||
+                static_cast<size_t>(requirement.level) > parent->nodes.size() || branch.nodes.empty()) continue;
+            const auto& from = parent->nodes[requirement.level - 1];
+            const auto& to = branch.nodes.front();
+            const bool ready = GameData::getInstance().upgradeLevel(requirement.id) >= requirement.level;
+            drawTreeConnector(_defenseConnector, from.graphic->getPosition(), from.radius,
+                to.graphic->getPosition(), to.radius, ready ? Color4F(.24f, .69f, .92f, 1) : Color4F(.30f, .38f, .49f, 1));
+        }
+    }
     if (_researchConnector) _researchConnector->clear();
     for (auto& node : _researchNodes)
     {
         refreshResearchUpgradeNode(node);
         const auto& definition = GameData::getInstance().upgradeDefinition(static_cast<UpgradeId>(node.id));
-        if (!_researchConnector || definition.prerequisite == UpgradeId::None) continue;
-        const auto parent = std::find_if(_researchNodes.begin(), _researchNodes.end(),
-            [&](const TreeNodeView& candidate) {
-                return candidate.id == static_cast<int>(definition.prerequisite);
-            });
-        if (parent == _researchNodes.end()) continue;
-        const bool ready = GameData::getInstance().upgradePrerequisiteMet(static_cast<UpgradeId>(node.id));
-        const Color4F color = ready ? Color4F(0.24f, 0.69f, 0.92f, 1.0f)
-                                    : Color4F(0.30f, 0.38f, 0.49f, 1.0f);
-        drawTreeConnector(_researchConnector, parent->graphic->getPosition(), parent->radius,
-                          node.graphic->getPosition(), node.radius, color);
+        if (!_researchConnector) continue;
+        for (const auto& requirement : upgradeRequirements(definition))
+        {
+            const auto parent = std::find_if(_researchNodes.begin(), _researchNodes.end(),
+                [&](const TreeNodeView& candidate) { return candidate.id == static_cast<int>(requirement.id); });
+            if (parent == _researchNodes.end()) continue;
+            const bool ready = GameData::getInstance().upgradeLevel(requirement.id) >= requirement.level;
+            const Color4F color = ready ? Color4F(0.24f, 0.69f, 0.92f, 1.0f) : Color4F(0.30f, 0.38f, 0.49f, 1.0f);
+            drawTreeConnector(_researchConnector, parent->graphic->getPosition(), parent->radius,
+                              node.graphic->getPosition(), node.radius, color);
+        }
     }
     if (_skillConnector)
     {
@@ -557,8 +575,7 @@ void UpgradePanel::refresh()
         const auto id          = static_cast<SkillId>(node.id);
         const auto& definition = GameData::getInstance().skillDefinition(id);
         const bool unlocked    = GameData::getInstance().isSkillUnlocked(id);
-        const bool parentReady = definition.prerequisite == SkillId::Count ||
-            GameData::getInstance().isSkillUnlocked(definition.prerequisite);
+        const bool parentReady = GameData::getInstance().skillPrerequisiteMet(id);
         const bool available   = !unlocked && parentReady &&
             definition.unlockStage == 0 && definition.unlockCost > 0;
         const Color4F color    = unlocked ? Color4F(0.82f, 0.70f, 0.28f, 1.0f)
@@ -566,22 +583,26 @@ void UpgradePanel::refresh()
                                            : Color4F(0.30f, 0.38f, 0.49f, 1.0f);
         if (_skillConnector && _skillRoot)
         {
-            Vec2 parentPosition = _skillRoot->getPosition();
-            float parentRadius = 24.0f;
-            if (definition.prerequisite != SkillId::Count)
+            auto parents = skillRequirements(definition);
+            if (parents.empty()) parents.push_back(SkillId::Count); // Facility root.
+            for (const auto prerequisite : parents)
             {
-                const auto parent = std::find_if(_skillNodes.begin(), _skillNodes.end(),
-                    [&](const TreeNodeView& candidate) {
-                        return candidate.id == static_cast<int>(definition.prerequisite);
-                    });
-                if (parent != _skillNodes.end())
+                Vec2 parentPosition = _skillRoot->getPosition();
+                float parentRadius = 24.0f;
+                if (prerequisite != SkillId::Count)
                 {
+                    const auto parent = std::find_if(_skillNodes.begin(), _skillNodes.end(),
+                        [&](const TreeNodeView& candidate) { return candidate.id == static_cast<int>(prerequisite); });
+                    if (parent == _skillNodes.end()) continue;
                     parentPosition = parent->graphic->getPosition();
                     parentRadius = parent->radius;
                 }
+                const bool ready = prerequisite == SkillId::Count || GameData::getInstance().isSkillUnlocked(prerequisite);
+                drawTreeConnector(_skillConnector, parentPosition, parentRadius, node.graphic->getPosition(), node.radius,
+                    !ready ? Color4F(.30f, .38f, .49f, 1) :
+                    prerequisite == SkillId::Count ? color :
+                    unlocked ? Color4F(.82f, .70f, .28f, 1) : Color4F(.24f, .69f, .92f, 1));
             }
-            drawTreeConnector(_skillConnector, parentPosition, parentRadius,
-                              node.graphic->getPosition(), node.radius, color);
         }
     }
 }
@@ -657,11 +678,17 @@ void UpgradePanel::refreshResearchUpgradeNode(TreeNodeView& node)
     }
     if (!data.upgradePrerequisiteMet(id))
     {
+        std::string missing;
         if (data.highestClearedStage() + 1 < definition.unlockStage)
-            node.detail->setString(StringUtils::format("第 %d 关解锁", definition.unlockStage));
-        else
-            node.detail->setString(StringUtils::format("需%s %d", data.upgradeDefinition(
-                definition.prerequisite).name.c_str(), definition.requiredLevel));
+            missing = StringUtils::format("第 %d 关解锁", definition.unlockStage);
+        for (const auto& requirement : upgradeRequirements(definition))
+        {
+            if (data.upgradeLevel(requirement.id) >= requirement.level) continue;
+            if (!missing.empty()) missing += "\n";
+            missing += StringUtils::format("需%s %d级", data.upgradeDefinition(requirement.id).name.c_str(), requirement.level);
+        }
+        node.detail->setString(missing);
+        node.detail->setTextHorizontalAlignment(TextHAlignment::CENTER);
         drawNode(node, NodeState::Locked);
         return;
     }
@@ -680,8 +707,7 @@ void UpgradePanel::refreshSkillNode(TreeNodeView& node)
     const auto id          = static_cast<SkillId>(node.id);
     const auto& definition = data.skillDefinition(id);
     const bool unlocked    = data.isSkillUnlocked(id);
-    const bool parentReady = definition.prerequisite == SkillId::Count ||
-        data.isSkillUnlocked(definition.prerequisite);
+    const bool parentReady = data.skillPrerequisiteMet(id);
     const bool purchasable = !unlocked && parentReady &&
         definition.unlockStage == 0 && definition.unlockCost > 0;
     const bool affordable  = data.economy().totalCrystals() >= definition.unlockCost;

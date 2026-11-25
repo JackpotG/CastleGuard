@@ -6,7 +6,9 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <functional>
 #include <limits>
+#include <set>
 #include <utility>
 
 #if AX_TARGET_PLATFORM == AX_PLATFORM_WASM
@@ -134,6 +136,20 @@ bool validUpgrade(const UpgradeDefinition& definition)
 }
 }  // namespace
 
+std::vector<UpgradeRequirement> upgradeRequirements(const UpgradeDefinition& definition)
+{
+    if (!definition.prerequisites.empty()) return definition.prerequisites;
+    if (definition.prerequisite != UpgradeId::None) return {{definition.prerequisite, definition.requiredLevel}};
+    return {};
+}
+
+std::vector<SkillId> skillRequirements(const SkillDefinition& definition)
+{
+    if (!definition.prerequisites.empty()) return definition.prerequisites;
+    if (definition.prerequisite != SkillId::Count) return {definition.prerequisite};
+    return {};
+}
+
 bool validUpgradeTree(const std::vector<UpgradeDefinition>& upgrades)
 {
     for (size_t i = 0; i < upgrades.size(); ++i)
@@ -141,36 +157,40 @@ bool validUpgradeTree(const std::vector<UpgradeDefinition>& upgrades)
         const auto& node = upgrades[i];
         if (node.id != static_cast<UpgradeId>(i) || !validUpgrade(node) || node.unlockStage < 0)
             return false;
+        const auto requirements = upgradeRequirements(node);
+        if (requirements.empty() && node.requiredLevel != 0) return false;
         const bool inTree = node.track != UpgradeTrack::None;
         if ((inTree && (node.treeRow < 0 || node.treeRow > 16 || !std::isfinite(node.treeX) ||
                         node.treeX < 0.12f || node.treeX > 0.88f)) ||
             (!inTree && node.treeRow != -1) ||
-            (inTree && node.prerequisite == UpgradeId::None && node.treeRow != 0))
+            (inTree && requirements.empty() && node.treeRow != 0))
             return false;
         for (size_t j = 0; j < i; ++j)
             if (node.key == upgrades[j].key || (inTree && node.track == upgrades[j].track &&
                 node.treeRow == upgrades[j].treeRow && std::abs(node.treeX - upgrades[j].treeX) < 0.18f - 1e-6f))
                 return false;
-        if (node.prerequisite == UpgradeId::None)
+        std::set<UpgradeId> seen;
+        for (const auto& requirement : requirements)
         {
-            if (node.requiredLevel != 0) return false;
-            continue;
-        }
-        const size_t parent = static_cast<size_t>(node.prerequisite);
-        if (parent >= upgrades.size() || parent == i || node.requiredLevel <= 0 ||
-            node.requiredLevel > upgrades[parent].maxLevel() ||
-            (inTree && (upgrades[parent].track != node.track || upgrades[parent].treeRow >= node.treeRow)))
-            return false;
-        size_t cursor = parent;
-        for (size_t depth = 0; depth < upgrades.size(); ++depth)
-        {
-            if (cursor == i) return false;
-            const auto next = upgrades[cursor].prerequisite;
-            if (next == UpgradeId::None) break;
-            cursor = static_cast<size_t>(next);
-            if (cursor >= upgrades.size()) return false;
+            const size_t parent = static_cast<size_t>(requirement.id);
+            if (parent >= upgrades.size() || parent == i || !seen.insert(requirement.id).second ||
+                requirement.level <= 0 || requirement.level > upgrades[parent].maxLevel() ||
+                upgrades[parent].track != node.track || (inTree && upgrades[parent].treeRow >= node.treeRow))
+                return false;
         }
     }
+    // Visit every incoming edge, including city-defense branches that have no explicit tree row.
+    std::vector<int> visited(upgrades.size());
+    const std::function<bool(size_t)> visit = [&](size_t index) {
+        if (visited[index] != 0) return visited[index] == 2;
+        visited[index] = 1;
+        for (const auto& requirement : upgradeRequirements(upgrades[index]))
+            if (!visit(static_cast<size_t>(requirement.id))) return false;
+        visited[index] = 2;
+        return true;
+    };
+    for (size_t i = 0; i < upgrades.size(); ++i)
+        if (!visit(i)) return false;
     return true;
 }
 
@@ -196,15 +216,90 @@ bool validResearchTree(const std::array<SkillDefinition, static_cast<size_t>(Ski
             if (node.treeRow == skills[j].treeRow && std::abs(node.treeX - skills[j].treeX) < 0.18f - 1e-6f)
                 return false;
         }
-        if (node.prerequisite == SkillId::Count) continue;
-        const size_t parentIndex = static_cast<size_t>(node.prerequisite);
-        if (parentIndex >= skills.size() || skills[parentIndex].treeRow >= node.treeRow)
-            return false;
-        const auto& parent = skills[parentIndex];
-        if (node.unlockStage > 0 && !parent.defaultUnlocked &&
-            (parent.unlockStage <= 0 || parent.unlockStage > node.unlockStage))
-            return false;
+        std::set<SkillId> seen;
+        for (const auto prerequisite : skillRequirements(node))
+        {
+            const size_t parentIndex = static_cast<size_t>(prerequisite);
+            if (parentIndex >= skills.size() || !seen.insert(prerequisite).second ||
+                skills[parentIndex].treeRow >= node.treeRow || node.defaultUnlocked)
+                return false;
+            const auto& parent = skills[parentIndex];
+            if (node.unlockStage > 0 && !parent.defaultUnlocked &&
+                (parent.unlockStage <= 0 || parent.unlockStage > node.unlockStage))
+                return false;
+        }
     }
+    return true;
+}
+
+bool parseSkillCatalog(const std::string& json, std::array<SkillDefinition, static_cast<size_t>(SkillId::Count)>& skills)
+{
+    rapidjson::Document doc;
+    doc.Parse(json.c_str());
+    if (doc.HasParseError() || !doc.IsObject() || !doc.HasMember("skills") || !doc["skills"].IsArray()) return false;
+    auto parsedSkills = skills;
+    std::array<bool, static_cast<size_t>(SkillId::Count)> seen{};
+    bool valid = true;
+    for (const auto& item : doc["skills"].GetArray())
+    {
+        if (!item.IsObject() || !item.HasMember("id") || !item["id"].IsString())
+        {
+            valid = false;
+            break;
+        }
+        const SkillId id = skillIdFromKey(item["id"].GetString());
+        if (id == SkillId::Count || seen[static_cast<size_t>(id)] ||
+            !item.HasMember("name") || !item["name"].IsString() ||
+            !item.HasMember("description") || !item["description"].IsString() ||
+            !item.HasMember("unlockCost") || !item["unlockCost"].IsInt() ||
+            !item.HasMember("defaultUnlocked") || !item["defaultUnlocked"].IsBool() ||
+            !item.HasMember("unlockStage") || !item["unlockStage"].IsInt() ||
+            !item.HasMember("treeRow") || !item["treeRow"].IsInt() ||
+            !item.HasMember("treeX") || !item["treeX"].IsNumber())
+        {
+            valid = false;
+            break;
+        }
+        std::vector<SkillId> parents;
+        if (item.HasMember("prerequisites"))
+        {
+            if (!item["prerequisites"].IsArray() ||
+                (item.HasMember("requires") && (!item["requires"].IsString() || item["requires"].GetStringLength() > 0)))
+            { valid = false; break; }
+            for (const auto& requirement : item["prerequisites"].GetArray())
+            {
+                if (!requirement.IsObject() || !requirement.HasMember("id") || !requirement["id"].IsString() ||
+                    !requirement.HasMember("level") || !requirement["level"].IsInt() || requirement["level"].GetInt() != 1)
+                { valid = false; break; }
+                const auto parent = skillIdFromKey(requirement["id"].GetString());
+                if (parent == SkillId::Count) { valid = false; break; }
+                parents.push_back(parent);
+            }
+        }
+        else if (item.HasMember("requires") && item["requires"].IsString())
+        {
+            const std::string key = item["requires"].GetString();
+            if (!key.empty())
+            {
+                const auto parent = skillIdFromKey(key.c_str());
+                if (parent == SkillId::Count) { valid = false; break; }
+                parents.push_back(parent);
+            }
+        }
+        else { valid = false; break; }
+        if (!valid) break;
+        parsedSkills[static_cast<size_t>(id)] = SkillDefinition{
+            id, item["id"].GetString(), item["name"].GetString(), item["description"].GetString(),
+            item["unlockCost"].GetInt(), item["defaultUnlocked"].GetBool(),
+            item["unlockStage"].GetInt(), item["treeRow"].GetInt(),
+            item["treeX"].GetFloat(),
+            !item.HasMember("prerequisites") && !parents.empty() ? parents.front() : SkillId::Count,
+            item.HasMember("prerequisites") ? std::move(parents) : std::vector<SkillId>{}};
+        seen[static_cast<size_t>(id)] = true;
+    }
+    if (!valid || !std::all_of(seen.begin(), seen.end(), [](bool value) { return value; }) ||
+        !validResearchTree(parsedSkills)) return false;
+    skills = std::move(parsedSkills);
     return true;
 }
 
@@ -346,9 +441,15 @@ bool ProgressionModel::isSkillUnlocked(SkillId id) const
 
 bool ProgressionModel::meetsUpgradePrerequisite(const UpgradeDefinition& definition, int stage) const
 {
-    return stage >= definition.unlockStage && (definition.prerequisite == UpgradeId::None ||
-           (definition.key == "multi_shot" && upgradeLevel(definition.id) > 0) ||
-           upgradeLevel(definition.prerequisite) >= definition.requiredLevel);
+    if (stage < definition.unlockStage) return false;
+    const auto requirements = upgradeRequirements(definition);
+    // Preserve owned multi-shot saves across single-parent format migration; multiple conditions still all apply.
+    if (requirements.size() == 1 && definition.key == "multi_shot" && upgradeLevel(definition.id) > 0)
+        return true;
+    return std::all_of(requirements.begin(), requirements.end(), [&](const auto& requirement) {
+        return requirement.id != UpgradeId::None && requirement.level > 0 &&
+               upgradeLevel(requirement.id) >= requirement.level;
+    });
 }
 
 void ProgressionModel::setUpgradeLevel(UpgradeId id, int level)
@@ -405,6 +506,12 @@ PurchaseResult ProgressionModel::purchaseUpgrade(EconomyModel& economy,
     return result;
 }
 
+bool ProgressionModel::meetsSkillPrerequisites(const SkillDefinition& definition) const
+{
+    const auto requirements = skillRequirements(definition);
+    return std::all_of(requirements.begin(), requirements.end(), [&](SkillId id) { return isSkillUnlocked(id); });
+}
+
 PurchaseResult ProgressionModel::unlockSkill(EconomyModel& economy, const SkillDefinition& definition)
 {
     PurchaseResult result;
@@ -420,7 +527,7 @@ PurchaseResult ProgressionModel::unlockSkill(EconomyModel& economy, const SkillD
         result.status = PurchaseStatus::AlreadyUnlocked;
         return result;
     }
-    if (definition.prerequisite != SkillId::Count && !isSkillUnlocked(definition.prerequisite))
+    if (!meetsSkillPrerequisites(definition))
     {
         result.status = PurchaseStatus::PrerequisiteLocked;
         return result;
@@ -461,7 +568,7 @@ std::vector<SkillId> ProgressionModel::unlockSkillsForStage(
         {
             if (definition.unlockStage > 0 && stage >= definition.unlockStage &&
                 !isSkillUnlocked(definition.id) &&
-                (definition.prerequisite == SkillId::Count || isSkillUnlocked(definition.prerequisite)))
+                meetsSkillPrerequisites(definition))
             {
                 setSkillUnlocked(definition.id, true);
                 result.push_back(definition.id);
@@ -591,52 +698,8 @@ void GameData::loadCatalog()
     if (!parseUpgradeCatalog(text, _upgrades, &upgradeError, _attributes))
         AXLOGW("[Progression][Research] invalid upgrade tree: {}, using built-in defaults", upgradeError);
 
-    if (doc.HasMember("skills") && doc["skills"].IsArray())
-    {
-        auto parsedSkills = _skills;
-        std::array<bool, static_cast<size_t>(SkillId::Count)> seen{};
-        bool valid = true;
-        for (const auto& item : doc["skills"].GetArray())
-        {
-            if (!item.IsObject() || !item.HasMember("id") || !item["id"].IsString())
-            {
-                valid = false;
-                break;
-            }
-            const SkillId id = skillIdFromKey(item["id"].GetString());
-            if (id == SkillId::Count || seen[static_cast<size_t>(id)] ||
-                !item.HasMember("name") || !item["name"].IsString() ||
-                !item.HasMember("description") || !item["description"].IsString() ||
-                !item.HasMember("unlockCost") || !item["unlockCost"].IsInt() ||
-                !item.HasMember("defaultUnlocked") || !item["defaultUnlocked"].IsBool() ||
-                !item.HasMember("unlockStage") || !item["unlockStage"].IsInt() ||
-                !item.HasMember("treeRow") || !item["treeRow"].IsInt() ||
-                !item.HasMember("treeX") || !item["treeX"].IsNumber() ||
-                !item.HasMember("requires") || !item["requires"].IsString())
-            {
-                valid = false;
-                break;
-            }
-            const std::string parentKey = item["requires"].GetString();
-            const SkillId parent = parentKey.empty() ? SkillId::Count : skillIdFromKey(parentKey.c_str());
-            if (!parentKey.empty() && parent == SkillId::Count)
-            {
-                valid = false;
-                break;
-            }
-            parsedSkills[static_cast<size_t>(id)] = SkillDefinition{
-                id, item["id"].GetString(), item["name"].GetString(), item["description"].GetString(),
-                item["unlockCost"].GetInt(), item["defaultUnlocked"].GetBool(),
-                item["unlockStage"].GetInt(), item["treeRow"].GetInt(),
-                item["treeX"].GetFloat(), parent};
-            seen[static_cast<size_t>(id)] = true;
-        }
-        if (valid && std::all_of(seen.begin(), seen.end(), [](bool value) { return value; }) &&
-            validResearchTree(parsedSkills))
-            _skills = std::move(parsedSkills);
-        else
-            AXLOGW("[Progression][Research] invalid skill tree, using built-in defaults");
-    }
+    if (!parseSkillCatalog(text, _skills))
+        AXLOGW("[Progression][Research] invalid skill tree, using built-in defaults");
     AXLOGI("[Progression][Research] catalog loaded: {} upgrades, {} skills", _upgrades.size(), _skills.size());
 }
 
@@ -720,6 +783,11 @@ int GameData::upgradeLevel(UpgradeId id) const
 bool GameData::upgradePrerequisiteMet(UpgradeId id) const
 {
     return _progression.meetsUpgradePrerequisite(upgradeDefinition(id), _campaign.highestClearedStage() + 1);
+}
+
+bool GameData::skillPrerequisiteMet(SkillId id) const
+{
+    return _progression.meetsSkillPrerequisites(skillDefinition(id));
 }
 
 bool GameData::isSkillUnlocked(SkillId id) const
