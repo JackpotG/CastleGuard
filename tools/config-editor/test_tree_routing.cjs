@@ -21,6 +21,17 @@ test('same-parent siblings reuse one trunk and fork in the browser',()=>{
   assert.equal(route.strokes.length,1);
  }
 });
+test('a long prerequisite enters and leaves through the adjacent layer buses',()=>{
+ const nodes=[[125,25,175,75],[365,25,415,75],[125,135,175,185],
+              [245,135,295,185],[365,135,415,185],[275,245,325,295]];
+ const paths=routing.plan(nodes,[[0,2],[0,3],[1,4],[4,5],[0,5]],[],[8,8,440,330]);
+ const link=paths.at(-1);
+ assert.ok(link.points.length>=6);
+ assert.deepEqual(link.points.slice(1,3).map(p=>p[1]),[105,105]);
+ assert.deepEqual(link.points.slice(-3,-1).map(p=>p[1]),[215,215]);
+ assert.equal(link.strokes.length,1);
+ for(let i=1;i<link.points.length;i++) for(const rect of nodes) assert.ok(avoids(rect,link.points[i-1],link.points[i]));
+});
 test('browser uses the game router to bypass intermediate nodes and labels',()=>{
  const nodes=[[125,25,175,75],[125,135,175,185],[125,245,175,295]], labels=[[105,190,195,210]];
  const paths=routing.plan(nodes,[[0,2],[0,1],[1,2]],labels,[8,8,292,330]);

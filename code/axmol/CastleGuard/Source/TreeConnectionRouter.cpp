@@ -38,20 +38,36 @@ bool intersects(Point a, Point b, Point c, Point d)
     return horizontal ? near(a.y, c.y) && std::max(std::min(a.x,b.x),std::min(c.x,d.x)) <= std::min(std::max(a.x,b.x),std::max(c.x,d.x)) + EPS
                       : near(a.x, c.x) && std::max(std::min(a.y,b.y),std::min(c.y,d.y)) <= std::min(std::max(a.y,b.y),std::max(c.y,d.y)) + EPS;
 }
-bool sameBranch(Edge a, Edge b, const std::vector<Rect>& nodes)
+struct LayerBands
 {
-    return a.from==b.from && near(center(nodes[a.to]).y,center(nodes[b.to]).y) &&
-           !near(center(nodes[a.from]).y,center(nodes[a.to]).y);
-}
-bool mayJoin(Edge a, Edge b, Point p, Point q, Point r, Point s, const std::vector<Rect>& nodes, float gap)
+    std::vector<int> rows;
+    std::vector<float> channels;
+    float portY(int node, int other) const
+    {
+        if (rows[node]==rows[other]) return std::numeric_limits<float>::quiet_NaN();
+        const int band=rows[node]<rows[other]?rows[node]:rows[node]-1;
+        return channels[band];
+    }
+};
+bool mayJoin(Edge a, Edge b, Point p, Point q, Point r, Point s, const std::vector<Rect>& nodes,
+             const LayerBands& bands, float gap)
 {
     if (!intersects(p,q,r,s)) return false;
-    // Same-parent siblings deliberately share a bus; unrelated links must still keep their distance.
-    if (sameBranch(a,b,nodes)) return true;
     const Rect intersection{std::max(std::min(p.x,q.x),std::min(r.x,s.x)),
                             std::max(std::min(p.y,q.y),std::min(r.y,s.y)),
                             std::min(std::max(p.x,q.x),std::max(r.x,s.x)),
                             std::min(std::max(p.y,q.y),std::max(r.y,s.y))};
+    // A long dependency shares its parent's outgoing bus and its child's incoming bus.
+    // Sharing ends at those layer boundaries, so unrelated middle segments remain separate.
+    for (bool source:{true,false})
+    {
+        const int node=source?a.from:a.to, other=source?a.to:a.from;
+        if (node!=(source?b.from:b.to)) continue;
+        const float y=bands.portY(node,other), otherY=bands.portY(node,source?b.to:b.from);
+        if (!std::isfinite(y)||!near(y,otherY)) continue;
+        const float face=y>center(nodes[node]).y?nodes[node].bottom:nodes[node].top;
+        if (intersection.top>=std::min(face,y)-EPS && intersection.bottom<=std::max(face,y)+EPS) return true;
+    }
     for (int node : {a.from,a.to}) if (node==b.from || node==b.to)
     {
         const auto area=expand(nodes[node],gap*3);
@@ -61,7 +77,7 @@ bool mayJoin(Edge a, Edge b, Point p, Point q, Point r, Point s, const std::vect
     return false;
 }
 struct Segment { Point a, b; Edge edge; };
-struct Port { Point boundary, outside; int direction; float penalty; };
+struct Port { Point boundary, outside; int direction; float penalty; std::vector<Point> path; };
 std::vector<Port> ports(Rect r, Point target, float gap)
 {
     const auto c = center(r);
@@ -71,7 +87,11 @@ std::vector<Port> ports(Rect r, Point target, float gap)
     std::vector<Port> result = {
         {{c.x,r.top},{c.x,r.top-gap},1,0}, {{r.right,c.y},{r.right+gap,c.y},0,0},
         {{c.x,r.bottom},{c.x,r.bottom+gap},1,0}, {{r.left,c.y},{r.left-gap,c.y},0,0}};
-    for (int i = 0; i < 4; ++i) result[i].penalty = i == preferred ? 0 : gap * 2;
+    for (int i = 0; i < 4; ++i)
+    {
+        result[i].penalty = i == preferred ? 0 : gap * 2;
+        result[i].path={result[i].boundary,result[i].outside};
+    }
     return result;
 }
 void coordinates(std::vector<float>& values, float lo, float hi)
@@ -79,6 +99,35 @@ void coordinates(std::vector<float>& values, float lo, float hi)
     values.erase(std::remove_if(values.begin(), values.end(), [&](float x) { return x < lo - EPS || x > hi + EPS; }), values.end());
     std::sort(values.begin(), values.end());
     values.erase(std::unique(values.begin(), values.end(), near), values.end());
+}
+LayerBands makeBands(const std::vector<Rect>& nodes, const std::vector<Rect>& obstacles, float gap)
+{
+    LayerBands result;
+    std::vector<float> rows;
+    for (auto node:nodes) rows.push_back(center(node).y);
+    std::sort(rows.begin(),rows.end());
+    rows.erase(std::unique(rows.begin(),rows.end(),near),rows.end());
+    std::vector<float> tops(rows.size(),std::numeric_limits<float>::infinity());
+    std::vector<float> bottoms(rows.size(),-std::numeric_limits<float>::infinity());
+    for (auto node:nodes)
+    {
+        const int row=static_cast<int>(std::min_element(rows.begin(),rows.end(),[&](float a,float b){return std::abs(a-center(node).y)<std::abs(b-center(node).y);})-rows.begin());
+        result.rows.push_back(row);
+        tops[row]=std::min(tops[row],node.top); bottoms[row]=std::max(bottoms[row],node.bottom);
+    }
+    for (size_t i=1;i<rows.size();++i)
+    {
+        const float lo=bottoms[i-1]+gap,hi=tops[i]-gap,middle=(lo+hi)/2;
+        std::vector<float> candidates{middle,lo,hi};
+        for (auto obstacle:obstacles) for (float y:{obstacle.top,obstacle.bottom}) candidates.push_back(y);
+        coordinates(candidates,lo,hi);
+        std::stable_sort(candidates.begin(),candidates.end(),[&](float a,float b){return std::abs(a-middle)<std::abs(b-middle);});
+        float channel=std::numeric_limits<float>::quiet_NaN();
+        for (float y:candidates)
+            if (std::none_of(obstacles.begin(),obstacles.end(),[&](Rect r){return y>r.top+EPS&&y<r.bottom-EPS;})) {channel=y;break;}
+        result.channels.push_back(channel);
+    }
+    return result;
 }
 std::vector<Point> simplify(const std::vector<Point>& points)
 {
@@ -96,68 +145,44 @@ std::vector<Point> simplify(const std::vector<Point>& points)
     }
     return result;
 }
-std::vector<std::vector<Point>> branchPaths(const std::vector<Rect>& nodes, const std::vector<Rect>& obstacles,
-    const std::vector<Edge>& edges, const std::vector<size_t>& siblings, Rect bounds, float gap,
-    const std::vector<Segment>& occupied)
-{
-    const auto parent=nodes[edges[siblings.front()].from];
-    const bool down=center(nodes[edges[siblings.front()].to]).y>center(parent).y;
-    const float start=down?parent.bottom:parent.top;
-    float finish=down?bounds.bottom:bounds.top;
-    for (auto i:siblings)
-        finish=down?std::min(finish,nodes[edges[i].to].top):std::max(finish,nodes[edges[i].to].bottom);
-    const float lo=std::min(start,finish)+gap, hi=std::max(start,finish)-gap;
-    if (lo>hi || (down?finish<=start:finish>=start)) return {};
-    const float middle=(start+finish)/2;
-    std::vector<float> channels{middle,lo,hi};
-    for (const auto r:obstacles) for (float y:{r.top-gap,r.bottom+gap}) channels.push_back(y);
-    coordinates(channels,lo,hi);
-    std::stable_sort(channels.begin(),channels.end(),[&](float a,float b){return std::abs(a-middle)<std::abs(b-middle);});
-    // Reserve an entire sibling group together, so the first child cannot claim a different fork height.
-    for (float y:channels)
-    {
-        std::vector<std::vector<Point>> paths;
-        bool clear=true;
-        for (auto i:siblings)
-        {
-            const auto edge=edges[i]; const auto child=nodes[edge.to];
-            auto points=simplify({{center(parent).x,start},{center(parent).x,y},
-                                  {center(child).x,y},{center(child).x,down?child.top:child.bottom}});
-            for (size_t j=1;j<points.size()&&clear;++j)
-            {
-                const auto a=points[j-1],b=points[j];
-                for (auto p:{a,b}) if (p.x<bounds.left||p.x>bounds.right||p.y<bounds.top||p.y>bounds.bottom) clear=false;
-                for (size_t n=0;n<obstacles.size()&&clear;++n)
-                {
-                    // Only endpoint stubs may pass through their own clearance margin.
-                    if ((static_cast<int>(n)==edge.from&&j==1)||
-                        (static_cast<int>(n)==edge.to&&j==points.size()-1)) continue;
-                    if (blocked(a,b,obstacles[n])) clear=false;
-                }
-                for (const auto& segment:occupied)
-                    if (intersects(a,b,segment.a,segment.b)&&
-                        !mayJoin(edge,segment.edge,a,b,segment.a,segment.b,nodes,gap)) clear=false;
-            }
-            if (!clear) break;
-            paths.push_back(std::move(points));
-        }
-        if (clear) return paths;
-    }
-    return {};
-}
 std::vector<Point> findPath(const std::vector<Rect>& nodes, const std::vector<Rect>& obstacles,
-                           Edge edge, Rect bounds, float gap, const std::vector<Segment>& occupied, bool allowCrossing)
+                           Edge edge, Rect bounds, float gap, const std::vector<Segment>& occupied,
+                           const LayerBands& bands, bool allowCrossing, bool preferBands)
 {
     auto sources = ports(nodes[edge.from], center(nodes[edge.to]), gap);
     auto targets = ports(nodes[edge.to], center(nodes[edge.from]), gap);
+    const float sourceY=bands.portY(edge.from,edge.to),targetY=bands.portY(edge.to,edge.from);
+    const bool layered=preferBands&&std::isfinite(sourceY)&&std::isfinite(targetY);
+    const bool longOffset=layered&&!near(sourceY,targetY)&&!near(center(nodes[edge.from]).x,center(nodes[edge.to]).x);
+    if (layered)
+    {
+        const auto extend=[&](std::vector<Port>& options,Rect node,float y) {
+            options.erase(std::remove_if(options.begin(),options.end(),[&](const Port& p) {
+                return near(p.boundary.x,center(node).x)&&((p.boundary.y<center(node).y)==(y>center(node).y));
+            }),options.end());
+            for (auto& p:options)
+            {
+                if (near(p.boundary.x,center(node).x)) p.path={p.boundary,{p.boundary.x,y}};
+                else p.path={p.boundary,p.outside,{p.outside.x,y}};
+                p.penalty=near(p.boundary.x,center(node).x)?0:gap*2;
+                p.outside=p.path.back(); p.direction=1;
+            }
+        };
+        extend(sources,nodes[edge.from],sourceY); extend(targets,nodes[edge.to],targetY);
+        bounds.top=std::min(sourceY,targetY); bounds.bottom=std::max(sourceY,targetY);
+    }
     const auto usable = [&](const Port& p, int own) {
         if (p.outside.x < bounds.left || p.outside.x > bounds.right || p.outside.y < bounds.top || p.outside.y > bounds.bottom) return false;
-        for (size_t i = 0; i < obstacles.size(); ++i)
-            if (static_cast<int>(i) != own && blocked(p.boundary,p.outside,obstacles[i])) return false;
-        for (const auto& segment : occupied)
-            if (intersects(p.boundary,p.outside,segment.a,segment.b) &&
-                !mayJoin(edge,segment.edge,p.boundary,p.outside,segment.a,segment.b,nodes,gap) &&
-                (!allowCrossing || near(p.boundary.x,p.outside.x) == near(segment.a.x,segment.b.x))) return false;
+        for (size_t j=1;j<p.path.size();++j)
+        {
+            const auto a=p.path[j-1],b=p.path[j];
+            for (size_t i = 0; i < obstacles.size(); ++i)
+                if (!(static_cast<int>(i)==own&&j==1) && blocked(a,b,obstacles[i])) return false;
+            for (const auto& segment : occupied)
+                if (intersects(a,b,segment.a,segment.b) &&
+                    !mayJoin(edge,segment.edge,a,b,segment.a,segment.b,nodes,bands,gap) &&
+                    (!allowCrossing || near(a.x,b.x) == near(segment.a.x,segment.b.x))) return false;
+        }
         return true;
     };
     sources.erase(std::remove_if(sources.begin(), sources.end(), [&](const Port& p) { return !usable(p,edge.from); }),sources.end());
@@ -171,6 +196,7 @@ std::vector<Point> findPath(const std::vector<Rect>& nodes, const std::vector<Re
     }
     for (const auto& p : sources) { xs.push_back(p.outside.x); ys.push_back(p.outside.y); }
     for (const auto& p : targets) { xs.push_back(p.outside.x); ys.push_back(p.outside.y); }
+    if (layered) for (float y:bands.channels) if (std::isfinite(y)) ys.push_back(y);
     for (const auto& s : occupied)
     {
         for (float x : {s.a.x-gap,s.a.x+gap,s.b.x-gap,s.b.x+gap}) xs.push_back(x);
@@ -187,11 +213,12 @@ std::vector<Point> findPath(const std::vector<Rect>& nodes, const std::vector<Re
     for (int i = 0; i < count; ++i) for (const auto r : obstacles)
         if (inside(point(i),r)) { free[i]=false; break; }
     const auto segmentCost = [&](Point a,Point b) {
+        if (layered&&near(a.y,b.y)&&std::none_of(bands.channels.begin(),bands.channels.end(),[&](float y){return near(a.y,y);})) return -1.0f;
         for (const auto r : obstacles) if (blocked(a,b,r)) return -1.0f;
         float cost = distance(a,b);
         for (const auto& s : occupied)
         {
-            if (!intersects(a,b,s.a,s.b) || mayJoin(edge,s.edge,a,b,s.a,s.b,nodes,gap)) continue;
+            if (!intersects(a,b,s.a,s.b) || mayJoin(edge,s.edge,a,b,s.a,s.b,nodes,bands,gap)) continue;
             if (!allowCrossing || near(a.x,b.x) == near(s.a.x,s.b.x)) return -1.0f;
             cost += (bounds.right-bounds.left+bounds.bottom-bounds.top)*4;
         }
@@ -205,7 +232,8 @@ std::vector<Point> findPath(const std::vector<Rect>& nodes, const std::vector<Re
     {
         const auto& p = sources[i];
         const int state = index(p.outside)*2+p.direction;
-        const float cost = distance(p.boundary,p.outside)+p.penalty;
+        float cost=p.penalty;
+        for (size_t j=1;j<p.path.size();++j) cost+=distance(p.path[j-1],p.path[j]);
         if (cost < best[state]) { best[state]=cost; startPort[state]=static_cast<int>(i); queue.push({cost,state}); }
     }
     float foundCost = std::numeric_limits<float>::infinity();
@@ -217,14 +245,16 @@ std::vector<Point> findPath(const std::vector<Rect>& nodes, const std::vector<Re
         const auto [cost,state] = queue.top(); queue.pop();
         if (cost > best[state]+EPS || cost >= foundCost) continue;
         const int cell=state/2, direction=state%2, x=cell%width, y=cell/width;
-        if (goal[cell]>=0)
+        if (goal[cell]>=0&&(!longOffset||direction==0))
         {
             const auto& p=targets[goal[cell]];
-            const float finalCost=cost+distance(p.boundary,p.outside)+p.penalty+(direction!=p.direction?gap*2:0);
+            float finalCost=cost+p.penalty+(direction!=p.direction?gap*2:0);
+            for (size_t j=1;j<p.path.size();++j) finalCost+=distance(p.path[j-1],p.path[j]);
             if (finalCost<foundCost) { foundCost=finalCost; found=state; targetPort=goal[cell]; }
         }
         for (const auto [dx,dy] : std::array<std::pair<int,int>,4>{{{1,0},{-1,0},{0,1},{0,-1}}})
         {
+            if (longOffset&&previous[state]<0&&dy!=0) continue;
             const int nx=x+dx,ny=y+dy;
             if (nx<0||nx>=width||ny<0||ny>=height) continue;
             const int next=ny*width+nx, nd=dy==0?0:1, ns=next*2+nd;
@@ -237,11 +267,14 @@ std::vector<Point> findPath(const std::vector<Rect>& nodes, const std::vector<Re
         }
     }
     if (found<0) return {};
-    std::vector<Point> result{targets[targetPort].boundary};
+    std::vector<Point> middle;
     const int source=startPort[found];
-    for (int cursor=found;cursor>=0;cursor=previous[cursor]) result.push_back(point(cursor/2));
-    result.push_back(sources[source].boundary);
-    std::reverse(result.begin(),result.end());
+    for (int cursor=found;cursor>=0;cursor=previous[cursor]) middle.push_back(point(cursor/2));
+    std::reverse(middle.begin(),middle.end());
+    auto result=sources[source].path;
+    result.insert(result.end(),middle.begin()+1,middle.end());
+    const auto& end=targets[targetPort].path;
+    result.insert(result.end(),end.rbegin()+1,end.rend());
     return simplify(result);
 }
 }
@@ -253,6 +286,7 @@ std::vector<Route> route(const std::vector<Rect>& nodes,const std::vector<Edge>&
     std::vector<Rect> obstacles;
     for (const auto r:nodes) obstacles.push_back(expand(r,clearance));
     for (const auto r:labels) obstacles.push_back(expand(r,clearance));
+    const auto bands=makeBands(nodes,obstacles,clearance);
     std::vector<size_t> order;
     for (size_t i=0;i<edges.size();++i)
         if (edges[i].from>=0&&edges[i].to>=0&&edges[i].from!=edges[i].to&&
@@ -265,25 +299,11 @@ std::vector<Route> route(const std::vector<Rect>& nodes,const std::vector<Edge>&
     std::vector<Segment> occupied;
     for (const auto i:order)
     {
-        if (!result[i].points.empty()) continue;
-        std::vector<size_t> siblings;
-        for (auto j:order) if (result[j].points.empty()&&sameBranch(edges[i],edges[j],nodes)) siblings.push_back(j);
-        if (siblings.size()>1)
-        {
-            auto paths=branchPaths(nodes,obstacles,edges,siblings,bounds,clearance,occupied);
-            if (!paths.empty())
-            {
-                for (size_t n=0;n<siblings.size();++n)
-                {
-                    result[siblings[n]].points=std::move(paths[n]);
-                    const auto& points=result[siblings[n]].points;
-                    for (size_t j=1;j<points.size();++j) occupied.push_back({points[j-1],points[j],edges[siblings[n]]});
-                }
-                continue;
-            }
-        }
-        auto points=findPath(nodes,obstacles,edges[i],bounds,clearance,occupied,false);
-        if (points.empty()) points=findPath(nodes,obstacles,edges[i],bounds,clearance,occupied,true);
+        auto points=findPath(nodes,obstacles,edges[i],bounds,clearance,occupied,bands,false,true);
+        // A crowded layer can need separate lanes; retain the obstacle router as a fallback.
+        if (points.empty()) points=findPath(nodes,obstacles,edges[i],bounds,clearance,occupied,bands,false,false);
+        if (points.empty()) points=findPath(nodes,obstacles,edges[i],bounds,clearance,occupied,bands,true,true);
+        if (points.empty()) points=findPath(nodes,obstacles,edges[i],bounds,clearance,occupied,bands,true,false);
         result[i].points=points;
         for (size_t j=1;j<points.size();++j) occupied.push_back({points[j-1],points[j],edges[i]});
     }
@@ -300,7 +320,7 @@ std::vector<Route> route(const std::vector<Rect>& nodes,const std::vector<Edge>&
                 for (size_t n=1;n<result[k].points.size();++n)
                 {
                     const auto c=result[k].points[n-1],d=result[k].points[n];
-                    if (near(a.y,b.y)==near(c.y,d.y)||!intersects(a,b,c,d)||mayJoin(edges[i],edges[k],a,b,c,d,nodes,clearance)) continue;
+                    if (near(a.y,b.y)==near(c.y,d.y)||!intersects(a,b,c,d)||mayJoin(edges[i],edges[k],a,b,c,d,nodes,bands,clearance)) continue;
                     const Point crossing=near(a.y,b.y)?Point{c.x,a.y}:Point{a.x,c.y};
                     const float at=distance(a,crossing),half=std::max(4.0f,clearance*.7f);
                     cuts.push_back({std::max(0.0f,at-half),std::min(length,at+half)});

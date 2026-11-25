@@ -39,10 +39,8 @@ void clearPaths(const std::vector<Rect>& nodes,const std::vector<Rect>& labels,c
                 if(!crossing(a[x-1],a[x],b[y-1],b[y])) continue;
                 const bool horizontal=std::abs(a[x-1].y-a[x].y)<.01f;
                 const Point hit=horizontal?Point{b[y].x,a[x].y}:Point{a[x].x,b[y].y};
-                // Same-parent siblings form one intentional branch bus, including its distant forks.
-                bool junction=edges[i].from==edges[j].from&&
-                    std::abs((nodes[edges[i].to].top+nodes[edges[i].to].bottom)-
-                             (nodes[edges[j].to].top+nodes[edges[j].to].bottom))<.01f;
+                // Shared outgoing/incoming layer buses are intentional; independent edges never join.
+                bool junction=edges[i].from==edges[j].from||edges[i].to==edges[j].to;
                 for(int n:{edges[i].from,edges[i].to}) if(n==edges[j].from||n==edges[j].to)
                 {
                     const auto r=nodes[n];
@@ -55,6 +53,32 @@ void clearPaths(const std::vector<Rect>& nodes,const std::vector<Rect>& labels,c
 }
 TEST_SUITE("TreeConnectionRouter")
 {
+    TEST_CASE("a third-row multi-parent node uses the same outgoing and incoming layer buses")
+    {
+        const std::vector<Rect> nodes{{125,25,175,75},{365,25,415,75},
+                                      {125,135,175,185},{245,135,295,185},{365,135,415,185},
+                                      {275,245,325,295}};
+        const std::vector<Edge> edges{{0,2},{0,3},{1,4},{4,5},{0,5}};
+        const auto paths=route(nodes,edges,{}, {8,8,440,330});
+        clearPaths(nodes,{},edges,paths);
+        const auto& longLink=paths.back();
+        REQUIRE(longLink.points.size()>=6);
+        CHECK(longLink.points[1].y==105);
+        CHECK(longLink.points[2].y==105);
+        CHECK(longLink.points[longLink.points.size()-2].y==215);
+        CHECK(longLink.points[longLink.points.size()-3].y==215);
+        CHECK(longLink.strokes.size()==1);
+        for(const auto& path:paths) for(size_t i=1;i<path.points.size();++i)
+            if(std::abs(path.points[i-1].y-path.points[i].y)<.01f)
+                CHECK((std::abs(path.points[i].y-105)<.01f||std::abs(path.points[i].y-215)<.01f));
+    }
+    TEST_CASE("labels below a node leave side ports available to its layer bus")
+    {
+        const std::vector<Rect> nodes{{125,25,175,75},{125,135,175,185},{225,245,275,295}};
+        const std::vector<Rect> labels{{115,87,185,105}};
+        const std::vector<Edge> edges{{0,1},{1,2},{0,2}};
+        clearPaths(nodes,labels,edges,route(nodes,edges,labels,{8,8,330,330}));
+    }
     TEST_CASE("same-parent siblings share a centered trunk and fork without parallel detours")
     {
         const std::vector<Rect> nodes{{125,25,175,75},{45,155,95,205},{205,155,255,205}};
